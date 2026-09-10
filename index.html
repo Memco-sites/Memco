@@ -5,6 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>Sub-Contractors Directory</title>
 
+<!-- ===== PWA: installable "Add to Home Screen" support =====
+     manifest.json + icon-192/512.png + service-worker.js must be deployed
+     alongside this file (same folder) for installability to work — see the
+     registration script near the end of the body. Relative paths only, so
+     this keeps working whether the app is served from a domain root or a
+     GitHub Pages project subpath. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b1220">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MEMCO Tracker">
+
 <!-- ===== Tailwind CSS (Play CDN) =====
      Loaded synchronously on purpose (NOT async/defer): the Play CDN script
      must run before it can start watching the DOM for utility classes, and
@@ -1286,7 +1300,7 @@ body{
 
 #vehiclesView .btn, #driverPortalView .btn,
 #vehicleStatusOverlay .btn, #vehicleDriverSearchOverlay .btn, #driverDetailOverlay .btn,
-#handoverChecklistOverlay .btn, #handoverPinOverlay .btn, #driverMobileOverlay .btn{
+#handoverChecklistOverlay .btn, #handoverPinOverlay .btn{
   background: var(--glass-surface);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(10px);
@@ -1296,13 +1310,13 @@ body{
 }
 #vehiclesView .btn:hover, #driverPortalView .btn:hover,
 #vehicleStatusOverlay .btn:hover, #vehicleDriverSearchOverlay .btn:hover, #driverDetailOverlay .btn:hover,
-#handoverChecklistOverlay .btn:hover, #handoverPinOverlay .btn:hover, #driverMobileOverlay .btn:hover{
+#handoverChecklistOverlay .btn:hover, #handoverPinOverlay .btn:hover{
   background: var(--glass-surface-hover);
   border-color: var(--glass-border-strong);
 }
 #vehiclesView .btn-primary, #driverPortalView .btn-primary,
 #vehicleStatusOverlay .btn-primary, #vehicleDriverSearchOverlay .btn-primary, #driverDetailOverlay .btn-primary,
-#handoverChecklistOverlay .btn-primary, #handoverPinOverlay .btn-primary, #driverMobileOverlay .btn-primary{
+#handoverChecklistOverlay .btn-primary, #handoverPinOverlay .btn-primary{
   background: linear-gradient(135deg, var(--glass-accent-1), var(--glass-accent-2));
   border-color: transparent;
   color: #0b0f1c;
@@ -1311,19 +1325,19 @@ body{
 }
 #vehiclesView .btn-primary:hover, #driverPortalView .btn-primary:hover,
 #vehicleStatusOverlay .btn-primary:hover, #vehicleDriverSearchOverlay .btn-primary:hover, #driverDetailOverlay .btn-primary:hover,
-#handoverChecklistOverlay .btn-primary:hover, #handoverPinOverlay .btn-primary:hover, #driverMobileOverlay .btn-primary:hover{
+#handoverChecklistOverlay .btn-primary:hover, #handoverPinOverlay .btn-primary:hover{
   filter: brightness(1.08);
   box-shadow: 0 8px 26px rgba(56,189,248,0.4);
 }
 
 #vehicleStatusOverlay, #vehicleDriverSearchOverlay, #driverDetailOverlay,
-#handoverChecklistOverlay, #handoverPinOverlay, #driverMobileOverlay{
+#handoverChecklistOverlay, #handoverPinOverlay{
   background: rgba(6,9,18,0.66);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
 #vehicleStatusOverlay .modal, #vehicleDriverSearchOverlay .modal, #driverDetailOverlay .modal,
-#handoverChecklistOverlay .modal, #handoverPinOverlay .modal, #driverMobileOverlay .modal{
+#handoverChecklistOverlay .modal, #handoverPinOverlay .modal{
   background: linear-gradient(160deg, rgba(255,255,255,0.07), rgba(255,255,255,0.015)), var(--glass-bg-2);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -1332,8 +1346,8 @@ body{
   box-shadow: 0 24px 60px rgba(0,0,0,0.55);
 }
 #vehicleStatusOverlay .field input, #vehicleDriverSearchOverlay .field input, #driverDetailOverlay .field input,
-#handoverChecklistOverlay .field input, #handoverPinOverlay .field input, #driverMobileOverlay .field input,
-#handoverPinInput, #driverMobileCodeInput, #driverDetailVehicleSearchInput{
+#handoverChecklistOverlay .field input, #handoverPinOverlay .field input,
+#handoverPinInput, #driverDetailVehicleSearchInput{
   background: rgba(255,255,255,0.05);
   border: 1px solid var(--glass-border-strong);
   border-radius: 14px;
@@ -1342,7 +1356,7 @@ body{
 #handoverPinInput{
   text-shadow: 0 0 12px rgba(129,140,248,0.6);
 }
-#handoverPinInput:focus, #driverMobileCodeInput:focus{
+#handoverPinInput:focus{
   outline: none;
   box-shadow: 0 0 0 4px rgba(129,140,248,0.22);
 }
@@ -1447,6 +1461,166 @@ body{
 #homeView .home-card:nth-child(7){ --hc-accent:#ec4899; --hc-tint:rgba(236,72,153,0.14); --hc-tint-border:rgba(236,72,153,0.35); }
 #homeView .home-card:nth-child(8){ --hc-accent:#0ea5e9; --hc-tint:rgba(14,165,233,0.14); --hc-tint-border:rgba(14,165,233,0.35); }
 #homeView .home-card-disabled{ --hc-accent:#64748b; --hc-tint:rgba(100,116,139,0.12); --hc-tint-border:rgba(100,116,139,0.28); opacity:0.55; }
+
+/* ===== App-wide modern glass/dark theme =====
+   Everything below overrides the app's shared, reusable base classes
+   (.card, .modal, .overlay, .btn*, .field input/select, .chip, .tab-btn)
+   rather than any one module -- since every screen in this app (Directory,
+   Attendance, Labor, Project Details, Camps, Transfer, Staff, Manage
+   Users, Permission Matrix, and every popup/modal) is built from these
+   same shared classes, updating them here is what makes the *entire* app
+   consistently modern/glass/dark, on both mobile and desktop, without
+   having to touch each module's markup individually. It intentionally
+   reuses the same --glass-* tokens already introduced for the Vehicles/
+   Driver Portal/Home redesigns above, so the whole app now reads as one
+   consistent design instead of a few restyled sections next to older ones.
+   Structural CSS (layout, spacing, grid columns) is left alone -- only
+   color, blur, radius, border and shadow are touched -- so this cannot
+   change how/where anything sits on screen, only how it looks. */
+:root{
+  --radius: 14px;
+}
+html, body{
+  background:
+    radial-gradient(circle at 12% -10%, rgba(56,189,248,0.08), transparent 45%),
+    radial-gradient(circle at 100% 0%, rgba(129,140,248,0.09), transparent 40%),
+    var(--glass-bg-1);
+}
+.letterhead{ border-bottom-color: var(--glass-border); }
+.hero{ border-bottom-color: var(--glass-border); }
+.tab-row{ border-bottom-color: var(--glass-border); }
+.tab-btn.active{ color: var(--glass-accent-2); border-bottom-color: var(--glass-accent-2); }
+
+/* Cards used throughout Directory / Labor / Camps / etc. -- also every
+   OTHER "info box" class across the app that was independently styled
+   with its own background/border instead of reusing .card (this is
+   exactly what was still mismatched: .villa-card + .trade-chip/.room-chip
+   in Project Details & Camps, .sub-row + .att-snapshot in Attendance,
+   .hist-item in Attendance history, .labor-row in the labor list). Folding
+   all of them into the same rule guarantees every card-shaped element in
+   the app now shares one identical glass treatment, not just the ones
+   that happened to already use the generic .card class. */
+.card, .locked-tag,
+.villa-card, .trade-chip,
+.att-snapshot, .sub-row, .hist-item, .labor-row{
+  background: linear-gradient(180deg, rgba(30,41,59,0.55), rgba(15,23,42,0.55));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.card:hover, .card:focus-visible,
+.villa-card:hover, .hist-item:hover{
+  transform: translateY(-3px);
+  border-color: var(--glass-border-strong);
+  box-shadow: 0 14px 26px -10px rgba(0,0,0,0.5), 0 0 0 1px rgba(129,140,248,0.25);
+}
+.card:active{ transform: translateY(-1px); }
+
+/* Every plain <input>/<select> in the app that isn't wrapped in a .field
+   (there are many, scattered across Labor/Staff/Vehicles/Villas/Camps/
+   Transfer search boxes) was hand-styled with its own inline
+   background:var(--navy-2) -- an inline style always wins over a normal
+   stylesheet rule, which is exactly why those specific boxes kept looking
+   like the old flat theme no matter what .field input said. !important is
+   the correct, deliberate tool here (not a hack) to bring every one of
+   them in line too. */
+input[type="text"], input[type="password"], input[type="number"], select, textarea{
+  background: rgba(255,255,255,0.05) !important;
+  border-color: var(--glass-border) !important;
+  color: var(--ink) !important;
+}
+input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus, select:focus, textarea:focus{
+  border-color: var(--glass-accent-2) !important;
+  box-shadow: 0 0 0 3px rgba(56,189,248,0.18);
+}
+
+/* Modals / overlays -- every popup in the app shares these two classes */
+.overlay{
+  background: rgba(6,10,20,0.66);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.modal{
+  background: linear-gradient(180deg, rgba(30,41,59,0.82), rgba(15,23,42,0.9));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  box-shadow: 0 20px 50px -15px rgba(0,0,0,0.6);
+}
+
+/* Buttons -- every button in the app (Save/Cancel/Assign/etc.) is one of
+   these three classes */
+.btn{
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--glass-border);
+  color: var(--ink);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.btn:hover{ border-color: var(--glass-border-strong); background: rgba(255,255,255,0.08); }
+.btn:active{ transform: translateY(1px); }
+.btn-primary{
+  background: linear-gradient(135deg, var(--glass-accent-1), var(--glass-accent-2));
+  border-color: transparent;
+  color: #0b1120;
+  font-weight: 700;
+  box-shadow: 0 6px 18px -6px rgba(129,140,248,0.55);
+}
+.btn-primary:hover{
+  background: linear-gradient(135deg, var(--glass-accent-1), var(--glass-accent-2));
+  filter: brightness(1.08);
+  box-shadow: 0 8px 22px -6px rgba(129,140,248,0.7);
+}
+.btn-ghost{ background: rgba(255,255,255,0.03); }
+.btn-danger{ color: #fca5a5; border-color: rgba(252,165,165,0.35); }
+
+/* Inputs, dropdowns, search boxes -- shared across every form in the app */
+.field input, .field select, .search-row input[type="text"], .site-select{
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--glass-border);
+  color: var(--ink);
+}
+.field input:focus, .field select:focus, .search-row input[type="text"]:focus{
+  border-color: var(--glass-accent-2);
+  box-shadow: 0 0 0 3px rgba(56,189,248,0.18);
+}
+
+/* Filter/trade/site chips -- used across Labor, Staff, Attendance */
+.chip{
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--glass-border);
+  color: var(--ink-dim);
+}
+.chip.active{
+  background: linear-gradient(135deg, rgba(129,140,248,0.25), rgba(56,189,248,0.25));
+  border-color: var(--glass-accent-2);
+  color: #e0f2fe;
+}
+
+/* Small polish so this reads equally well on a phone: bigger, more
+   thumb-friendly buttons and comfortably readable modals below ~480px,
+   matching the breakpoint the rest of the app already designs around. */
+@media (max-width:480px){
+  .modal{ border-radius: 16px; padding: 18px; }
+  .btn{ padding: 12px 16px; }
+  .app{ padding: 14px 14px 50px; }
+  /* The letterhead (company name + nav buttons + logo, all one row) was
+     already too wide for a phone screen before this redesign -- the name
+     would wrap onto multiple lines and collide with the logo mark. Since
+     "looks good on mobile" was explicitly asked for, fix that here: push
+     the nav buttons onto their own centered row below the name+logo, and
+     shrink both a little, rather than letting them fight for space. */
+  .letterhead{ flex-wrap: wrap; justify-content:center; row-gap:10px; }
+  .letterhead > div:first-child{ order:3; width:100%; justify-content:center; flex-wrap:wrap; gap:6px; }
+  .letterhead .lh-text{ order:1; }
+  .letterhead .mark{ order:2; }
+  .letterhead .mark svg{ width:40px; height:40px; }
+  .letterhead .lh-name{ font-size:18px; }
+}
 </style>
 </head>
 <body>
@@ -1482,23 +1656,62 @@ body{
         <button class="btn btn-primary" id="loginBtn" style="width:100%;">Sign In</button>
       </div>
     </div>
-    <p style="font-size:11px;color:var(--ink-faint);margin-top:14px;">Prototype login — for UI/permission testing only, not a secure backend yet.</p>
-    <div style="font-size:10.5px;color:var(--ink-faint);margin-top:8px;border-top:1px solid var(--line);padding-top:8px;line-height:1.7;">
-      Demo accounts:<br>
-      Super Admin — admin / admin123<br>
-      Transport Manager — khalid / transport123<br>
-      Camp Boss — campboss / camp123<br>
-      Site Engineer (Acres) — acres_eng / site123<br>
-      Site Supervisor (Acres) — sitesup / sitesup123<br>
-      Foreman (Acres) — foreman1 / foreman123
+    <button class="btn btn-ghost" id="openRegisterBtn" style="width:100%;margin-top:14px;font-size:11.5px;display:flex;align-items:center;justify-content:center;gap:6px;"><i data-lucide="user-plus" style="width:14px;height:14px;"></i> New Employee / Driver? Register here</button>
+  </div>
+</div>
+
+<div class="overlay" id="registerOverlay">
+  <div class="modal" style="max-width:400px;">
+    <h3 style="display:flex;align-items:center;gap:8px;"><i data-lucide="user-plus" style="width:19px;height:19px;"></i> Employee Registration</h3>
+    <p style="font-size:11.5px;color:var(--ink-faint);margin-top:-8px;line-height:1.5;">Prototype identity check — your HR record confirms who you are, then you set your own password. Not a secure backend yet, consistent with the rest of this app.</p>
+
+    <div id="regStepHr">
+      <div class="field">
+        <label>HR Number</label>
+        <input type="text" id="regHrCode" placeholder="e.g. 1042" autocomplete="off">
+      </div>
+      <div id="regHrError" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="regCancelBtn1">Cancel</button>
+        <div class="right"><button class="btn btn-primary" id="regHrContinueBtn">Continue</button></div>
+      </div>
     </div>
-    <button class="btn btn-ghost" id="loginDriverMobileBtn" style="width:100%;margin-top:10px;font-size:11.5px;display:flex;align-items:center;justify-content:center;gap:6px;"><i data-lucide="smartphone" style="width:14px;height:14px;"></i> Driver? Tap here for Vehicle Handover</button>
+
+    <div id="regStepQuiz" style="display:none;">
+      <p style="font-size:12.5px;color:var(--ink-dim);">To confirm this HR Number belongs to you, tap your full name below:</p>
+      <div id="regQuizOptions" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
+      <div id="regQuizError" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="regBackBtn1">Back</button>
+        <div class="right"><button class="btn btn-primary" id="regQuizVerifyBtn">Verify Identity</button></div>
+      </div>
+    </div>
+
+    <div id="regStepPassword" style="display:none;">
+      <p style="font-size:12.5px;color:var(--ink-dim);">Identity confirmed — <b id="regConfirmedName" style="color:var(--ink);"></b>. Now set a password for your account (<span id="regUsernamePreview" style="font-family:'IBM Plex Mono',monospace;color:var(--steel);"></span>).</p>
+      <div class="field">
+        <label>New Password</label>
+        <input type="password" id="regNewPassword" placeholder="at least 4 characters" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label>Confirm Password</label>
+        <input type="password" id="regConfirmPassword" placeholder="re-type password" autocomplete="new-password">
+      </div>
+      <div id="regPwError" style="color:var(--red);font-size:12px;display:none;margin-bottom:8px;"></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="regCancelBtn2">Cancel</button>
+        <div class="right"><button class="btn btn-primary" id="regCreateAccountBtn">Create Account & Sign In</button></div>
+      </div>
+    </div>
   </div>
 </div>
 
 <div class="overlay" id="usersOverlay">
   <div class="modal" style="max-width:480px;">
     <h3>Manage Users</h3>
+    <div class="field" style="margin-bottom:8px;">
+      <input type="text" id="usersSearchInput" placeholder="Search by HR Number or Full Name…" autocomplete="off">
+    </div>
     <div id="usersList" style="margin-bottom:14px;max-height:220px;overflow-y:auto;"></div>
     <div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px;">
       <div id="usersFormTitle" style="font-size:12.5px;color:var(--ink-dim);margin-bottom:8px;">Add new user</div>
@@ -1559,7 +1772,78 @@ body{
   </div>
 </div>
 
-<div class="app">
+<!-- Vehicle Handover Checklist + Security PIN overlays -- also SIBLINGS of
+     #appRoot (see the note on #driverPortalView just below): a Driver
+     account opens these straight from driverPortalView while #appRoot
+     stays hidden, and the Transport In-Charge opens the very same two
+     overlays from inside #appRoot once logged in — living outside #appRoot
+     works correctly for both, since position:fixed only needs its ancestor
+     chain to not be display:none, not to literally be a parent. -->
+<div class="overlay" id="handoverChecklistOverlay" style="z-index:60;">
+  <div class="modal">
+    <h3 id="handoverChecklistTitle">Vehicle Handover / Inspection</h3>
+    <p id="handoverChecklistSub" style="font-size:12px;color:var(--ink-dim);margin-top:-8px;">—</p>
+    <div id="handoverChecklistBanner" style="display:none;"></div>
+    <div id="handoverChecklistItems"></div>
+    <div id="handoverChecklistMeta" class="log-empty" style="display:none;margin-top:6px;"></div>
+    <div class="modal-actions">
+      <div class="right">
+        <button class="btn btn-ghost" id="handoverChecklistCloseBtn">Close</button>
+        <button class="btn btn-primary" id="handoverChecklistActionBtn" style="display:none;">Approve &amp; Receive Vehicle</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="handoverPinOverlay" style="z-index:60;">
+  <div class="modal" style="max-width:360px;">
+    <h3>🔒 Security PIN</h3>
+    <p style="font-size:12.5px;color:var(--ink-dim);margin-top:-8px;" id="handoverPinSub">Enter the 4-digit PIN provided by the Transport In-Charge.</p>
+    <div class="field">
+      <label>4-Digit PIN</label>
+      <input type="text" id="handoverPinInput" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off" style="letter-spacing:8px;font-size:20px;text-align:center;">
+    </div>
+    <div id="handoverPinError" style="color:var(--red);font-size:12.5px;display:none;margin-bottom:10px;">Incorrect PIN. Please check with your Transport In-Charge and try again.</div>
+    <button class="btn btn-primary" id="handoverPinSubmitBtn" style="width:100%;">Unlock Inspection Checklist</button>
+    <div class="modal-actions">
+      <div class="right">
+        <button class="btn btn-ghost" id="handoverPinCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Driver Portal / Vehicle Handover Checklist -- deliberately a SIBLING of
+     #appRoot, not nested inside it: a signed-in Driver account is routed
+     here with #appRoot left hidden (see bootDriverPortal() in the script),
+     and an element nested inside a display:none ancestor never renders no
+     matter its own position:fixed/z-index, so this has to live outside
+     #appRoot to be shown on its own. -->
+<div id="driverPortalView" style="display:none;position:fixed;inset:0;z-index:30;overflow-y:auto;">
+  <div class="app">
+    <div class="letterhead" style="justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        <button class="btn btn-ghost" id="driverPortalLogoutBtn" style="font-size:11.5px;padding:6px 10px;flex-shrink:0;">🚪 Log Out</button>
+      </div>
+      <div class="lh-text" style="flex:1;text-align:center;">
+        <p class="lh-name">Al Muhanad Electro Mechanical Cont.</p>
+      </div>
+      <div class="mark">
+        <svg width="56" height="56" viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="21" cy="21" r="19" fill="none" stroke="#eef1f5" stroke-width="2"/>
+          <polygon points="24,4 12,23 20,23 17,38 31,17 22,17" fill="#ef6a34"/>
+        </svg>
+      </div>
+    </div>
+    <div class="hero" style="margin-bottom:8px;">
+      <h1 style="font-size:18px;margin-bottom:2px;">📱 Driver Portal</h1>
+      <p class="sub" id="driverPortalGreeting">—</p>
+    </div>
+    <div id="driverPortalBody"></div>
+  </div>
+</div>
+
+<div class="app" id="appRoot" style="display:none;">
 
   <div class="letterhead" style="justify-content:space-between;">
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
@@ -1823,84 +2107,6 @@ body{
           <button class="btn btn-primary" id="driverDetailSaveBtn">Save License Type</button>
         </div>
       </div>
-    </div>
-  </div>
-
-  <div class="overlay" id="handoverChecklistOverlay" style="z-index:60;">
-    <div class="modal">
-      <h3 id="handoverChecklistTitle">Vehicle Handover / Inspection</h3>
-      <p id="handoverChecklistSub" style="font-size:12px;color:var(--ink-dim);margin-top:-8px;">—</p>
-      <div id="handoverChecklistBanner" style="display:none;"></div>
-      <div id="handoverChecklistItems"></div>
-      <div id="handoverChecklistMeta" class="log-empty" style="display:none;margin-top:6px;"></div>
-      <div class="modal-actions">
-        <div class="right">
-          <button class="btn btn-ghost" id="handoverChecklistCloseBtn">Close</button>
-          <button class="btn btn-primary" id="handoverChecklistActionBtn" style="display:none;">Approve &amp; Receive Vehicle</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="overlay" id="handoverPinOverlay" style="z-index:60;">
-    <div class="modal" style="max-width:360px;">
-      <h3>🔒 Security PIN</h3>
-      <p style="font-size:12.5px;color:var(--ink-dim);margin-top:-8px;" id="handoverPinSub">Enter the 4-digit PIN provided by the Transport In-Charge.</p>
-      <div class="field">
-        <label>4-Digit PIN</label>
-        <input type="text" id="handoverPinInput" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="off" style="letter-spacing:8px;font-size:20px;text-align:center;">
-      </div>
-      <div id="handoverPinError" style="color:var(--red);font-size:12.5px;display:none;margin-bottom:10px;">Incorrect PIN. Please check with your Transport In-Charge and try again.</div>
-      <button class="btn btn-primary" id="handoverPinSubmitBtn" style="width:100%;">Unlock Inspection Checklist</button>
-      <div class="modal-actions">
-        <div class="right">
-          <button class="btn btn-ghost" id="handoverPinCancelBtn">Cancel</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="overlay" id="driverMobileOverlay">
-    <div class="modal" style="max-width:380px;">
-      <h3>📱 Driver Login</h3>
-      <p style="font-size:12px;color:var(--ink-dim);margin-top:-8px;">Enter your HR / Employee Code to open your personal Driver Portal.</p>
-      <div class="field">
-        <label>HR / Employee Code</label>
-        <input type="text" id="driverMobileCodeInput" placeholder="e.g. HR-0231" autocomplete="off">
-      </div>
-      <button class="btn btn-primary" id="driverMobileLookupBtn" style="width:100%;">Open My Driver Portal</button>
-      <div id="driverMobileError" style="color:var(--red);font-size:12.5px;display:none;margin-top:10px;">No driver found with that HR code. Please check and try again.</div>
-      <p style="font-size:10px;color:var(--ink-faint);margin-top:16px;border-top:1px solid var(--line);padding-top:8px;">Prototype access — this HR code lookup is a convenience for the demo and is not a secure identity check.</p>
-      <div class="modal-actions">
-        <div class="right">
-          <button class="btn btn-ghost" id="driverMobileCloseBtn">Back to Sign In</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="driverPortalView" style="display:none;position:fixed;inset:0;z-index:30;overflow-y:auto;">
-    <div class="app">
-      <div class="letterhead" style="justify-content:space-between;">
-        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-          <button class="btn btn-ghost" id="driverPortalLogoutBtn" style="font-size:11.5px;padding:6px 10px;flex-shrink:0;">🚪 Log Out</button>
-        </div>
-        <div class="lh-text" style="flex:1;text-align:center;">
-          <p class="lh-name">Al Muhanad Electro Mechanical Cont.</p>
-        </div>
-        <div class="mark">
-          <svg width="56" height="56" viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="21" cy="21" r="19" fill="none" stroke="#eef1f5" stroke-width="2"/>
-            <polygon points="24,4 12,23 20,23 17,38 31,17 22,17" fill="#ef6a34"/>
-          </svg>
-        </div>
-      </div>
-      <div class="hero" style="margin-bottom:8px;">
-        <h1 style="font-size:18px;margin-bottom:2px;">📱 Driver Portal</h1>
-        <p class="sub" id="driverPortalGreeting">—</p>
-      </div>
-      <div id="driverPortalBody"></div>
-      <p style="font-size:10px;color:var(--ink-faint);margin-top:20px;border-top:1px solid var(--line);padding-top:8px;">Prototype access — this Driver Portal is a demo convenience and is not a secure identity check.</p>
     </div>
   </div>
 
@@ -2472,7 +2678,7 @@ const USERS_KEY = "users-v1";
 const SESSION_KEY = "session-v1";
 const CUSTOM_ROLES_KEY = "custom-roles-v1";
 const ROLE_PERMS_KEY = "role-perms-matrix-v2";
-const BASE_ROLE_LIST = ["Super Admin","Site Engineer","Camp Boss","Transport Manager","Project Manager","Project Engineer","Site Supervisor","Foreman","Document Controller","HR","Timekeeper","Storekeeper"];
+const BASE_ROLE_LIST = ["Super Admin","Site Engineer","Camp Boss","Transport Manager","Project Manager","Project Engineer","Site Supervisor","Foreman","Document Controller","HR","Timekeeper","Storekeeper","Worker","Driver"];
 let CUSTOM_ROLES = [];
 let ROLE_LIST = BASE_ROLE_LIST.slice();
 // Roles whose data is restricted to a single assigned site. Camp Boss is
@@ -2480,7 +2686,7 @@ let ROLE_LIST = BASE_ROLE_LIST.slice();
 // project site in the data model, so a Camp Boss sees all camps. Site
 // Supervisor and Foreman are field roles tied to one site, same as Site
 // Engineer.
-const SITE_LOCKED_ROLES = ["Site Engineer","Site Supervisor","Foreman"];
+const SITE_LOCKED_ROLES = ["Site Engineer","Site Supervisor","Foreman","Worker"];
 const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeCampsCard","homeTransferCard","homeStaffCard","homeVehiclesCard","homeCustomCard"];
 // Legacy static defaults — used ONLY to seed the editable permission matrix
 // the very first time it's created, and to seed any brand-new role/card/
@@ -2624,13 +2830,24 @@ window.addEventListener('storage', (ev) => {
 });
 
 async function loadUsers(){
-  try{
-    const res = await window.storage.get(USERS_KEY, true);
-    USERS = res && res.value ? JSON.parse(res.value) : [];
-  }catch(e){ USERS = []; }
+  // Cross-device shared copy first (Supabase) — a staff member who
+  // self-registers on one phone/computer, or a Super Admin who blocks/
+  // unblocks someone, has to be visible from every other device instantly,
+  // not just the one that made the change. Same pattern as loadVehiclesData.
+  const remote = await supaGetSharedState(USERS_KEY);
+  if(remote && Array.isArray(remote.data) && remote.data.length > 0){
+    USERS = remote.data;
+    supaLastSeenAt[USERS_KEY] = remote.updatedAt;
+    try{ await window.storage.set(USERS_KEY, JSON.stringify(USERS), true); }catch(e){}
+  } else {
+    try{
+      const res = await window.storage.get(USERS_KEY, true);
+      USERS = res && res.value ? JSON.parse(res.value) : [];
+    }catch(e){ USERS = []; }
+  }
   if(USERS.length === 0){
     USERS = DEFAULT_USERS.slice();
-    try{ await window.storage.set(USERS_KEY, JSON.stringify(USERS), true); }catch(e){}
+    try{ await saveUsers(); }catch(e){}
   } else {
     // Self-heal: add any demo accounts that don't exist yet (e.g. a browser
     // that already has stored users from before the demo logins were added),
@@ -2644,12 +2861,43 @@ async function loadUsers(){
         changed = true;
       }
     });
-    if(changed){ try{ await window.storage.set(USERS_KEY, JSON.stringify(USERS), true); }catch(e){} }
+    if(changed){ try{ await saveUsers(); }catch(e){} }
   }
 }
 async function saveUsers(){
   try{ await window.storage.set(USERS_KEY, JSON.stringify(USERS), true); }catch(e){}
+  supaSetSharedState(USERS_KEY, USERS); // fire-and-forget, cross-device mirror
 }
+
+// Cross-tab / cross-device live sync for the Users list. Two triggers, same
+// split used throughout this app: the browser's native same-device "storage"
+// event (instant) and the Supabase poll loop (a few seconds, cross-device).
+// Covers three real scenarios: (1) a Super Admin's Block/Unblock click shows
+// up in every other open tab/device immediately, including forcing an
+// already-blocked user's live session to end right away; (2) a brand-new
+// self-registered account becomes visible in an open "Manage Users" list
+// without needing to reopen it; (3) two staff can't collide registering the
+// same HR Number on two devices at once (last save wins, matching every
+// other shared list in this app).
+function applyRemoteUsersUpdate(newUsers){
+  if(!Array.isArray(newUsers)) return;
+  USERS = newUsers;
+  const usersOverlayEl = document.getElementById('usersOverlay');
+  if(usersOverlayEl && usersOverlayEl.classList.contains('open')) renderUsersScreen();
+  if(currentUser){
+    const fresh = USERS.find(u => u.username === currentUser.username);
+    if(fresh && fresh.blocked) forceLogoutBlocked();
+  }
+}
+function forceLogoutBlocked(){
+  showToast('Account Blocked by Admin');
+  setTimeout(() => { doLogout(); }, 1200);
+}
+window.addEventListener('storage', (ev) => {
+  if(ev.key !== USERS_KEY || !ev.newValue) return;
+  try{ applyRemoteUsersUpdate(JSON.parse(ev.newValue)); }catch(e){}
+});
+startSupabasePolling(USERS_KEY, applyRemoteUsersUpdate);
 
 function applyRoleUI(){
   discoverCardPermissions().forEach(p => {
@@ -2693,6 +2941,12 @@ async function doLogin(){
   const errEl = document.getElementById('loginError');
   const match = USERS.find(x => x.username.toLowerCase() === u.toLowerCase() && x.password === p);
   if(!match){
+    errEl.textContent = 'Incorrect username or password.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if(match.blocked){
+    errEl.textContent = 'Account Blocked by Admin';
     errEl.style.display = 'block';
     return;
   }
@@ -2718,11 +2972,41 @@ async function doLogout(){
 }
 
 async function boot(){
+  // Role-based landing: a Driver account never sees the office dashboard at
+  // all — sign-in takes them straight and exclusively to their Vehicle
+  // Handover Checklist. Everyone else lands on the normal permissions-based
+  // Home dashboard, unchanged.
+  if(currentUser && currentUser.role === 'Driver'){
+    await bootDriverPortal();
+    return;
+  }
+  const appRootEl = document.getElementById('appRoot');
+  if(appRootEl) appRootEl.style.display = '';
+  const driverPortalViewEl = document.getElementById('driverPortalView');
+  if(driverPortalViewEl) driverPortalViewEl.style.display = 'none';
   applyRoleUI();
   applyPermissionUI();
   await loadData();
   await refreshUnifiedSites();
   renderHomeStats();
+}
+
+// Lands a signed-in Driver account directly on their personal Vehicle
+// Handover Checklist (reusing the same renderDriverPortal()/
+// checkDriverPortalNotification() logic the old standalone HR-code Driver
+// Portal used) instead of the normal Home dashboard. driverPortalDriver is
+// keyed off the account's own hrCode — set at registration time — so this
+// works identically whether the driver just registered or is returning via
+// a resumed/manual sign-in.
+async function bootDriverPortal(){
+  const appRootEl = document.getElementById('appRoot');
+  if(appRootEl) appRootEl.style.display = 'none';
+  await ensureVehiclesModuleDataLoaded();
+  driverPortalDriver = { code: currentUser.hrCode || '', name: currentUser.name };
+  driverPortalShownSentAt = null;
+  document.getElementById('driverPortalView').style.display = '';
+  renderDriverPortal();
+  checkDriverPortalNotification();
 }
 
 async function tryResumeSession(){
@@ -2736,7 +3020,14 @@ async function tryResumeSession(){
   }catch(e){ session = null; }
   if(session && session.username){
     const match = USERS.find(x => x.username === session.username);
-    if(match){
+    if(match && match.blocked){
+      // Was blocked since this device last saw them — never silently resume
+      // a blocked account, and clear the stale session so a plain reload
+      // doesn't keep re-attempting it.
+      try{ await window.storage.set(SESSION_KEY, JSON.stringify(null), false); }catch(e){}
+      const errEl = document.getElementById('loginError');
+      if(errEl){ errEl.textContent = 'Account Blocked by Admin'; errEl.style.display = 'block'; }
+    } else if(match){
       currentUser = match;
       currentUserName = match.name;
       if(SITE_LOCKED_ROLES.includes(match.role) && match.site){
@@ -2754,6 +3045,225 @@ async function tryResumeSession(){
 }
 document.getElementById('logoutBtn').onclick = doLogout;
 
+/* ---- Employee Self-Registration (HR Lookup -> Name Quiz -> Set Password) ----
+ * Lets any of the ~300-350 field/office staff create their own login without
+ * a Super Admin having to hand-type every account. Identity is confirmed by
+ * asking the person to recognize their own name among 4 decoys pulled from
+ * the same HR record set (laborRecords/staffRecords) they're already in --
+ * not a strong credential, but proportionate to a prototype with no real
+ * backend, and it stops someone registering under a colleague's HR Number
+ * by pure guesswork. The username is never typed: it's always exactly
+ * MEMCO + their HR Number, so it can never collide or be mistyped.
+ */
+let regPendingHrCode = null;
+let regPendingPerson = null;
+let regQuizCorrectName = null;
+
+// Registration happens before any session exists, so the labor/staff
+// records it looks names up in have to be loaded on demand here too — same
+// guarded on-demand pattern ensureVehiclesModuleDataLoaded() uses for the
+// pre-login Driver Portal.
+async function ensureRegistrationDataLoaded(){
+  if(!laborDataLoaded){ await loadLaborData(); laborDataLoaded = true; }
+  if(!staffDataLoaded){ await loadStaffData(); staffDataLoaded = true; }
+}
+
+// isDriver uses the exact same /driver/i test on trade/designation that
+// buildDriverStaffCandidates() already uses for the Drivers Roster, so a
+// person registers as a Driver here if and only if they'd also show up as
+// one there — one single definition of "who counts as a driver" for the
+// whole app.
+function findPersonByHrCode(code){
+  const c = String(code).trim();
+  if(!c) return null;
+  const inLabor = laborRecords.find(l => String(l.code || '').trim() === c);
+  if(inLabor) return { name: inLabor.name, code: c, site: inLabor.site || '', source: 'labor', isDriver: /driver/i.test(inLabor.trade || '') };
+  const inStaff = staffRecords.find(s => String(s.code || '').trim() === c);
+  if(inStaff) return { name: inStaff.name, code: c, site: inStaff.site || '', source: 'staff', isDriver: /driver/i.test(inStaff.designation || '') };
+  return null;
+}
+
+// Builds the 5-option quiz: the correct name plus 4 distinct random decoys
+// pulled from every OTHER staff/labor record, then shuffles the lot so the
+// correct answer isn't always in the same position.
+function generateNameQuiz(correctName, excludeCode){
+  const pool = [];
+  const seen = new Set([String(excludeCode).trim()]);
+  [...laborRecords, ...staffRecords].forEach(r => {
+    const rc = String(r.code || '').trim();
+    if(!r.name || !rc || seen.has(rc)) return;
+    seen.add(rc);
+    pool.push(r.name);
+  });
+  for(let i = pool.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const decoys = pool.filter(n => n !== correctName).slice(0, 4);
+  const options = [...decoys, correctName];
+  for(let i = options.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [options[i], options[j]] = [options[j], options[i]];
+  }
+  return options;
+}
+
+function regShowStep(step){
+  document.getElementById('regStepHr').style.display = step === 'hr' ? '' : 'none';
+  document.getElementById('regStepQuiz').style.display = step === 'quiz' ? '' : 'none';
+  document.getElementById('regStepPassword').style.display = step === 'password' ? '' : 'none';
+}
+
+function regResetAndClose(){
+  document.getElementById('registerOverlay').classList.remove('open');
+  document.getElementById('loginOverlay').classList.add('open');
+  document.getElementById('regHrCode').value = '';
+  document.getElementById('regHrError').style.display = 'none';
+  document.getElementById('regQuizError').style.display = 'none';
+  document.getElementById('regQuizOptions').innerHTML = '';
+  document.getElementById('regNewPassword').value = '';
+  document.getElementById('regConfirmPassword').value = '';
+  document.getElementById('regPwError').style.display = 'none';
+  regPendingHrCode = null;
+  regPendingPerson = null;
+  regQuizCorrectName = null;
+  regShowStep('hr');
+}
+
+document.getElementById('openRegisterBtn').onclick = () => {
+  document.getElementById('loginOverlay').classList.remove('open');
+  regShowStep('hr');
+  document.getElementById('registerOverlay').classList.add('open');
+};
+document.getElementById('regCancelBtn1').onclick = regResetAndClose;
+document.getElementById('regCancelBtn2').onclick = regResetAndClose;
+document.getElementById('regBackBtn1').onclick = () => {
+  document.getElementById('regQuizError').style.display = 'none';
+  regShowStep('hr');
+};
+
+document.getElementById('regHrContinueBtn').onclick = async () => {
+  const errEl = document.getElementById('regHrError');
+  errEl.style.display = 'none';
+  const code = document.getElementById('regHrCode').value.trim();
+  if(!code){ errEl.textContent = 'Please enter your HR Number.'; errEl.style.display = 'block'; return; }
+  const username = 'MEMCO' + code;
+  if(USERS.find(u => u.username.toLowerCase() === username.toLowerCase())){
+    errEl.textContent = 'An account already exists for this HR Number. Try signing in instead.';
+    errEl.style.display = 'block';
+    return;
+  }
+  await ensureRegistrationDataLoaded();
+  const person = findPersonByHrCode(code);
+  if(!person){
+    errEl.textContent = 'HR Number not found in staff or labor records. Please check the number and try again.';
+    errEl.style.display = 'block';
+    return;
+  }
+  regPendingHrCode = code;
+  regPendingPerson = person;
+  regQuizCorrectName = person.name;
+  const options = generateNameQuiz(person.name, person.code);
+  const optsEl = document.getElementById('regQuizOptions');
+  optsEl.innerHTML = options.map(name => `<button type="button" class="btn btn-ghost" data-quiz-name="${escapeAttr(name)}" style="width:100%;text-align:left;">${escapeHtml(name)}</button>`).join('');
+  optsEl.querySelectorAll('[data-quiz-name]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      optsEl.querySelectorAll('[data-quiz-name]').forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-ghost'); });
+      btn.classList.remove('btn-ghost');
+      btn.classList.add('btn-primary');
+    });
+  });
+  document.getElementById('regQuizError').style.display = 'none';
+  regShowStep('quiz');
+};
+
+document.getElementById('regQuizVerifyBtn').onclick = () => {
+  const errEl = document.getElementById('regQuizError');
+  const selected = document.querySelector('#regQuizOptions [data-quiz-name].btn-primary');
+  if(!selected){ errEl.textContent = 'Please tap your name from the list above.'; errEl.style.display = 'block'; return; }
+  if(selected.dataset.quizName !== regQuizCorrectName){
+    errEl.textContent = "That doesn't match our HR record for this number. Returning to HR Number entry — please try again.";
+    errEl.style.display = 'block';
+    setTimeout(() => { document.getElementById('regQuizError').style.display = 'none'; regShowStep('hr'); }, 1800);
+    return;
+  }
+  errEl.style.display = 'none';
+  document.getElementById('regConfirmedName').textContent = regPendingPerson.name;
+  document.getElementById('regUsernamePreview').textContent = 'MEMCO' + regPendingHrCode;
+  document.getElementById('regNewPassword').value = '';
+  document.getElementById('regConfirmPassword').value = '';
+  document.getElementById('regPwError').style.display = 'none';
+  regShowStep('password');
+};
+
+document.getElementById('regCreateAccountBtn').onclick = async () => {
+  const errEl = document.getElementById('regPwError');
+  const pw = document.getElementById('regNewPassword').value;
+  const pw2 = document.getElementById('regConfirmPassword').value;
+  if(!pw || pw.length < 4){ errEl.textContent = 'Password must be at least 4 characters.'; errEl.style.display = 'block'; return; }
+  if(pw !== pw2){ errEl.textContent = 'Passwords do not match.'; errEl.style.display = 'block'; return; }
+  const username = 'MEMCO' + regPendingHrCode;
+  if(USERS.find(u => u.username.toLowerCase() === username.toLowerCase())){
+    errEl.textContent = 'An account already exists for this HR Number. Try signing in instead.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  const newId = USERS.length ? Math.max(...USERS.map(x => x.id)) + 1 : 1;
+  const newUser = {
+    id: newId,
+    name: regPendingPerson.name,
+    username,
+    password: pw,
+    role: regPendingPerson.isDriver ? 'Driver' : 'Worker',
+    site: regPendingPerson.site || '',
+    hrCode: regPendingHrCode,
+    blocked: false
+  };
+  USERS.push(newUser);
+  await saveUsers();
+  currentUser = newUser;
+  currentUserName = newUser.name;
+  try{ await window.storage.set(SESSION_KEY, JSON.stringify({ username: newUser.username }), false); }catch(e){}
+  try{ await window.storage.set(USER_NAME_KEY, newUser.name, false); }catch(e){}
+  if(SITE_LOCKED_ROLES.includes(newUser.role) && newUser.site){
+    lockedSite = newUser.site;
+    activeSite = newUser.site;
+  }
+  document.getElementById('registerOverlay').classList.remove('open');
+  regPendingHrCode = null;
+  regPendingPerson = null;
+  regQuizCorrectName = null;
+  await boot();
+  showToast(`Welcome, ${newUser.name}! Your account (${newUser.username}) is ready.`);
+};
+
+// Blocks background scrolling for as long as either sign-in-flow overlay
+// (Sign In itself, or the registration steps on top of it) is open — a
+// MutationObserver rather than a call at every open/close site, so it stays
+// correct automatically no matter which of the many code paths above
+// toggles the "open" class. #appRoot is already display:none until boot()
+// succeeds (see boot()/bootDriverPortal() above), so there is no dashboard
+// content behind these overlays to begin with; this only additionally stops
+// a tall pre-login page (or a phone's own UI chrome) from scrolling while
+// the modal has focus.
+(function setupAuthOverlayScrollLock(){
+  const ids = ['loginOverlay', 'registerOverlay'];
+  const update = () => {
+    const blocking = ids.some(id => {
+      const el = document.getElementById(id);
+      return el && el.classList.contains('open');
+    });
+    document.body.style.overflow = blocking ? 'hidden' : '';
+  };
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    new MutationObserver(update).observe(el, { attributes: true, attributeFilter: ['class'] });
+  });
+  update();
+})();
+
 /* ---- Manage Users screen (Super Admin only) ---- */
 function siteOptionsHtml(selected){
   return '<option value="">— all sites (not site-locked) —</option>' +
@@ -2763,16 +3273,26 @@ function renderUsersScreen(){
   document.getElementById('uRole').innerHTML = ROLE_LIST.map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join('');
   document.getElementById('uSite').innerHTML = siteOptionsHtml('');
   const listEl = document.getElementById('usersList');
-  listEl.innerHTML = USERS.map(u => `
-    <div class="detail-field-row" style="cursor:pointer;flex-wrap:wrap;gap:4px 10px;" data-edit-user="${u.id}">
-      <span class="df-label">${escapeHtml(u.name)} <span style="color:var(--ink-faint);">(${escapeHtml(u.username)})</span></span>
-      <span class="df-value" style="display:flex;align-items:center;gap:8px;">
-        ${escapeHtml(u.role)}${u.site ? ' · ' + escapeHtml(u.site) : ''}
-        <span style="color:var(--ink-faint);font-family:monospace;">🔑 ${escapeHtml(u.password)}</span>
-        <button type="button" class="btn btn-ghost" style="font-size:10.5px;padding:3px 7px;" data-reset-user="${u.id}">Reset</button>
-      </span>
-    </div>
-  `).join('');
+  const searchEl = document.getElementById('usersSearchInput');
+  const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const visible = q
+    ? USERS.filter(u => (u.name || '').toLowerCase().includes(q) || (u.hrCode ? String(u.hrCode).toLowerCase().includes(q) : false) || (u.username || '').toLowerCase().includes(q))
+    : USERS;
+  if(visible.length === 0){
+    listEl.innerHTML = `<p style="font-size:12px;color:var(--ink-faint);padding:8px 0;">No users match "${escapeHtml(q)}".</p>`;
+  } else {
+    listEl.innerHTML = visible.map(u => `
+      <div class="detail-field-row" style="cursor:pointer;flex-wrap:wrap;gap:4px 10px;${u.blocked ? 'opacity:0.6;' : ''}" data-edit-user="${u.id}">
+        <span class="df-label">${escapeHtml(u.name)} <span style="color:var(--ink-faint);">(${escapeHtml(u.username)})</span>${u.hrCode ? ` <span style="color:var(--ink-faint);">HR ${escapeHtml(String(u.hrCode))}</span>` : ''}${u.blocked ? ' <span style="color:var(--red);font-size:10.5px;">🔒 Blocked</span>' : ''}</span>
+        <span class="df-value" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          ${escapeHtml(u.role)}${u.site ? ' · ' + escapeHtml(u.site) : ''}
+          <span style="color:var(--ink-faint);font-family:monospace;">🔑 ${escapeHtml(u.password)}</span>
+          <button type="button" class="btn btn-ghost" style="font-size:10.5px;padding:3px 7px;" data-reset-user="${u.id}">Reset</button>
+          <button type="button" class="btn ${u.blocked ? 'btn-primary' : 'btn-ghost btn-danger'}" style="font-size:10.5px;padding:3px 7px;" data-toggle-block-user="${u.id}">${u.blocked ? 'Unblock' : 'Block'}</button>
+        </span>
+      </div>
+    `).join('');
+  }
   listEl.querySelectorAll('[data-edit-user]').forEach(row => {
     row.addEventListener('click', () => loadUserIntoForm(Number(row.dataset.editUser)));
   });
@@ -2788,6 +3308,22 @@ function renderUsersScreen(){
       u.password = next.trim();
       await saveUsers();
       showToast(`Password reset for ${u.name}`);
+      renderUsersScreen();
+    });
+  });
+  listEl.querySelectorAll('[data-toggle-block-user]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = Number(btn.dataset.toggleBlockUser);
+      const u = USERS.find(x => x.id === id);
+      if(!u) return;
+      if(!u.blocked && currentUser && u.username === currentUser.username){
+        showToast("You can't block your own account while signed in as it");
+        return;
+      }
+      u.blocked = !u.blocked;
+      await saveUsers();
+      showToast(u.blocked ? `${u.name} blocked — access denied immediately, on every device` : `${u.name} unblocked`);
       renderUsersScreen();
     });
   });
@@ -2855,12 +3391,15 @@ document.getElementById('uDeleteBtn').onclick = async () => {
   renderUsersScreen();
 };
 document.getElementById('manageUsersBtn').onclick = () => {
+  const s = document.getElementById('usersSearchInput');
+  if(s) s.value = '';
   renderUsersScreen();
   document.getElementById('usersOverlay').classList.add('open');
 };
 document.getElementById('usersCloseBtn').onclick = () => {
   document.getElementById('usersOverlay').classList.remove('open');
 };
+document.getElementById('usersSearchInput').addEventListener('input', renderUsersScreen);
 
 /* ---- Permission Matrix screen (Super Admin only) ---- */
 async function renderPermMatrix(){
@@ -3086,6 +3625,45 @@ function showToast(msg){
   toast.classList.add('show');
   clearTimeout(showToast._t);
   showToast._t = setTimeout(()=> toast.classList.remove('show'), 1800);
+}
+
+// Two short, clearly-distinct beeps for real-time incoming alerts, built
+// in-browser with the Web Audio API rather than shipping audio files.
+// 'driver' is a rising two-note chime (a driver's own vehicle/assignment
+// update — see checkDriverPortalNotification()); 'staff' is a sharper,
+// higher-pitched pair (a critical/engineering-facing notification, e.g. a
+// Transport In-Charge being told a driver just approved a handover in
+// applyRemoteHandoverNotifyUpdate()) — deliberately higher-pitched than the
+// driver tone so the two are easy to tell apart by ear alone, per spec.
+// Silently does nothing if the browser blocks audio before any user
+// gesture has happened on the page yet, or has no Web Audio support.
+let _alertAudioCtx = null;
+function playAlertTone(kind){
+  try{
+    if(!_alertAudioCtx) _alertAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _alertAudioCtx;
+    if(ctx.state === 'suspended') ctx.resume();
+    const beep = (freq, startAt, dur, gain) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      g.gain.setValueAtTime(0, ctx.currentTime + startAt);
+      g.gain.linearRampToValueAtTime(gain, ctx.currentTime + startAt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startAt + dur);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(ctx.currentTime + startAt);
+      osc.stop(ctx.currentTime + startAt + dur + 0.02);
+    };
+    if(kind === 'driver'){
+      beep(660, 0, 0.16, 0.18);
+      beep(880, 0.18, 0.2, 0.18);
+    } else {
+      beep(1320, 0, 0.12, 0.16);
+      beep(1760, 0.1, 0.16, 0.16);
+    }
+  }catch(e){}
 }
 
 async function loadData(){
@@ -5454,7 +6032,6 @@ function vehicleColorStatus(v){
  * with no backend to push to a driver's own separate device.
  */
 const HANDOVER_NOTIFY_KEY = "handover-notify-v1";
-const DRIVER_SESSION_KEY = "driver-session-v1";
 let handoverNotifications = {};
 let handoverNotificationsLoaded = false;
 async function loadHandoverNotifications(){
@@ -6485,72 +7062,16 @@ document.getElementById('handoverChecklistCloseBtn').onclick = () => {
   document.getElementById('handoverChecklistOverlay').classList.remove('open');
 };
 
-/* ---- Driver Personal Portal — HR-code login, reachable straight from the login screen ---- */
-let driverPortalDriver = null;       // { code, name } — set once logged into the portal
+/* ---- Driver Personal Portal ----
+ * Reached exclusively through the unified MEMCO+HR-Number sign-in now (see
+ * bootDriverPortal() above) rather than a separate PIN-less HR-code lookup
+ * — a Driver-role account's own hrCode is what keys driverPortalDriver, set
+ * once at boot(). The checklist/PIN/notification logic below is unchanged
+ * from before; only how a driver ARRIVES here changed. */
+let driverPortalDriver = null;       // { code, name } — set at boot() for a signed-in Driver account
 let driverPortalShownSentAt = null;  // guards against re-popping the same notification repeatedly
 
-document.getElementById('loginDriverMobileBtn').onclick = async () => {
-  document.getElementById('loginOverlay').classList.remove('open');
-  document.getElementById('driverMobileCodeInput').value = '';
-  document.getElementById('driverMobileError').style.display = 'none';
-  document.getElementById('driverMobileOverlay').classList.add('open');
-  await ensureVehiclesModuleDataLoaded();
-  document.getElementById('driverMobileCodeInput').focus();
-};
-document.getElementById('driverMobileCloseBtn').onclick = () => {
-  document.getElementById('driverMobileOverlay').classList.remove('open');
-  document.getElementById('loginOverlay').classList.add('open');
-};
-async function driverMobileLookup(){
-  await ensureVehiclesModuleDataLoaded();
-  const code = document.getElementById('driverMobileCodeInput').value.trim();
-  const errorEl = document.getElementById('driverMobileError');
-  errorEl.style.display = 'none';
-  if(!code) return;
-  const drivers = buildDriverStaffCandidates().filter(c => c.isDriver);
-  const match = drivers.find(d => d.code && String(d.code).toLowerCase() === code.toLowerCase());
-  if(!match){
-    errorEl.style.display = '';
-    return;
-  }
-  driverPortalDriver = { code: match.code, name: match.name };
-  try{ await window.storage.set(DRIVER_SESSION_KEY, JSON.stringify(driverPortalDriver), false); }catch(e){}
-  openDriverPortal();
-}
-document.getElementById('driverMobileLookupBtn').onclick = driverMobileLookup;
-document.getElementById('driverMobileCodeInput').addEventListener('keydown', (e) => { if(e.key === 'Enter') driverMobileLookup(); });
-
-function openDriverPortal(){
-  document.getElementById('driverMobileOverlay').classList.remove('open');
-  document.getElementById('loginOverlay').classList.remove('open');
-  document.getElementById('driverPortalView').style.display = '';
-  driverPortalShownSentAt = null;
-  renderDriverPortal();
-  checkDriverPortalNotification();
-}
-
-async function tryResumeDriverPortalSession(){
-  let session = null;
-  try{
-    const res = await window.storage.get(DRIVER_SESSION_KEY, false);
-    session = res && res.value ? JSON.parse(res.value) : null;
-  }catch(e){ session = null; }
-  if(!session || !session.code) return false;
-  await ensureVehiclesModuleDataLoaded();
-  const match = buildDriverStaffCandidates().find(c => c.isDriver && c.code === session.code);
-  if(!match){
-    try{ await window.storage.set(DRIVER_SESSION_KEY, JSON.stringify(null), false); }catch(e){}
-    return false;
-  }
-  driverPortalDriver = { code: match.code, name: match.name };
-  openDriverPortal();
-  return true;
-}
-
-document.getElementById('driverPortalLogoutBtn').onclick = async () => {
-  try{ await window.storage.set(DRIVER_SESSION_KEY, JSON.stringify(null), false); }catch(e){}
-  location.reload();
-};
+document.getElementById('driverPortalLogoutBtn').onclick = doLogout;
 
 function renderDriverPortal(){
   if(!driverPortalDriver) return;
@@ -6601,6 +7122,7 @@ function checkDriverPortalNotification(){
   const v = vehiclesRecords.find(x => x.plate === rec.plate);
   if(!v || v.assignedCode !== driverPortalDriver.code || v.handoverStatus !== 'pending') return;
   driverPortalShownSentAt = rec.sentAt;
+  playAlertTone('driver');
   openHandoverPinPrompt(v.plate, driverPortalDriver.name);
 }
 
@@ -6703,6 +7225,7 @@ function applyRemoteHandoverNotifyUpdate(newNotify){
       const nrec = handoverNotifications[code];
       const prec = prevNotify[code];
       if(nrec && nrec.ackAt && (!prec || prec.ackAt !== nrec.ackAt)){
+        playAlertTone('staff');
         showToast(`✅ ${nrec.ackBy || 'Driver'} approved & accepted ${nrec.plate}`);
       }
     });
@@ -7370,10 +7893,21 @@ document.getElementById('roomCloseBtn').onclick = () => {
 };
 /* =============== END LABOR CAMPS MODULE =============== */
 
+// PWA: register the service worker so the browser considers this
+// installable ("Add to Home Screen" on Android, "Add to Home Screen" from
+// Chrome/Safari's share sheet on iOS). Registered on window 'load' so it
+// never competes with anything on the critical first-paint path; silently
+// no-ops on a browser/context without service worker support (e.g. a plain
+// `file://` open) instead of throwing.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+  });
+}
+
 (async () => {
   try{
-    const resumedDriverPortal = await tryResumeDriverPortalSession();
-    if(!resumedDriverPortal) await tryResumeSession();
+    await tryResumeSession();
     if(window.__hideBootFallback) window.__hideBootFallback();
   }catch(e){
     console.error('[Boot error]', e);

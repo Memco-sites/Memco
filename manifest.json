@@ -1,0 +1,15 @@
+{
+  "name": "Al Muhanad Sub-Contractor Tracker",
+  "short_name": "MEMCO Tracker",
+  "description": "Al Muhanad Electro Mechanical Cont. — Sub-Contractor & Workforce Management Portal",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
