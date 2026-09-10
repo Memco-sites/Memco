@@ -1351,6 +1351,102 @@ body{
 @media (max-width: 480px){
   #vehiclesView, #driverPortalView{ border-radius: 0; margin: -18px -20px 0; padding: 16px 14px 22px; }
 }
+
+/* ===== Enterprise Home Dashboard redesign =====
+   Merges the look of the "MEMCO Enterprise Management Portal" mockup the
+   user shared into the real, functional Home dashboard -- every element
+   keeps its original id/class (.home-card, .hc-title, .hc-stat, etc.)
+   exactly as-is, because discoverCardPermissions()/applyRoleUI() and every
+   onclick handler above depend on those. Scoped entirely to #homeView, the
+   same approach already used for the Vehicles/Driver Portal glass theme,
+   so every other module is untouched. */
+#homeView{
+  background: radial-gradient(circle at 15% 0%, rgba(56,189,248,0.07), transparent 55%),
+              radial-gradient(circle at 90% 8%, rgba(129,140,248,0.08), transparent 50%);
+  border-radius: 18px;
+  padding: 2px 2px 6px;
+}
+#homeView .top-bar{
+  background: linear-gradient(180deg, rgba(30,41,59,0.6), rgba(15,23,42,0.6));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 12px 18px;
+  box-shadow: 0 8px 20px -10px rgba(0,0,0,0.4);
+  margin-bottom: 16px;
+}
+#homeView .tb-clock-time{ color:#f8fafc; }
+#homeView .tb-avatar{ background: linear-gradient(135deg,#3b82f6,#38bdf8); }
+#homeExecSummary{
+  display:grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap:14px;
+  margin-bottom:20px;
+}
+@media (max-width:700px){ #homeExecSummary{ grid-template-columns: 1fr 1fr; } }
+.exec-tile{
+  background: linear-gradient(180deg, rgba(30,41,59,0.55), rgba(15,23,42,0.55));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-left: 3px solid var(--tile-accent, #64748b);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.exec-tile .et-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.04em; color:#94a3b8; font-weight:700; }
+.exec-tile .et-value{ font-size:22px; font-weight:800; color:#f8fafc; margin-top:4px; font-family:'Big Shoulders Display', sans-serif; }
+.exec-tile .et-sub{ font-size:10.5px; color: var(--tile-accent, #94a3b8); margin-top:2px; font-weight:600; }
+#homeView .home-cards{ gap:16px; }
+#homeView .home-card{
+  background: linear-gradient(180deg, rgba(30,41,59,0.55), rgba(15,23,42,0.55));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-left: 4px solid var(--hc-accent, #64748b);
+  border-radius: 16px;
+  text-align:left;
+  padding: 18px 18px 16px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+#homeView .home-card:hover, #homeView .home-card:focus-visible{
+  border-left-color: var(--hc-accent, #64748b);
+  box-shadow: 0 14px 28px -10px rgba(0,0,0,0.55), 0 0 0 1px var(--hc-accent, #64748b);
+  transform: translateY(-4px);
+}
+#homeView .home-card .hc-num{
+  top:14px; right:14px; left:auto;
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+  color: var(--hc-accent, #94a3b8);
+}
+#homeView .home-card .hc-icon{
+  width:44px; height:44px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:20px;
+  margin-bottom:14px;
+  border-radius:12px;
+  background: var(--hc-tint, rgba(100,116,139,0.14));
+  border: 1px solid var(--hc-tint-border, rgba(100,116,139,0.3));
+  color: var(--hc-accent, #94a3b8);
+}
+#homeView .home-card .hc-icon i{ width:20px; height:20px; }
+#homeView .home-card .hc-title{ font-family: inherit; font-size:15px; color:#f8fafc; }
+#homeView .home-card .hc-sub{ color:#94a3b8; margin-top:6px; }
+#homeView .home-card .hc-stat{
+  border-top-color: rgba(255,255,255,0.08);
+  color: var(--hc-accent, #94a3b8);
+  text-align:left;
+}
+#homeView .home-card:nth-child(1){ --hc-accent:#3b82f6; --hc-tint:rgba(59,130,246,0.14); --hc-tint-border:rgba(59,130,246,0.35); }
+#homeView .home-card:nth-child(2){ --hc-accent:#10b981; --hc-tint:rgba(16,185,129,0.14); --hc-tint-border:rgba(16,185,129,0.35); }
+#homeView .home-card:nth-child(3){ --hc-accent:#f59e0b; --hc-tint:rgba(245,158,11,0.14); --hc-tint-border:rgba(245,158,11,0.35); }
+#homeView .home-card:nth-child(4){ --hc-accent:#a855f7; --hc-tint:rgba(168,85,247,0.14); --hc-tint-border:rgba(168,85,247,0.35); }
+#homeView .home-card:nth-child(5){ --hc-accent:#6366f1; --hc-tint:rgba(99,102,241,0.14); --hc-tint-border:rgba(99,102,241,0.35); }
+#homeView .home-card:nth-child(6){ --hc-accent:#06b6d4; --hc-tint:rgba(6,182,212,0.14); --hc-tint-border:rgba(6,182,212,0.35); }
+#homeView .home-card:nth-child(7){ --hc-accent:#ec4899; --hc-tint:rgba(236,72,153,0.14); --hc-tint-border:rgba(236,72,153,0.35); }
+#homeView .home-card:nth-child(8){ --hc-accent:#0ea5e9; --hc-tint:rgba(14,165,233,0.14); --hc-tint-border:rgba(14,165,233,0.35); }
+#homeView .home-card-disabled{ --hc-accent:#64748b; --hc-tint:rgba(100,116,139,0.12); --hc-tint-border:rgba(100,116,139,0.28); opacity:0.55; }
 </style>
 </head>
 <body>
@@ -1494,7 +1590,11 @@ body{
   </div>
 
   <div id="homeView">
-    <div class="top-bar" style="justify-content:flex-end;">
+    <div class="top-bar" style="justify-content:space-between;">
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <span style="font-size:10.5px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#38bdf8;">Executive Dashboard</span>
+        <span style="font-size:12px;color:#94a3b8;" id="homeWelcomeLine">Welcome back</span>
+      </div>
       <div class="tb-right">
         <div class="tb-clock" id="homeClock">
           <div class="tb-clock-time" id="homeClockTime">--:--:--</div>
@@ -1504,69 +1604,93 @@ body{
         <div class="tb-avatar" id="homeAvatarBtn" title="Your profile"></div>
       </div>
     </div>
+
+    <div id="homeExecSummary">
+      <div class="exec-tile" style="--tile-accent:#3b82f6;">
+        <div class="et-label">Active Projects</div>
+        <div class="et-value" id="execProjectsValue">…</div>
+        <div class="et-sub" id="execProjectsSub">Across all sites</div>
+      </div>
+      <div class="exec-tile" style="--tile-accent:#10b981;">
+        <div class="et-label">Sub-Contractors</div>
+        <div class="et-value" id="execContractorsValue">…</div>
+        <div class="et-sub">Directory entries</div>
+      </div>
+      <div class="exec-tile" style="--tile-accent:#f59e0b;">
+        <div class="et-label">Total Workforce</div>
+        <div class="et-value" id="execWorkforceValue">…</div>
+        <div class="et-sub">Labor + Staff</div>
+      </div>
+      <div class="exec-tile" style="--tile-accent:#a855f7;">
+        <div class="et-label">Today's Attendance</div>
+        <div class="et-value" id="execAttendanceValue">…</div>
+        <div class="et-sub" id="execAttendanceSub">Present today</div>
+      </div>
+    </div>
+
     <div class="hero" style="margin-bottom:8px;">
       <h1 style="font-size:20px;margin-bottom:2px;">Dashboard <span style="font-size:12px;font-weight:400;color:var(--ink-faint);">— choose where you'd like to go</span></h1>
     </div>
     <div class="home-cards">
       <div class="home-card" id="homeDirectoryCard">
         <div class="hc-num">1</div>
-        <div class="hc-icon">📋</div>
+        <div class="hc-icon"><i data-lucide="book-user"></i></div>
         <div class="hc-title">Sub-Contractor Directory</div>
         <div class="hc-sub">Sub-contractor list, contact info, agreements</div>
         <div class="hc-stat" id="homeDirectoryStat">…</div>
       </div>
       <div class="home-card" id="homeAttendanceCard">
         <div class="hc-num">2</div>
-        <div class="hc-icon">🗓️</div>
+        <div class="hc-icon"><i data-lucide="calendar-check"></i></div>
         <div class="hc-title">Sub-Contractor & Al Muhanad Attendance</div>
         <div class="hc-sub">Daily labor & sub-contractor headcount</div>
         <div class="hc-stat" id="homeAttendanceStat">…</div>
       </div>
       <div class="home-card" id="homeLaborCard">
         <div class="hc-num">3</div>
-        <div class="hc-icon">👷</div>
+        <div class="hc-icon"><i data-lucide="hard-hat"></i></div>
         <div class="hc-title">Al Muhanad Labor</div>
         <div class="hc-sub">Search workers, transfer between sites</div>
         <div class="hc-stat" id="homeLaborStat">…</div>
       </div>
       <div class="home-card" id="homeVillasCard">
         <div class="hc-num">4</div>
-        <div class="hc-icon">📐</div>
+        <div class="hc-icon"><i data-lucide="ruler"></i></div>
         <div class="hc-title">Project Details</div>
         <div class="hc-sub">Unit-wise progress tracking</div>
         <div class="hc-stat" id="homeVillasStat">…</div>
       </div>
       <div class="home-card" id="homeCampsCard">
         <div class="hc-num">5</div>
-        <div class="hc-icon">🏕️</div>
+        <div class="hc-icon"><i data-lucide="tent"></i></div>
         <div class="hc-title">Labor Camps</div>
         <div class="hc-sub">Camp management, room allocation & capacity</div>
         <div class="hc-stat" id="homeCampsStat">…</div>
       </div>
       <div class="home-card" id="homeTransferCard">
         <div class="hc-num">6</div>
-        <div class="hc-icon">🔁</div>
+        <div class="hc-icon"><i data-lucide="arrow-left-right"></i></div>
         <div class="hc-title">Transfer Labor</div>
         <div class="hc-sub">Move workers between project sites</div>
         <div class="hc-stat" id="homeTransferStat">…</div>
       </div>
       <div class="home-card" id="homeStaffCard">
         <div class="hc-num">7</div>
-        <div class="hc-icon">🧑‍💼</div>
+        <div class="hc-icon"><i data-lucide="users"></i></div>
         <div class="hc-title">Staff</div>
         <div class="hc-sub">Site-wise staff directory & contacts</div>
         <div class="hc-stat" id="homeStaffStat">…</div>
       </div>
       <div class="home-card" id="homeVehiclesCard">
         <div class="hc-num">8</div>
-        <div class="hc-icon">🚗</div>
+        <div class="hc-icon"><i data-lucide="car"></i></div>
         <div class="hc-title">Vehicles / Fleet</div>
         <div class="hc-sub">Registration & insurance expiry tracking</div>
         <div class="hc-stat" id="homeVehiclesStat">…</div>
       </div>
       <div class="home-card home-card-disabled" id="homeCustomCard">
         <div class="hc-num">9</div>
-        <div class="hc-icon">🧩</div>
+        <div class="hc-icon"><i data-lucide="puzzle"></i></div>
         <div class="hc-title">Custom Module</div>
         <div class="hc-sub">Reserved for future use</div>
         <div class="hc-stat">Under Construction</div>
@@ -3858,16 +3982,39 @@ function renderHomeStats(){
 
     : '?';
 
+  const welcomeLine = document.getElementById('homeWelcomeLine');
+  if(welcomeLine) welcomeLine.textContent = currentUserName
+    ? `Welcome back, ${currentUserName}${currentUser && currentUser.role ? ' · ' + currentUser.role : ''}`
+    : 'Welcome back';
+
   document.getElementById('homeDirectoryStat').textContent = `${data.length} Active Entries`;
   document.getElementById('homeLaborStat').textContent = `${LABOR_DATA.length} Total Workers`;
+
+  // Executive summary strip -- real, live numbers (never hardcoded), mirrors
+  // the same figures the module cards below already compute.
+  const projectsEl = document.getElementById('execProjectsValue');
+  if(projectsEl){
+    const siteCount = (typeof unifiedSites !== 'undefined' && unifiedSites.length) ? unifiedSites.length : 0;
+    projectsEl.textContent = siteCount || '—';
+  }
+  const contractorsEl = document.getElementById('execContractorsValue');
+  if(contractorsEl) contractorsEl.textContent = data.length;
+  const workforceEl = document.getElementById('execWorkforceValue');
+  if(workforceEl) workforceEl.textContent = (LABOR_DATA.length + STAFF_DATA.length).toLocaleString();
 
   const today = new Date().toISOString().slice(0,10);
   const todaysRecs = (typeof dailyLaborRecords !== 'undefined' ? dailyLaborRecords : []).filter(r => r.date === today);
   if(todaysRecs.length > 0){
     const totalPresent = todaysRecs.reduce((s,r) => s + (r.presentCount||0), 0);
     document.getElementById('homeAttendanceStat').textContent = `${totalPresent} Present Today`;
+    const execAttVal = document.getElementById('execAttendanceValue');
+    if(execAttVal) execAttVal.textContent = totalPresent;
   }else{
     document.getElementById('homeAttendanceStat').textContent = "No entries yet today";
+    const execAttVal = document.getElementById('execAttendanceValue');
+    const execAttSub = document.getElementById('execAttendanceSub');
+    if(execAttVal) execAttVal.textContent = '—';
+    if(execAttSub) execAttSub.textContent = 'No entries yet today';
   }
 
   const villaSites = [...new Set((typeof villaRecords !== 'undefined' ? villaRecords : []).map(v => v.project).filter(Boolean))];
@@ -3891,6 +4038,8 @@ function renderHomeStats(){
   document.getElementById('homeVehiclesStat').textContent = soon > 0
     ? `⚠ ${soon} Expiring Soon`
     : `${VEHICLES_DATA.length} Vehicles Tracked`;
+
+  safeCreateLucideIcons();
 }
 
 document.getElementById('tabHomeBtn').onclick = goHome;
