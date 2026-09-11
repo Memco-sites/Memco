@@ -1779,7 +1779,7 @@ body{
     <p style="font-size:12.5px;color:var(--ink-dim);margin-top:-8px;">Al Muhanad Sub-Contractor Tracker</p>
     <div class="field">
       <label>Username</label>
-      <input type="text" id="loginUsername" placeholder="username" autocomplete="username">
+      <input type="text" id="loginUsername" placeholder="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
     <div class="field">
       <label>Password</label>
@@ -1844,6 +1844,15 @@ body{
 <div class="overlay" id="usersOverlay">
   <div class="modal" style="max-width:480px;">
     <h3>Manage Users</h3>
+    <!-- Super-Admin-only diagnostic: cross-device sync (Supabase) failures
+         are deliberately swallowed everywhere else in this app so an
+         ordinary staff login never sees a scary error over a transient
+         network blip -- but that means a real, persistent setup problem
+         (e.g. Row-Level-Security rules blocking the anon key) could
+         otherwise go on forever with nothing visible anywhere. This line
+         is the one place that failure surfaces, right where a new user
+         actually gets created. See renderSupaHealthLine(). -->
+    <div id="usersSyncHealthLine" style="font-size:11.5px;line-height:1.5;margin:-4px 0 12px;padding:8px 10px;border-radius:6px;display:none;"></div>
     <div class="field" style="margin-bottom:8px;">
       <input type="text" id="usersSearchInput" placeholder="Search by HR Number or Full Name…" autocomplete="off">
     </div>
@@ -2833,6 +2842,26 @@ function withTimeout(promise, ms, timeoutValue){
                  () => { if(!settled){ settled = true; clearTimeout(timer); resolve(timeoutValue); } });
   });
 }
+// Every failure path in supaGetSharedState/supaSetSharedState below returns
+// a plain falsy value ON PURPOSE, so a broken or misconfigured cloud sync
+// degrades to "acts like local-only" instead of throwing errors at
+// ordinary staff during login. But that graceful-degradation design has a
+// real cost: it can hide a genuine setup problem (e.g. a fresh Supabase
+// table's Row-Level-Security policies blocking the anon key from ever
+// reading or writing it) completely silently, with no error a Super Admin
+// would ever see -- which looks EXACTLY like "cross-device sync doesn't
+// work at all", indistinguishable from the outside from the sync code
+// itself being broken. This tracks the actual last outcome/error (from the
+// Supabase client itself, e.g. a Postgres/PostgREST message like "new row
+// violates row-level security policy for table ...") so it can be surfaced
+// to a Super Admin in the Manage Users screen (see renderSupaHealthLine())
+// instead of only being discoverable via a browser's DevTools Network tab.
+const SUPA_HEALTH = { ok: null, lastError: null, lastCheckedAt: null };
+function recordSupaOutcome(ok, errorMessage){
+  SUPA_HEALTH.ok = ok;
+  SUPA_HEALTH.lastError = ok ? null : (errorMessage || 'Unknown error');
+  SUPA_HEALTH.lastCheckedAt = new Date().toISOString();
+}
 // Reads the shared JSON blob stored under `id`. Returns { data, updatedAt }
 // or null if the row doesn't exist yet, the SDK hasn't finished loading
 // yet, the call timed out, or Supabase can't be reached for any other
@@ -2846,11 +2875,13 @@ async function supaGetSharedState(id){
       client.from(SUPABASE_SYNC_TABLE).select('data,updated_at').eq('id', id).limit(1),
       SUPA_NETWORK_TIMEOUT_MS, null
     );
-    if(!result) return null; // timed out, or the query itself resolved falsy
+    if(!result){ recordSupaOutcome(false, 'Request timed out (' + SUPA_NETWORK_TIMEOUT_MS + 'ms) — check your network connection.'); return null; }
     const { data: rows, error } = result;
-    if(error || !rows || !rows[0]) return null;
+    if(error){ recordSupaOutcome(false, error.message || String(error)); return null; }
+    recordSupaOutcome(true);
+    if(!rows || !rows[0]) return null; // configured & reachable, row just doesn't exist yet -- not a failure
     return { data: rows[0].data, updatedAt: rows[0].updated_at };
-  }catch(e){ return null; }
+  }catch(e){ recordSupaOutcome(false, e && e.message ? e.message : String(e)); return null; }
 }
 // Upserts the shared JSON blob under `id`. This is fire-and-forget from
 // the caller's perspective — localStorage has already been written by
@@ -2865,9 +2896,11 @@ async function supaSetSharedState(id, valueObj){
       client.from(SUPABASE_SYNC_TABLE).upsert({ id, data: valueObj, updated_at: new Date().toISOString() }, { onConflict: 'id' }),
       SUPA_NETWORK_TIMEOUT_MS, null
     );
-    if(!result) return false; // timed out
-    return !result.error;
-  }catch(e){ return false; }
+    if(!result){ recordSupaOutcome(false, 'Request timed out (' + SUPA_NETWORK_TIMEOUT_MS + 'ms) — check your network connection.'); return false; }
+    if(result.error){ recordSupaOutcome(false, result.error.message || String(result.error)); return false; }
+    recordSupaOutcome(true);
+    return true;
+  }catch(e){ recordSupaOutcome(false, e && e.message ? e.message : String(e)); return false; }
 }
 // Last remote updated_at timestamp we've already applied, per shared key —
 // lets the poll loop tell "a genuinely new remote change" apart from
@@ -2998,7 +3031,14 @@ const DEFAULT_USERS = [
   { id: 3, name: "Camp Boss", username: "campboss", password: "camp123", role: "Camp Boss", site: "" },
   { id: 4, name: "Site Engineer (Acres)", username: "acres_eng", password: "site123", role: "Site Engineer", site: "ACRES" },
   { id: 5, name: "Site Supervisor (Acres)", username: "sitesup", password: "sitesup123", role: "Site Supervisor", site: "ACRES" },
-  { id: 6, name: "Foreman (Acres)", username: "foreman1", password: "foreman123", role: "Foreman", site: "ACRES" }
+  { id: 6, name: "Foreman (Acres)", username: "foreman1", password: "foreman123", role: "Foreman", site: "ACRES" },
+  // Hardcoded so this specific account is guaranteed to work on every
+  // device -- even a brand-new phone/browser with no local data and no
+  // reachable cloud sync -- without depending on a Supabase round-trip.
+  // loadUsers()'s existing self-heal logic (below) also pushes this into
+  // every device's ALREADY-stored USERS list (and re-mirrors it to
+  // Supabase) the next time each one boots, not just fresh installs.
+  { id: 7, name: "Jamshed", username: "jamshed", password: "jam123", role: "Project Manager", site: "" }
 ];
 let USERS = [];
 let currentUser = null;
@@ -3216,7 +3256,14 @@ async function doLogin(){
   const uField = document.getElementById('loginUsername');
   const pField = document.getElementById('loginPassword');
   const u = uField.value.trim();
-  const p = pField.value;
+  // Trimmed (added) -- a mobile keyboard's autofill/autocomplete suggestion
+  // can leave a stray leading/trailing space in a password field, which
+  // used to fail an exact-match comparison with no visible explanation.
+  // Never lowercased: unlike the username, the password is intentionally
+  // still compared case-sensitively -- silently lowercasing it would both
+  // weaken real passwords and make "Password1" and "password1" the same
+  // account by accident.
+  const p = pField.value.trim();
   const errEl = document.getElementById('loginError');
   const match = USERS.find(x => x.username.toLowerCase() === u.toLowerCase() && x.password === p);
   if(!match){
@@ -3656,7 +3703,12 @@ document.getElementById('uSaveBtn').onclick = async () => {
   const id = document.getElementById('uEditId').value;
   const name = document.getElementById('uName').value.trim();
   const username = document.getElementById('uUsername').value.trim();
-  const password = document.getElementById('uPassword').value;
+  // Trimmed (added) -- an admin accidentally leaving a trailing space while
+  // typing a new password here used to create an account that could never
+  // actually log in anywhere, since the login form's own password input is
+  // (now also) trimmed before comparing. Keeping both sides trimmed the
+  // same way is what actually matters, not trimming alone.
+  const password = document.getElementById('uPassword').value.trim();
   const hrCode = document.getElementById('uEmployeeId').value.trim();
   const role = document.getElementById('uRole').value;
   const site = SITE_LOCKED_ROLES.includes(role) ? document.getElementById('uSite').value : '';
@@ -3673,6 +3725,7 @@ document.getElementById('uSaveBtn').onclick = async () => {
   await saveUsers();
   showToast('User saved');
   renderUsersScreen();
+  renderSupaHealthLine(); // confirms (or flags) whether this save actually reached the shared cloud store, not just this device
 };
 document.getElementById('uDeleteBtn').onclick = async () => {
   const id = document.getElementById('uEditId').value;
@@ -3683,11 +3736,48 @@ document.getElementById('uDeleteBtn').onclick = async () => {
   showToast('User deleted');
   renderUsersScreen();
 };
+// Runs one real, fresh probe against the shared Users row and reports the
+// outcome in the Manage Users modal -- the whole point is to turn "a new
+// user silently never appears on other devices" from an invisible failure
+// into something a Super Admin can actually see and act on. A likely real
+// cause on a freshly-created Supabase project: table Row-Level-Security is
+// enabled with no policy permitting the anon key to read/write it, which
+// makes every save/read look like it "just doesn't sync" with no error
+// visible anywhere else in the app.
+async function renderSupaHealthLine(){
+  const el = document.getElementById('usersSyncHealthLine');
+  if(!el) return;
+  if(!supabaseConfigured()){
+    el.style.display = 'block';
+    el.style.background = 'rgba(127,168,201,0.12)';
+    el.style.color = 'var(--steel)';
+    el.textContent = 'ℹ️ Cloud sync is not configured — users created here only apply on this device/browser.';
+    return;
+  }
+  el.style.display = 'block';
+  el.style.background = 'rgba(127,168,201,0.12)';
+  el.style.color = 'var(--steel)';
+  el.textContent = '⏳ Checking cloud sync…';
+  await supaGetSharedState(USERS_KEY); // fresh probe; updates SUPA_HEALTH as a side effect
+  if(SUPA_HEALTH.ok){
+    el.style.background = 'rgba(95,172,124,0.14)';
+    el.style.color = 'var(--green)';
+    el.textContent = '✅ Cloud sync connected — new users reach every device automatically.';
+  } else {
+    const msg = SUPA_HEALTH.lastError || 'Unknown error';
+    const looksLikeRls = /row-level security|permission denied|rls/i.test(msg);
+    el.style.background = 'rgba(217,97,79,0.14)';
+    el.style.color = 'var(--red)';
+    el.textContent = '⚠️ Cloud sync failed — new users will NOT reach other devices until this is fixed. ' + msg
+      + (looksLikeRls ? ' (This usually means the Supabase table "app_shared_state" needs a policy allowing the anon key to select/insert/update it — check Authentication > Policies in the Supabase dashboard.)' : '');
+  }
+}
 document.getElementById('manageUsersBtn').onclick = () => {
   const s = document.getElementById('usersSearchInput');
   if(s) s.value = '';
   renderUsersScreen();
   document.getElementById('usersOverlay').classList.add('open');
+  renderSupaHealthLine();
 };
 document.getElementById('usersCloseBtn').onclick = () => {
   document.getElementById('usersOverlay').classList.remove('open');
