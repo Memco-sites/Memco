@@ -643,8 +643,12 @@ body{
 .labor-table-row:nth-child(even){ background: rgba(255,255,255,0.02); }
 .labor-table-row .ltr-code{ font-family:'IBM Plex Mono', monospace; font-weight:700; color: var(--orange); font-size:12.5px; }
 .labor-table-row .ltr-name{ color: var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.labor-table-row .ltr-mobile{ font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; text-decoration:none; color: var(--steel); }
-.labor-table-row .ltr-mobile.missing{ color: var(--red); font-style:italic; }
+.labor-table-row .ltr-mobile{ font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-decoration:none; color: var(--steel); }
+.labor-table-row .ltr-mobile.missing{ color: var(--red); font-style:italic; cursor:pointer; }
+.labor-table-row .ltr-mobile a.tel-link{ color: var(--steel); text-decoration:none; cursor:pointer; }
+.labor-table-row .ltr-mobile a.tel-link:hover{ color: var(--orange); text-decoration:underline; }
+.labor-table-row .ltr-mobile .mobile-edit-icon{ cursor:pointer; opacity:0.55; margin-left:6px; font-size:10.5px; }
+.labor-table-row .ltr-mobile .mobile-edit-icon:hover{ opacity:1; }
 .labor-table-row .ltr-trade{ color: var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
 .labor-table-row .ltr-site{ color: var(--steel); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
@@ -1057,6 +1061,10 @@ body{
   color: var(--ink-faint);
   font-style: italic;
 }
+/* Generic click-to-call link used anywhere a mobile/phone number is shown
+   outside its own dedicated .phone styling (worker detail modal, etc). */
+a.tel-link{ color: var(--ink); text-decoration: none; }
+a.tel-link:hover{ color: var(--orange); text-decoration: underline; }
 .card-actions{
   display:flex;
   gap: 6px;
@@ -1621,6 +1629,115 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
   .letterhead .mark svg{ width:40px; height:40px; }
   .letterhead .lh-name{ font-size:18px; }
 }
+
+/* ---- Fix 1: dropdown / <option> contrast ----
+   Native <select> popups (e.g. the "All Sites" filter) were inheriting the
+   OS/browser light theme for their option list in several browsers,
+   leaving white-on-white or otherwise unreadable rows. Force a dark navy
+   background with bright white text on every option, plus a clearly
+   distinct hover/focus/selected state, so the popup always matches the
+   app's dark theme regardless of platform defaults. ---- */
+select{
+  background-color: #1e293b;
+  color: #ffffff;
+  color-scheme: dark;
+}
+select option,
+select optgroup{
+  background-color: #1e293b;
+  color: #ffffff;
+}
+select option:hover,
+select option:focus,
+select option:checked,
+select option:active{
+  background-color: #334155 !important;
+  color: #ffffff !important;
+}
+
+/* ---- Fix 2: zero-flicker layout stability ----
+   Reserve the scrollbar's width up front and always keep the vertical
+   scrollbar track present (instead of only when content overflows) so
+   switching tabs/filters never jitters the layout sideways as the
+   scrollbar pops in and out. The Sign-In / modal overlay still locks
+   scrolling via an inline body.style.overflow='hidden' toggle elsewhere;
+   clearing that inline style (set back to '') simply falls back to the
+   'scroll' behavior below, so the two never conflict. ---- */
+html{
+  scrollbar-gutter: stable;
+}
+body{
+  overflow-y: scroll;
+}
+
+/* ---- Fix 4: Al Muhanad Labor Attendance & OT Control Module ---- */
+.ot-controls{
+  background: var(--navy-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 10px 0 14px;
+}
+.ot-controls-row{
+  display:flex;
+  align-items:flex-end;
+  gap:12px;
+  flex-wrap:wrap;
+}
+.ot-switch-wrap{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.ot-toggle-slider-wrap{
+  position:relative;
+  display:inline-block;
+  width:38px;
+  height:21px;
+  flex-shrink:0;
+}
+.ot-toggle-slider-wrap input{
+  opacity:0;
+  width:0;
+  height:0;
+}
+.ot-toggle-slider{
+  position:absolute;
+  cursor:pointer;
+  inset:0;
+  background-color: var(--line);
+  border-radius:21px;
+  transition:.15s;
+}
+.ot-toggle-slider:before{
+  position:absolute;
+  content:"";
+  height:15px;
+  width:15px;
+  left:3px;
+  bottom:3px;
+  background-color:#fff;
+  border-radius:50%;
+  transition:.15s;
+}
+.ot-toggle-slider-wrap input:checked + .ot-toggle-slider{ background-color: var(--green); }
+.ot-toggle-slider-wrap input:checked + .ot-toggle-slider:before{ transform: translateX(17px); }
+.ot-toggle-slider-wrap input:disabled + .ot-toggle-slider{ opacity:0.5; cursor:not-allowed; }
+.ot-enabled-text{ font-size:12px; font-weight:600; white-space:nowrap; }
+.ot-cumulative-row{
+  margin-top:10px;
+  font-family:'IBM Plex Mono', monospace;
+  font-size:12px;
+  color: var(--orange);
+  font-weight:600;
+}
+.ot-holiday-note{
+  margin-top:6px;
+  font-size:11.5px;
+  color: var(--steel);
+  font-style:italic;
+}
+.latt-ot-input:disabled{ opacity:0.45; cursor:not-allowed; }
 </style>
 </head>
 <body>
@@ -2241,6 +2358,36 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
         <h2>Al Muhanad Labor — tap to mark Absent</h2>
       </div>
       <div class="att-summary" id="laborAttSummary"></div>
+
+      <div class="ot-controls" id="otControlsBar">
+        <div class="ot-controls-row">
+          <div class="att-inline-row" style="flex:1;margin-bottom:0;">
+            <label>OT Date</label>
+            <input type="date" id="attOtDate" title="Overtime is logged against its own date — usually yesterday — separately from today's Attendance date above.">
+          </div>
+          <div class="ot-switch-wrap">
+            <label class="ot-toggle-slider-wrap">
+              <input type="checkbox" id="otEnabledToggle">
+              <span class="ot-toggle-slider"></span>
+            </label>
+            <span id="otEnabledText" class="ot-enabled-text"></span>
+          </div>
+          <div class="att-inline-row" style="flex:1;margin-bottom:0;">
+            <label>Max OT Cap</label>
+            <select id="otMaxCapSelect">
+              <option value="">No cap</option>
+              <option value="1">1 hr</option>
+              <option value="2">2 hrs</option>
+              <option value="3">3 hrs</option>
+              <option value="4">4 hrs</option>
+            </select>
+          </div>
+          <button class="btn btn-ghost" id="otManageHolidaysBtn" style="padding:6px 10px;font-size:11px;white-space:nowrap;">🎌 Holidays</button>
+        </div>
+        <div class="ot-cumulative-row" id="otCumulativeRow"></div>
+        <div class="ot-holiday-note" id="otHolidayNote" style="display:none;"></div>
+      </div>
+
       <input type="text" id="laborAttSearch" placeholder="Search a worker…" style="width:100%;background:var(--navy-2);border:1px solid var(--line);color:var(--ink);padding:9px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;margin-bottom:10px;">
       <div id="laborAttList" style="max-height:420px;overflow-y:auto;"></div>
     </div>
@@ -2710,7 +2857,7 @@ const LEGACY_ROLE_CARDS = {
   // Tick what each one needs in Manage Users -> Permission Matrix.
 };
 const LEGACY_ROLE_PERMISSIONS = {
-  "Site Engineer": { markAttendance:true, updateVillaProgress:true },
+  "Site Engineer": { markAttendance:true, updateVillaProgress:true, manageOtSettings:true },
   "Camp Boss": { manageCamp:true },
   "Transport Manager": { assignDriver:true, updateVehicleStatus:true, editDriverLicense:true },
   // Both can mark attendance; neither can edit project progress, view
@@ -2734,6 +2881,7 @@ const ACTION_PERMISSIONS = [
   { key: 'updateVehicleExpiry', label: 'Edit Vehicle Registration / Insurance Expiry', group: 'Vehicles' },
   { key: 'deleteVehicle', label: 'Delete Vehicle', group: 'Vehicles' },
   { key: 'editDriverLicense', label: 'Edit Driver License Type (Drivers Roster)', group: 'Vehicles' },
+  { key: 'manageOtSettings', label: 'Manage Overtime Settings (Enable/Disable per project, Max OT Cap, Public Holidays)', group: 'Attendance' },
 ];
 // Auto-discovers every dashboard card straight from the Home screen's own
 // HTML (any element with class "home-card" and an id, label read from its
@@ -3914,6 +4062,22 @@ function escapeHtml(str){
 }
 function escapeAttr(str){ return escapeHtml(str); }
 
+// Mobile click-to-call: local UAE numbers throughout the app (Staff/Labor/
+// Camp records) are normalized to a leading-0 10-digit form (e.g.
+// "0501234567" — see the mobile-normalization pass in loadCampsData), so a
+// bare "+971" + digits concat (as already used for Sub-Contractor contact
+// numbers) would double the leading zero. This strips it (and tolerates an
+// already-international "+971"/"971" prefixed number) before building the
+// tel: URI so every phone field's Call link actually dials.
+function telHref(num){
+  let n = String(num || '').trim().replace(/[^\d+]/g, '');
+  if(!n) return '';
+  if(n.startsWith('+971')) return n;
+  if(n.startsWith('971')) return '+' + n;
+  if(n.startsWith('0')) n = n.slice(1);
+  return '+971' + n;
+}
+
 function matchesFilters(d){
   if(activeCategory && d.category !== activeCategory) return false;
   if(activeSite && d.site !== activeSite) return false;
@@ -4420,7 +4584,14 @@ const DAILY_LABOR_KEY = "daily-labor-attendance-v1";
 let dailyLaborRecords = [];
 let dailyLaborLoaded = false;
 let currentAbsentMap = {}; // code -> reason
-let currentOTMap = {}; // code -> OT hours (number, as string while typing)
+let currentOTMap = {}; // code -> OT hours (number, as string while typing), keyed against the selected OT date (see attOtDate), not necessarily the Attendance date
+let currentOtDateAbsentMap = {}; // read-only snapshot: code -> reason, who was Absent ON THE SELECTED OT DATE specifically (may differ from the Attendance-date absentee map above) — used only to disable/zero the OT box for them
+const PROJECT_OT_SETTINGS_KEY = "project-ot-settings-v1";
+let projectOtSettings = {}; // { [project]: { otEnabled: true/false, maxOtCap: '' | '1' | '2' | '3' | '4' } }
+let projectOtSettingsLoaded = false;
+const HOLIDAYS_KEY = "public-holidays-v1";
+let holidayDates = []; // extra official public holidays (YYYY-MM-DD) beyond the standing weekly Sunday holiday
+let holidayDatesLoaded = false;
 
 function showSection(id){
   ['homeView','directoryView','attendanceView','laborView','staffView','villasView','campsView','transferView','vehiclesView'].forEach(v => {
@@ -4650,6 +4821,15 @@ async function loadAttendanceData(){
     const today = new Date();
     dateInput.value = today.toISOString().slice(0,10);
   }
+  // OT Entries default to Yesterday, kept independent from the Attendance
+  // date above so a foreman can mark today's attendance while still
+  // logging OT for yesterday in the same visit.
+  const otDateInput = document.getElementById('attOtDate');
+  if(otDateInput && !otDateInput.value){
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    otDateInput.value = yesterday.toISOString().slice(0,10);
+  }
   renderAttProjectSelect();
   onDateOrProjectChange();
 }
@@ -4719,6 +4899,10 @@ document.getElementById('removeProjectBtn').onclick = async () => {
 
 document.getElementById('attDate').addEventListener('change', onDateOrProjectChange);
 document.getElementById('attProject').addEventListener('change', onDateOrProjectChange);
+document.getElementById('attOtDate').addEventListener('change', refreshOtState);
+document.getElementById('otEnabledToggle').addEventListener('change', onOtSettingChange);
+document.getElementById('otMaxCapSelect').addEventListener('change', onOtSettingChange);
+document.getElementById('otManageHolidaysBtn').addEventListener('click', manageHolidays);
 
 function findAttRecord(date, project){
   return attendanceRecords.find(r => r.date === date && r.project === project);
@@ -4735,6 +4919,20 @@ async function onDateOrProjectChange(){
     }catch(e){ dailyLaborRecords = []; }
     dailyLaborLoaded = true;
   }
+  if(!projectOtSettingsLoaded){
+    try{
+      const res = await window.storage.get(PROJECT_OT_SETTINGS_KEY, true);
+      projectOtSettings = res && res.value ? JSON.parse(res.value) : {};
+    }catch(e){ projectOtSettings = {}; }
+    projectOtSettingsLoaded = true;
+  }
+  if(!holidayDatesLoaded){
+    try{
+      const res = await window.storage.get(HOLIDAYS_KEY, true);
+      holidayDates = res && res.value ? JSON.parse(res.value) : [];
+    }catch(e){ holidayDates = []; }
+    holidayDatesLoaded = true;
+  }
   const existing = findAttRecord(date, project);
   if(existing){
     document.getElementById('attOverallLabor').value = existing.overallLabor || '';
@@ -4749,14 +4947,141 @@ async function onDateOrProjectChange(){
 
   const dailyExisting = dailyLaborRecords.find(r => r.date === date && r.project === project);
   currentAbsentMap = {};
-  currentOTMap = {};
   if(dailyExisting){
     (dailyExisting.absentees || []).forEach(a => { currentAbsentMap[a.code] = a.reason || ''; });
-    currentOTMap = { ...(dailyExisting.otHours || {}) };
+  }
+
+  const otDateInput = document.getElementById('attOtDate');
+  if(!otDateInput.value){
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    otDateInput.value = yesterday.toISOString().slice(0,10);
   }
   document.getElementById('laborAttSearch').value = '';
+  refreshOtState();
+}
+
+// Reloads everything tied to the independently-selectable OT date (the OT
+// hours already on file for that date, and who was marked Absent ON THAT
+// DATE, so the OT box can be auto-disabled/zeroed for them) without
+// disturbing the Attendance-date Present/Absent map above, then redraws
+// the OT master-switch/cap controls, the checklist and the snapshot.
+function refreshOtState(){
+  const project = document.getElementById('attProject').value;
+  const attDateVal = document.getElementById('attDate').value;
+  const otDate = document.getElementById('attOtDate').value;
+  currentOTMap = {};
+  currentOtDateAbsentMap = {};
+  if(project && otDate){
+    const otDateRecord = dailyLaborRecords.find(r => r.date === otDate && r.project === project);
+    if(otDateRecord){
+      currentOTMap = { ...(otDateRecord.otHours || {}) };
+      if(otDateRecord.attendanceTaken){
+        (otDateRecord.absentees || []).forEach(a => { currentOtDateAbsentMap[a.code] = a.reason || ''; });
+      }
+    }
+    // If the OT date happens to be the same date currently open for
+    // Attendance, the live (possibly still-unsaved) Absent map is more
+    // current than whatever was last saved, so it wins.
+    if(attDateVal === otDate){
+      currentOtDateAbsentMap = { ...currentAbsentMap };
+    }
+  }
+  // Absence Dependency Check: zero-out any OT already on file for a worker
+  // who turns out to be marked Absent on that same OT date.
+  Object.keys(currentOtDateAbsentMap).forEach(code => { delete currentOTMap[code]; });
+  renderOtControls();
   renderLaborAttChecklist();
   updateAttSummary();
+}
+
+async function onOtSettingChange(){
+  const project = document.getElementById('attProject').value;
+  if(!project) return;
+  if(!can('manageOtSettings')){
+    showToast('You do not have permission to change Overtime settings');
+    renderOtControls();
+    return;
+  }
+  const otEnabled = document.getElementById('otEnabledToggle').checked;
+  const maxOtCap = document.getElementById('otMaxCapSelect').value;
+  projectOtSettings[project] = { ...(projectOtSettings[project] || {}), otEnabled, maxOtCap };
+  try{ await window.storage.set(PROJECT_OT_SETTINGS_KEY, JSON.stringify(projectOtSettings), true); }catch(e){}
+  showToast(`Overtime ${otEnabled ? 'enabled' : 'disabled'} for ${project}`);
+  renderOtControls();
+  renderLaborAttChecklist();
+}
+
+async function manageHolidays(){
+  if(!can('manageOtSettings')){ showToast('You do not have permission to manage public holidays'); return; }
+  const current = holidayDates.join(', ');
+  const val = prompt('Official public holiday dates (comma-separated, YYYY-MM-DD).\nEvery Sunday already gets the flexible OT allowance automatically as the standing weekly holiday — list any EXTRA public holidays here:', current);
+  if(val === null) return;
+  holidayDates = val.split(',').map(s => s.trim()).filter(Boolean);
+  try{ await window.storage.set(HOLIDAYS_KEY, JSON.stringify(holidayDates), true); }catch(e){}
+  showToast('Public holidays updated');
+  refreshOtState();
+}
+
+// Sunday is this app's standing weekly holiday (see the Excel export's own
+// "Weekly Holiday: Sun" convention and its dow===0 -> 'H' marking) — Friday
+// and Saturday are ordinary working days for this company. Both Sunday and
+// any admin-listed public holiday trigger the flexible OT allowance.
+function isHolidayOrSunday(dateStr){
+  if(!dateStr) return false;
+  if(new Date(dateStr + 'T00:00:00').getDay() === 0) return true;
+  return holidayDates.includes(dateStr);
+}
+
+function renderOtControls(){
+  const project = document.getElementById('attProject').value;
+  const otDate = document.getElementById('attOtDate').value;
+  const settings = projectOtSettings[project] || {};
+  const otEnabled = settings.otEnabled !== false;
+  const editable = can('manageOtSettings');
+
+  const toggleEl = document.getElementById('otEnabledToggle');
+  const capEl = document.getElementById('otMaxCapSelect');
+  toggleEl.checked = otEnabled;
+  toggleEl.disabled = !editable;
+  capEl.value = settings.maxOtCap || '';
+  capEl.disabled = !editable || !otEnabled;
+
+  const textEl = document.getElementById('otEnabledText');
+  textEl.textContent = otEnabled ? 'Overtime Enabled' : 'Overtime Disabled';
+  textEl.style.color = otEnabled ? 'var(--green)' : 'var(--red)';
+
+  const holidayBtn = document.getElementById('otManageHolidaysBtn');
+  if(holidayBtn) holidayBtn.style.display = editable ? '' : 'none';
+
+  const isFlex = isHolidayOrSunday(otDate);
+  const noteEl = document.getElementById('otHolidayNote');
+  if(otDate && isFlex && otEnabled){
+    noteEl.style.display = '';
+    const dow = new Date(otDate + 'T00:00:00').getDay();
+    noteEl.textContent = `🗓 ${otDate} is ${dow === 0 ? 'a Sunday (weekly holiday)' : 'a public holiday'} — the Max OT Cap is relaxed (flexible OT allowance) for this date.`;
+  }else{
+    noteEl.style.display = 'none';
+  }
+
+  // Cumulative Site OT Dashboard: total OT hours logged for this project in
+  // the OT date's calendar month, for real-time cost tracking.
+  const cumEl = document.getElementById('otCumulativeRow');
+  if(project && otDate){
+    const d = new Date(otDate + 'T00:00:00');
+    const y = d.getFullYear(), m = d.getMonth();
+    let total = 0;
+    dailyLaborRecords.forEach(r => {
+      if(r.project !== project || !r.otHours) return;
+      const rd = new Date(r.date + 'T00:00:00');
+      if(rd.getFullYear() !== y || rd.getMonth() !== m) return;
+      Object.values(r.otHours).forEach(v => { total += Number(v) || 0; });
+    });
+    const monthName = d.toLocaleString('en-US', { month: 'long' });
+    cumEl.textContent = `📊 Cumulative OT — ${project}, ${monthName} ${y}: ${total} hrs`;
+  }else{
+    cumEl.textContent = '';
+  }
 }
 
 function renderSubRows(){
@@ -4834,11 +5159,25 @@ function renderLaborAttChecklist(){
     listEl.innerHTML = '';
     return;
   }
+  // ---- Overtime gating for this render pass: project master switch, Max
+  // OT Cap, and the Sunday/public-holiday flexible allowance. ----
+  const otDate = document.getElementById('attOtDate').value;
+  const otSettings = projectOtSettings[project] || {};
+  const otEnabled = otSettings.otEnabled !== false;
+  const isFlexDay = isHolidayOrSunday(otDate);
+  const capBase = otSettings.maxOtCap ? Number(otSettings.maxOtCap) : null;
+  const effectiveCap = !otEnabled ? 0 : (isFlexDay ? null : capBase);
+
   const capped = shown.slice(0, 300);
   listEl.innerHTML = capped.map(l => {
     const isAbsent = currentAbsentMap.hasOwnProperty(l.code);
     const reason = currentAbsentMap[l.code] || '';
-    const otVal = currentOTMap[l.code] || '';
+    const absentOnOtDate = currentOtDateAbsentMap.hasOwnProperty(l.code);
+    const otDisabled = !otEnabled || absentOnOtDate;
+    const otVal = otDisabled ? '' : (currentOTMap[l.code] || '');
+    const otTitle = !otEnabled
+      ? 'Overtime is disabled for this project'
+      : (absentOnOtDate ? `Marked Absent on ${otDate} — OT not applicable` : (effectiveCap != null ? `Max ${effectiveCap} hr(s) for this date` : 'Flexible/no cap for this date'));
     return `
       <div class="latt-row">
         <div class="latt-name">${escapeHtml(l.name)}<span class="latt-code">${escapeHtml(l.code)} · ${escapeHtml(l.trade || '')}</span>
@@ -4846,7 +5185,7 @@ function renderLaborAttChecklist(){
         </div>
         <div class="latt-actions">
           <button class="latt-toggle ${isAbsent?'absent':''}" data-toggle-code="${escapeAttr(l.code)}">${isAbsent ? ('Absent' + (reason ? ' · ' + escapeHtml(reason) : '')) : 'Present'}</button>
-          <input type="number" min="0" max="24" step="0.5" class="latt-ot-input" data-ot-code="${escapeAttr(l.code)}" placeholder="OT hrs" value="${escapeAttr(otVal)}">
+          <input type="number" min="0" ${effectiveCap != null ? `max="${effectiveCap}"` : 'max="24"'} step="0.5" class="latt-ot-input" data-ot-code="${escapeAttr(l.code)}" placeholder="OT hrs" value="${escapeAttr(otVal)}" title="${escapeAttr(otTitle)}" ${otDisabled ? 'disabled' : ''}>
         </div>
       </div>
     `;
@@ -4857,6 +5196,7 @@ function renderLaborAttChecklist(){
       const code = btn.dataset.toggleCode;
       if(currentAbsentMap.hasOwnProperty(code)) delete currentAbsentMap[code];
       else currentAbsentMap[code] = '';
+      syncOtDateAbsentIfSameDay();
       renderLaborAttChecklist();
       renderAttSnapshot();
     });
@@ -4865,6 +5205,7 @@ function renderLaborAttChecklist(){
     chip.addEventListener('click', (e) => {
       e.stopPropagation();
       currentAbsentMap[chip.dataset.reasonCode] = chip.dataset.reason;
+      syncOtDateAbsentIfSameDay();
       renderLaborAttChecklist();
       renderAttSnapshot();
     });
@@ -4873,13 +5214,32 @@ function renderLaborAttChecklist(){
     inp.addEventListener('click', (e) => e.stopPropagation());
     inp.addEventListener('input', (e) => {
       const code = inp.dataset.otCode;
-      const val = inp.value.trim();
+      let val = inp.value.trim();
+      if(effectiveCap != null && val !== '' && Number(val) > effectiveCap){
+        val = String(effectiveCap);
+        inp.value = val;
+        showToast(`Max OT Cap for this project is ${effectiveCap} hr(s)`);
+      }
       if(val === '') delete currentOTMap[code];
       else currentOTMap[code] = val;
     });
   });
 }
 document.getElementById('laborAttSearch').addEventListener('input', renderLaborAttChecklist);
+
+// If the OT date currently selected is the SAME calendar date as the
+// Attendance date being edited, the two Absent maps are really the same
+// data — keep the OT-side read-only snapshot (and any now-invalid OT entry
+// for a worker who just got marked Absent) in sync with live edits, without
+// touching already-saved data for other dates.
+function syncOtDateAbsentIfSameDay(){
+  const attDateVal = document.getElementById('attDate').value;
+  const otDate = document.getElementById('attOtDate').value;
+  if(attDateVal && attDateVal === otDate){
+    currentOtDateAbsentMap = { ...currentAbsentMap };
+    Object.keys(currentOtDateAbsentMap).forEach(code => { delete currentOTMap[code]; });
+  }
+}
 
 function updateAttSummary(){
   renderAttSnapshot();
@@ -5007,8 +5367,13 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   if(!project){ showToast('Pick a project first'); return; }
   if(typeof ExcelJS === 'undefined'){ showToast('Excel library did not load — check your internet connection'); return; }
 
+  // Parsed with an explicit local-midnight time (rather than the bare
+  // "YYYY-MM-DD" form, which JS parses as UTC) so the month/day-of-week
+  // math below can never drift a day depending on the browser's timezone
+  // offset -- the root cause behind the previous sheet's broken date
+  // sequence.
   const refDateStr = document.getElementById('attDate').value || new Date().toISOString().slice(0,10);
-  const refDate = new Date(refDateStr);
+  const refDate = new Date(refDateStr + 'T00:00:00');
   const year = refDate.getFullYear();
   const month = refDate.getMonth(); // 0-indexed
   const monthName = refDate.toLocaleString('en-US', { month: 'long' });
@@ -5020,12 +5385,18 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   const dayInfoMap = {};
   dailyLaborRecords.forEach(r => {
     if(r.project !== project) return;
-    const d = new Date(r.date);
+    const d = new Date(r.date + 'T00:00:00');
     if(d.getFullYear() !== year || d.getMonth() !== month) return;
     const dayNum = d.getDate();
     const absentMap = {};
     (r.absentees || []).forEach(a => { absentMap[a.code] = a.reason || 'A'; });
-    dayInfoMap[dayNum] = { absentMap, otMap: r.otHours || {}, hasRecord: true };
+    // Only a REAL attendance save (attendanceTaken) may mark the day
+    // Present/Absent -- an OT-only shell record (OT entered for a date
+    // before/without attendance being taken for it) must not silently
+    // flip every worker to "P" for that day. OT hours themselves are read
+    // independently below (Synchronized OT Alignment), regardless of
+    // whether attendance was ever taken for that date.
+    dayInfoMap[dayNum] = { absentMap, otMap: r.otHours || {}, hasRecord: !!r.attendanceTaken };
   });
 
   const FONT_NAME = 'Century Gothic';
@@ -5039,14 +5410,22 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   const ws = wb.addWorksheet(monthName + ' ' + year);
 
   // ---- Top control block (rows 1-4): dynamic date reference ----
+  // Fix 5: these were previously live formulas chained off $D$2 -- correct
+  // on their own, but any stale/cached formula result, or a viewer opening
+  // the file with auto-calculation off, would freeze the day numbers at
+  // whatever they last happened to be (the reported "31, 32, 33…" columns
+  // that don't belong to the selected month). Writing the true numeric day
+  // and weekday-name for every column as plain literal values below removes
+  // that dependency entirely -- they're simply always right, in Excel,
+  // Google Sheets, or any viewer, with or without recalculation.
   ws.getCell('A1').value = 'Month';
   ws.getCell('D1').value = new Date(year, month, 1);
   ws.getCell('D1').numFmt = 'mmm-yyyy';
-  ws.getCell('A2').value = 'Start month Containing';
-  ws.getCell('D2').value = { formula: 'D1' };
+  ws.getCell('A2').value = 'Start of month';
+  ws.getCell('D2').value = new Date(year, month, 1);
   ws.getCell('D2').numFmt = 'd/m/yyyy';
   ws.getCell('A3').value = 'First Day of the month';
-  ws.getCell('D3').value = { formula: 'TEXT(D1,"ddd")' };
+  ws.getCell('D3').value = new Date(year, month, 1).toLocaleString('en-US', { weekday: 'short' });
   ws.getCell('A4').value = 'Weekly Holiday';
   ws.getCell('D4').value = 'Sun';
   [1,2,3,4].forEach(r => { ws.getCell('A'+r).font = { name: FONT_NAME, bold: true, size: 10 }; });
@@ -5068,8 +5447,9 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   });
   for(let d=1; d<=daysInMonth; d++){
     const col = DAY_COL_START + d - 1;
-    dayNumRow.getCell(col).value = { formula: `DAY($D$2)+${d-1}` };
-    headerRow.getCell(col).value = { formula: `TEXT($D$2+${d-1},"ddd")` };
+    const cellDate = new Date(year, month, d);
+    dayNumRow.getCell(col).value = d;
+    headerRow.getCell(col).value = cellDate.toLocaleString('en-US', { weekday: 'short' });
   }
   const totalOTCol = DAY_COL_START + daysInMonth;
   const presentCol = totalOTCol + 1;
@@ -5114,9 +5494,16 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
       let code, ot;
       if(dayInfo && dayInfo.hasRecord){
         code = dayInfo.absentMap[w.code] ? (dayInfo.absentMap[w.code] || 'A') : 'P';
-        ot = dayInfo.otMap[w.code] ? Number(dayInfo.otMap[w.code]) : undefined;
       }else if(dow === 0){
         code = 'H';
+      }
+      // Synchronized OT Alignment: OT hours are looked up independently of
+      // whether Attendance was itself formally "taken" for that date, so
+      // OT entered for yesterday always lands in yesterday's own day
+      // column (and Total OT) even if it was logged before/without that
+      // day's attendance being separately saved.
+      if(dayInfo && dayInfo.otMap && dayInfo.otMap[w.code] !== undefined && dayInfo.otMap[w.code] !== ''){
+        ot = Number(dayInfo.otMap[w.code]);
       }
       if(code !== undefined) attRow.getCell(col).value = code;
       if(ot !== undefined) otRow.getCell(col).value = ot;
@@ -5140,22 +5527,44 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
     currentRow += 2;
   });
 
-  // ---- Legend ----
+  // ---- Legend (Fix 5: moved from bottom-left to the TOP-RIGHT corner, as
+  // a compact 2-row grid of color-coded badges, so it stays visible next
+  // to the header without scrolling down through however many employee
+  // rows the sheet has). ----
   const legend = [
     ['P','Present'], ['A','Absent'], ['SL','Sick Leave'], ['AL','Annual Leave'],
     ['EL','Emergency Leave'], ['PR','Passport Renewal'], ['UL','Umrah Leave'], ['HL','Hajj Leave'],
     ['VM','Visa Medical'], ['TT','Taujee Training'], ['VB','Visa Biometric'], ['SA','Site Accident'],
     ['OS','Other Site'], ['H','Holiday']
   ];
-  let legendRow = currentRow + 1;
-  ws.getCell(legendRow, 1).value = 'Legend:';
-  ws.getCell(legendRow, 1).font = { name: FONT_NAME, bold: true };
+  const LEGEND_COLORS = {
+    P:'FF8FAADC', A:'FFED7D31', SL:'FFFFD966', AL:'FFA9D18E', EL:'FFFF8A8A',
+    PR:'FFB4C7E7', UL:'FFC6E0B4', HL:'FFD9D2E9', VM:'FFF8CBAD', TT:'FFBDD7EE',
+    VB:'FFFFE699', SA:'FFFF9999', OS:'FFD9D9D9', H:'FFBFBFBF'
+  };
+  const LEGEND_PER_ROW = 7;
+  const LEGEND_START_COL = remarksCol + 2;
+  ws.getCell(1, LEGEND_START_COL).value = 'Legend:';
+  ws.getCell(1, LEGEND_START_COL).font = { name: FONT_NAME, bold: true, size: 11 };
   legend.forEach(([code,label], i) => {
-    const r = legendRow + 1 + i;
-    ws.getCell(r, 1).value = `${code} = ${label}`;
-    ws.getCell(r, 1).font = { name: FONT_NAME, size: 9 };
+    const rowOffset = Math.floor(i / LEGEND_PER_ROW);
+    const posInRow = i % LEGEND_PER_ROW;
+    const r = 2 + rowOffset;
+    const badgeCol = LEGEND_START_COL + posInRow * 2;
+    const labelCol = badgeCol + 1;
+    const badgeCell = ws.getCell(r, badgeCol);
+    badgeCell.value = code;
+    badgeCell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: LEGEND_COLORS[code] || 'FFD9D9D9' } };
+    badgeCell.font = { name: FONT_NAME, bold: true, size: 9 };
+    badgeCell.alignment = { horizontal:'center', vertical:'middle' };
+    badgeCell.border = THIN_BORDER;
+    const labelCell = ws.getCell(r, labelCol);
+    labelCell.value = label;
+    labelCell.font = { name: FONT_NAME, size: 8.5 };
+    labelCell.alignment = { horizontal:'left', vertical:'middle' };
   });
-  const footerRow = legendRow + legend.length + 2;
+
+  const footerRow = currentRow + 2;
   ws.getCell(footerRow, 1).value = `Exported by: ${currentUserName || 'Unknown'} on ${new Date().toLocaleString()}`;
   ws.getCell(footerRow, 1).font = { name: FONT_NAME, size: 9, italic: true };
 
@@ -5172,6 +5581,10 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   ws.getColumn(presentCol).width = 8;
   ws.getColumn(absentCol).width = 8;
   ws.getColumn(remarksCol).width = 16;
+  for(let i=0; i<LEGEND_PER_ROW; i++){
+    ws.getColumn(LEGEND_START_COL + i*2).width = 4;
+    ws.getColumn(LEGEND_START_COL + i*2 + 1).width = 15;
+  }
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -5186,8 +5599,23 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   showToast('Excel file downloaded with formulas & formatting');
 };
 
+// Creates or merges a dailyLaborRecords entry for one (date, project) pair
+// without clobbering fields owned by the OTHER kind of save (Attendance vs
+// OT) that may already exist there — e.g. saving OT for yesterday must not
+// blank out yesterday's already-recorded absentees, and saving today's
+// attendance must not touch OT hours someone already logged for today.
+function upsertDailyLaborRecord(date, project, patch){
+  const id = `${date}__${project}`;
+  const idx = dailyLaborRecords.findIndex(r => r.id === id);
+  const base = idx > -1 ? dailyLaborRecords[idx] : { id, date, project, total: 0, presentCount: 0, absentees: [], otHours: {} };
+  const merged = { ...base, ...patch, id, date, project };
+  if(idx > -1) dailyLaborRecords[idx] = merged; else dailyLaborRecords.push(merged);
+  return merged;
+}
+
 async function doSaveAttendance(){
   const date = document.getElementById('attDate').value;
+  const otDate = document.getElementById('attOtDate').value;
   const project = document.getElementById('attProject').value;
   if(!date || !project){ showToast('Pick a date and project'); return; }
   const cleanRows = currentSubRows.filter(r => r.company && r.company.trim());
@@ -5204,42 +5632,53 @@ async function doSaveAttendance(){
   else attendanceRecords.push(record);
 
   const siteLaborTotal = laborRecords.filter(l => l.site === project).length;
+
+  // Present/Absent is recorded against the Attendance date (Foreman
+  // Traceability: enteredBy/ts identify who submitted it).
   const absentees = Object.keys(currentAbsentMap)
     .filter(code => laborRecords.some(l => l.site === project && l.code === code))
     .map(code => {
       const w = laborRecords.find(l => l.code === code);
       return { code, name: w ? w.name : '', reason: currentAbsentMap[code] || '' };
     });
-  const otHours = {};
-  Object.keys(currentOTMap).forEach(code => {
-    if(laborRecords.some(l => l.site === project && l.code === code) && currentOTMap[code] !== ''){
-      otHours[code] = currentOTMap[code];
-    }
-  });
-  const dailyRecord = {
-    id: `${date}__${project}`,
-    date, project,
+  upsertDailyLaborRecord(date, project, {
     total: siteLaborTotal,
     presentCount: siteLaborTotal - absentees.length,
     absentees,
-    otHours,
+    attendanceTaken: true,
     enteredBy: currentUserName || 'Unknown',
     ts: new Date().toISOString()
-  };
-  const dIdx = dailyLaborRecords.findIndex(r => r.id === dailyRecord.id);
-  if(dIdx > -1) dailyLaborRecords[dIdx] = dailyRecord;
-  else dailyLaborRecords.push(dailyRecord);
+  });
+
+  // OT hours are recorded against the independently-selected OT date (kept
+  // as its own otEnteredBy/otTs trail) so the Excel export always maps
+  // them to the correct calendar day, whatever date Attendance itself is
+  // being edited for right now.
+  if(otDate){
+    const otHours = {};
+    Object.keys(currentOTMap).forEach(code => {
+      if(laborRecords.some(l => l.site === project && l.code === code) && currentOTMap[code] !== ''){
+        otHours[code] = currentOTMap[code];
+      }
+    });
+    upsertDailyLaborRecord(otDate, project, {
+      otHours,
+      otEnteredBy: currentUserName || 'Unknown',
+      otTs: new Date().toISOString()
+    });
+  }
 
   try{
     await window.storage.set(ATTENDANCE_KEY, JSON.stringify(attendanceRecords), true);
     if(siteLaborTotal > 0){
       await window.storage.set(DAILY_LABOR_KEY, JSON.stringify(dailyLaborRecords), true);
     }
-    showToast('Attendance saved for ' + date);
+    showToast('Attendance saved for ' + date + (otDate && otDate !== date ? ` · OT saved for ${otDate}` : ''));
   }catch(e){
     showToast('Could not save — try again');
   }
   renderAttHistory();
+  renderOtControls();
 }
 
 function renderAttHistory(){
@@ -5678,7 +6117,9 @@ function renderLaborList(){
     <div class="labor-table-row" data-view-worker="${escapeAttr(l.code)}">
       <span class="ltr-code">${escapeHtml(l.code || '—')}</span>
       <span class="ltr-name">${escapeHtml(l.name)}</span>
-      <span class="ltr-mobile ${hasMobile ? '' : 'missing'}" data-edit-mobile="${escapeAttr(l.code)}">${hasMobile ? escapeHtml(mobile) : '⚠ missing'}</span>
+      <span class="ltr-mobile ${hasMobile ? '' : 'missing'}">${hasMobile
+        ? `<a href="tel:${telHref(mobile)}" class="tel-link" title="Call ${escapeAttr(mobile)}">${escapeHtml(mobile)}</a><span class="mobile-edit-icon" data-edit-mobile="${escapeAttr(l.code)}" title="Edit mobile number">✎</span>`
+        : `<span data-edit-mobile="${escapeAttr(l.code)}">⚠ missing</span>`}</span>
       <span class="ltr-trade">${escapeHtml(l.trade || '—')}</span>
       <span class="ltr-site">${escapeHtml(l.site || '—')}</span>
     </div>
@@ -5687,6 +6128,9 @@ function renderLaborList(){
 
   listEl.querySelectorAll('[data-edit-mobile]').forEach(el => {
     el.addEventListener('click', (e) => { e.stopPropagation(); editLaborMobile(el.dataset.editMobile); });
+  });
+  listEl.querySelectorAll('.ltr-mobile a.tel-link').forEach(a => {
+    a.addEventListener('click', (e) => e.stopPropagation());
   });
   listEl.querySelectorAll('[data-view-worker]').forEach(row => {
     row.addEventListener('click', () => toggleLaborWorkerDetail(row.dataset.viewWorker));
@@ -5749,7 +6193,7 @@ function toggleLaborWorkerDetail(code){
     </div>
     <div class="detail-field-row"><span class="df-label">Trade / Designation</span><span class="df-value">${escapeHtml(w.trade || '—')}</span></div>
     <div class="detail-field-row"><span class="df-label">Assigned Site / Project</span><span class="df-value">${escapeHtml(w.site || '—')}</span></div>
-    <div class="detail-field-row"><span class="df-label">Mobile Number</span><span class="df-value ${(w.mobile || getCampMobileFallback(w.code)) ? '' : 'df-empty'}">${w.mobile ? escapeHtml(w.mobile) : (getCampMobileFallback(w.code) ? escapeHtml(getCampMobileFallback(w.code)) : 'not set')}</span></div>
+    <div class="detail-field-row"><span class="df-label">Mobile Number</span><span class="df-value ${(w.mobile || getCampMobileFallback(w.code)) ? '' : 'df-empty'}">${(() => { const m = w.mobile || getCampMobileFallback(w.code); return m ? `<a href="tel:${telHref(m)}" class="tel-link" title="Call ${escapeAttr(m)}">${escapeHtml(m)}</a>` : 'not set'; })()}</span></div>
     <div class="detail-field-row"><span class="df-label">Today's Status</span><span class="df-value" style="color:${status.code==='P' ? 'var(--green)' : (status.code ? 'var(--orange)' : 'var(--ink-faint)')};">${escapeHtml(status.label)}</span></div>
     <div class="detail-field-row"><span class="df-label">Camp / Room</span><span class="df-value ${campLoc ? '' : 'df-empty'}">${campLoc ? `${escapeHtml(campLoc.camp.name)} · Room ${escapeHtml(campLoc.room.number)}` : 'Not housed in any camp yet'}</span></div>
     <div class="att-one-line" style="margin-top:10px;">
@@ -5916,7 +6360,9 @@ function renderStaffList(){
     <div class="labor-table-row">
       <span class="ltr-code">${escapeHtml(s.code || '—')}</span>
       <span class="ltr-name">${escapeHtml(s.name)}</span>
-      <span class="ltr-mobile ${hasMobile ? '' : 'missing'}" data-edit-staff-mobile="${escapeAttr(s.code)}">${hasMobile ? escapeHtml(s.mobile) : '⚠ missing'}</span>
+      <span class="ltr-mobile ${hasMobile ? '' : 'missing'}">${hasMobile
+        ? `<a href="tel:${telHref(s.mobile)}" class="tel-link" title="Call ${escapeAttr(s.mobile)}">${escapeHtml(s.mobile)}</a><span class="mobile-edit-icon" data-edit-staff-mobile="${escapeAttr(s.code)}" title="Edit mobile number">✎</span>`
+        : `<span data-edit-staff-mobile="${escapeAttr(s.code)}">⚠ missing</span>`}</span>
       <span class="ltr-trade">${escapeHtml(s.designation || '—')}</span>
       <span class="ltr-site">${escapeHtml(s.site || '—')}</span>
     </div>
