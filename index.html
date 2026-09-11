@@ -20,17 +20,30 @@
 <meta name="apple-mobile-web-app-title" content="MEMCO Tracker">
 
 <!-- ===== Tailwind CSS (Play CDN) =====
-     Loaded synchronously on purpose (NOT async/defer): the Play CDN script
-     must run before it can start watching the DOM for utility classes, and
-     Tailwind's own docs say not to defer it. Preflight (Tailwind's CSS
-     reset) is switched off so it can never collide with this file's own
-     large hand-written stylesheet below -- Tailwind is purely additive here
-     (a few small new UI touches), never a replacement for the existing
-     design. If this request is slow or blocked, onerror below just flags it
-     and everything else on the page keeps working, because nothing in this
-     file depends on a Tailwind class to render correctly. -->
+     Marked defer -- CHANGED from a blocking synchronous script tag. A plain
+     script-with-src, no defer or async, used to sit here; that's fine on a
+     fast connection, but on a slow or blocked one it is a classic hang:
+     such a tag pauses ALL further HTML parsing until it loads or errors,
+     including the plain-HTML boot-fallback screen further down in the page
+     body and the startup-safety-net script block (with its own 10s
+     watchdog, now 15s) right below this one -- so a stalled connection to
+     this one CDN used to leave visitors on a truly blank white page, with
+     neither the loading spinner nor the "taking longer than expected"
+     retry screen able to appear, until that single request finally
+     settled. The defer attribute fixes that: it can never block parsing,
+     so the fallback screen and watchdog always show up immediately no
+     matter how slow or unreachable this CDN is. Tailwind's own docs warn
+     that deferring can cause a brief flash of unstyled content for classes
+     present in the initial HTML, but Preflight (Tailwind's CSS reset) is
+     switched off so it can never collide with this file's own large
+     hand-written stylesheet below -- Tailwind is purely additive here (a
+     few small new UI touches), never a replacement for the existing
+     design, so that tradeoff is acceptable. If this request is slow or
+     blocked, onerror below just flags it and everything else on the page
+     keeps working, because nothing in this file depends on a Tailwind
+     class to render correctly. -->
 <script>window.tailwind = { config: { corePlugins: { preflight: false } } };</script>
-<script src="https://cdn.tailwindcss.com" onerror="(window.__cdnFailed=window.__cdnFailed||{}).tailwind=true;"></script>
+<script src="https://cdn.tailwindcss.com" defer onerror="(window.__cdnFailed=window.__cdnFailed||{}).tailwind=true;"></script>
 
 <!-- ===== Lucide Icons ===== `defer` so it never blocks first paint. Icons
      are only drawn when safeCreateLucideIcons() is called further down --
@@ -45,7 +58,7 @@
      failed to load at all -- when the rest of the page's own script runs;
      the app simply falls back to its existing localStorage-only behavior
      until (or unless) this arrives. -->
-<script src="https://unpkg.com/@supabase/supabase-js@2" defer onerror="(window.__cdnFailed=window.__cdnFailed||{}).supabase=true;"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2" defer onerror="(window.__cdnFailed=window.__cdnFailed||{}).supabase=true;" onload="(window.__cdnLoaded=window.__cdnLoaded||{}).supabase=true;"></script>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js" defer onerror="(window.__cdnFailed=window.__cdnFailed||{}).exceljs=true;"></script>
 
@@ -87,12 +100,17 @@
   window.addEventListener('unhandledrejection', function(ev){
     try{ console.error('[Unhandled promise rejection]', ev.reason); }catch(e){}
   });
-  // Watchdog: if nothing has signalled a successful start within 10s (e.g.
-  // a network call hangs instead of failing outright), stop showing an
-  // indefinite spinner and give the visitor a way to retry.
+  // Watchdog: if nothing has signalled a successful start within 15s, stop
+  // showing an indefinite spinner and give the visitor a way to retry.
+  // 15s (was 10s) gives comfortable headroom above the worst case of every
+  // boot-time Supabase call below hitting its own SUPA_NETWORK_TIMEOUT_MS
+  // cap back-to-back on a fully dead connection (see supaGetSharedState /
+  // supaSetSharedState) -- those per-call caps are what actually prevents a
+  // hung/blocked network from stalling startup; this is just the last-resort
+  // backstop in case something else entirely unexpected hangs instead.
   setTimeout(function(){
     if(!window.__appStarted) window.__showBootError('This is taking longer than expected to load. Your connection may be slow, or a required file failed to load.');
-  }, 10000);
+  }, 15000);
 })();
 </script>
 
@@ -1846,6 +1864,10 @@ body{
         <input type="text" id="uPassword" placeholder="password">
       </div>
       <div class="field">
+        <label>Employee ID / HR Number (optional)</label>
+        <input type="text" id="uEmployeeId" placeholder="e.g. 1042">
+      </div>
+      <div class="field">
         <label>Role</label>
         <select id="uRole"></select>
       </div>
@@ -2737,6 +2759,35 @@ const SUPABASE_POLL_MS = 4000;
 function supabaseConfigured(){
   return !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 }
+// The Supabase SDK <script> tag is loaded with `defer`, so it is *always*
+// still mid-download at the exact moment this file's own inline <script>
+// starts running (deferred scripts only execute once the whole document has
+// finished parsing) -- by design, not just on a slow connection. That's
+// fine for the ongoing poll loop (the next tick a few seconds later just
+// picks up whatever the SDK eventually loaded), but it's a real bug for the
+// ONE read that happens right at boot: tryResumeSession()'s very first
+// loadUsers()/loadRoles()/loadRolePermMatrix() calls, which decide whether
+// a brand-new user (created on a different device) can log in, and whether
+// this device has the current permission matrix. Racing the SDK there
+// means a fresh page load can silently fall back to stale/empty local data
+// and reject a perfectly valid login. This gives boot a short, bounded
+// grace period for the SDK to actually finish loading (or definitively
+// fail) before that first read -- never touching the bare `supabase`
+// identifier itself, exactly like every other use in this file.
+let _supaSdkWaitPromise = null;
+function waitForSupabaseSdkReady(timeoutMs){
+  const isSettled = () => typeof supabase !== 'undefined' || (window.__cdnFailed && window.__cdnFailed.supabase);
+  if(isSettled()) return Promise.resolve();
+  if(_supaSdkWaitPromise) return _supaSdkWaitPromise;
+  _supaSdkWaitPromise = new Promise(resolve => {
+    const start = Date.now();
+    (function check(){
+      if(isSettled() || Date.now() - start > timeoutMs){ resolve(); return; }
+      setTimeout(check, 50);
+    })();
+  });
+  return _supaSdkWaitPromise;
+}
 // Lazily creates (once) the official Supabase client. This is deliberately
 // NEVER called at the top level of this script -- only from inside the
 // async functions below, which are only ever invoked later at runtime
@@ -2761,19 +2812,42 @@ function getSupaClient(){
   }
   return _supaClientInstance;
 }
+// Hard cap on any single Supabase network round-trip made from this file.
+// The Supabase JS client's underlying fetch() has no built-in timeout of
+// its own, so a connection that is blocked or silently dropped by a
+// firewall/proxy (rather than actively refused) can otherwise hang far
+// longer than any reasonable UI should wait -- notably at boot, where
+// tryResumeSession() awaits several of these in a row before the app can
+// render. Racing every call against this timer means a dead/blocked
+// network degrades to "acts like Supabase isn't configured" (falls back to
+// local data, same as an outright fetch failure) within a bounded, known
+// amount of time, instead of stalling startup indefinitely and tripping
+// the 15s boot watchdog with a confusing "could not start" error even
+// though the app itself is otherwise perfectly able to run locally.
+const SUPA_NETWORK_TIMEOUT_MS = 2500;
+function withTimeout(promise, ms, timeoutValue){
+  return new Promise(resolve => {
+    let settled = false;
+    const timer = setTimeout(() => { if(!settled){ settled = true; resolve(timeoutValue); } }, ms);
+    promise.then(v => { if(!settled){ settled = true; clearTimeout(timer); resolve(v); } },
+                 () => { if(!settled){ settled = true; clearTimeout(timer); resolve(timeoutValue); } });
+  });
+}
 // Reads the shared JSON blob stored under `id`. Returns { data, updatedAt }
 // or null if the row doesn't exist yet, the SDK hasn't finished loading
-// yet, or Supabase can't be reached for any other reason.
+// yet, the call timed out, or Supabase can't be reached for any other
+// reason.
 async function supaGetSharedState(id){
   if(!supabaseConfigured()) return null;
   const client = getSupaClient();
   if(!client) return null;
   try{
-    const { data: rows, error } = await client
-      .from(SUPABASE_SYNC_TABLE)
-      .select('data,updated_at')
-      .eq('id', id)
-      .limit(1);
+    const result = await withTimeout(
+      client.from(SUPABASE_SYNC_TABLE).select('data,updated_at').eq('id', id).limit(1),
+      SUPA_NETWORK_TIMEOUT_MS, null
+    );
+    if(!result) return null; // timed out, or the query itself resolved falsy
+    const { data: rows, error } = result;
     if(error || !rows || !rows[0]) return null;
     return { data: rows[0].data, updatedAt: rows[0].updated_at };
   }catch(e){ return null; }
@@ -2787,10 +2861,12 @@ async function supaSetSharedState(id, valueObj){
   const client = getSupaClient();
   if(!client) return false;
   try{
-    const { error } = await client
-      .from(SUPABASE_SYNC_TABLE)
-      .upsert({ id, data: valueObj, updated_at: new Date().toISOString() }, { onConflict: 'id' });
-    return !error;
+    const result = await withTimeout(
+      client.from(SUPABASE_SYNC_TABLE).upsert({ id, data: valueObj, updated_at: new Date().toISOString() }, { onConflict: 'id' }),
+      SUPA_NETWORK_TIMEOUT_MS, null
+    );
+    if(!result) return false; // timed out
+    return !result.error;
   }catch(e){ return false; }
 }
 // Last remote updated_at timestamp we've already applied, per shared key —
@@ -2936,21 +3012,63 @@ function can(key){
 }
 
 async function loadRoles(){
-  try{
-    const res = await window.storage.get(CUSTOM_ROLES_KEY);
-    CUSTOM_ROLES = res && res.value ? JSON.parse(res.value) : [];
-  }catch(e){ CUSTOM_ROLES = []; }
+  // Cross-device shared copy first (Supabase), same pattern as loadUsers --
+  // a custom role a Super Admin adds on one device/browser must be visible
+  // to everyone else, not just cached locally on that one machine.
+  const remote = await supaGetSharedState(CUSTOM_ROLES_KEY);
+  if(remote && Array.isArray(remote.data)){
+    CUSTOM_ROLES = remote.data;
+    supaLastSeenAt[CUSTOM_ROLES_KEY] = remote.updatedAt;
+    try{ await window.storage.set(CUSTOM_ROLES_KEY, JSON.stringify(CUSTOM_ROLES)); }catch(e){}
+  } else {
+    try{
+      const res = await window.storage.get(CUSTOM_ROLES_KEY);
+      CUSTOM_ROLES = res && res.value ? JSON.parse(res.value) : [];
+    }catch(e){ CUSTOM_ROLES = []; }
+  }
   ROLE_LIST = BASE_ROLE_LIST.concat(CUSTOM_ROLES);
 }
 async function saveRoles(){
   try{ await window.storage.set(CUSTOM_ROLES_KEY, JSON.stringify(CUSTOM_ROLES)); }catch(e){}
+  supaSetSharedState(CUSTOM_ROLES_KEY, CUSTOM_ROLES); // fire-and-forget, cross-device mirror
 }
+// Cross-tab / cross-device live sync for custom roles -- a new role added
+// on one device shows up in every other open Permission Matrix / role
+// dropdown without needing a re-login, same split as Users: instant same-
+// device "storage" event, plus the Supabase poll loop for other devices.
+function applyRemoteCustomRolesUpdate(newRoles){
+  if(!Array.isArray(newRoles)) return;
+  CUSTOM_ROLES = newRoles;
+  ROLE_LIST = BASE_ROLE_LIST.concat(CUSTOM_ROLES);
+  if(currentUser){ applyRoleUI(); applyPermissionUI(); }
+  const permOverlayEl = document.getElementById('permMatrixOverlay');
+  if(permOverlayEl && permOverlayEl.classList.contains('open')) renderPermMatrix();
+  const usersOverlayEl = document.getElementById('usersOverlay');
+  if(usersOverlayEl && usersOverlayEl.classList.contains('open')) renderUsersScreen();
+}
+window.addEventListener('storage', (ev) => {
+  if(ev.key !== CUSTOM_ROLES_KEY || !ev.newValue) return;
+  try{ applyRemoteCustomRolesUpdate(JSON.parse(ev.newValue)); }catch(e){}
+});
+startSupabasePolling(CUSTOM_ROLES_KEY, applyRemoteCustomRolesUpdate);
 
 async function loadRolePermMatrix(){
-  try{
-    const res = await window.storage.get(ROLE_PERMS_KEY);
-    ROLE_PERM_MATRIX = res && res.value ? JSON.parse(res.value) : {};
-  }catch(e){ ROLE_PERM_MATRIX = {}; }
+  // Cross-device shared copy first (Supabase) -- without this, a Super
+  // Admin's permission changes were only ever saved to that ONE browser's
+  // localStorage, so every other device/phone kept enforcing whatever
+  // (possibly long-stale, or default-seeded) matrix it happened to already
+  // have. Same pattern as loadUsers/loadRoles.
+  const remote = await supaGetSharedState(ROLE_PERMS_KEY);
+  if(remote && remote.data && typeof remote.data === 'object'){
+    ROLE_PERM_MATRIX = remote.data;
+    supaLastSeenAt[ROLE_PERMS_KEY] = remote.updatedAt;
+    try{ await window.storage.set(ROLE_PERMS_KEY, JSON.stringify(ROLE_PERM_MATRIX)); }catch(e){}
+  } else {
+    try{
+      const res = await window.storage.get(ROLE_PERMS_KEY);
+      ROLE_PERM_MATRIX = res && res.value ? JSON.parse(res.value) : {};
+    }catch(e){ ROLE_PERM_MATRIX = {}; }
+  }
   let changed = false;
   const registry = fullPermissionRegistry();
   ROLE_LIST.forEach(role => {
@@ -2962,20 +3080,33 @@ async function loadRolePermMatrix(){
       }
     });
   });
-  if(changed){ try{ await window.storage.set(ROLE_PERMS_KEY, JSON.stringify(ROLE_PERM_MATRIX)); }catch(e){} }
+  // Newly-discovered defaults (a freshly-added role or permission key) must
+  // also be pushed to Supabase, not just saved locally, so every device
+  // converges on the same seeded matrix instead of each inventing its own.
+  if(changed){ await saveRolePermMatrix(); }
 }
 async function saveRolePermMatrix(){
   try{ await window.storage.set(ROLE_PERMS_KEY, JSON.stringify(ROLE_PERM_MATRIX)); }catch(e){}
+  supaSetSharedState(ROLE_PERMS_KEY, ROLE_PERM_MATRIX); // fire-and-forget, cross-device mirror
 }
-// Cross-tab live enforcement: if Super Admin edits the matrix in one browser
-// tab, every other open tab picks up the change immediately (no re-login
-// needed) via the native "storage" event that fires on other tabs whenever
-// localStorage changes.
+// Live enforcement, both same-device and cross-device: a Super Admin's
+// Permission Matrix edit applies immediately to every other open tab
+// (native same-origin "storage" event) AND every other device/phone
+// (Supabase poll loop) already signed in as that role -- no re-login
+// needed, matching what the Permission Matrix screen itself tells the
+// Super Admin.
+function applyRemoteRolePermMatrixUpdate(newMatrix){
+  if(!newMatrix || typeof newMatrix !== 'object') return;
+  ROLE_PERM_MATRIX = newMatrix;
+  if(currentUser){ applyRoleUI(); applyPermissionUI(); }
+  const permOverlayEl = document.getElementById('permMatrixOverlay');
+  if(permOverlayEl && permOverlayEl.classList.contains('open')) renderPermMatrix();
+}
 window.addEventListener('storage', (ev) => {
   if(ev.key !== ROLE_PERMS_KEY || !ev.newValue) return;
-  try{ ROLE_PERM_MATRIX = JSON.parse(ev.newValue); }catch(e){ return; }
-  if(currentUser){ applyRoleUI(); applyPermissionUI(); }
+  try{ applyRemoteRolePermMatrixUpdate(JSON.parse(ev.newValue)); }catch(e){}
 });
+startSupabasePolling(ROLE_PERMS_KEY, applyRemoteRolePermMatrixUpdate);
 
 async function loadUsers(){
   // Cross-device shared copy first (Supabase) — a staff member who
@@ -3158,8 +3289,19 @@ async function bootDriverPortal(){
 }
 
 async function tryResumeSession(){
-  await loadRoles();
-  await loadUsers();
+  // Give the deferred Supabase SDK a bounded head start (see
+  // waitForSupabaseSdkReady above) before the very first cross-device reads
+  // of the day, so a freshly-created user or a just-changed permission is
+  // actually visible on this device before anyone can try to log in --
+  // rather than only self-correcting a few seconds later via the poll loop.
+  await waitForSupabaseSdkReady(SUPABASE_POLL_MS);
+  // loadRoles() and loadUsers() are independent reads (different Supabase
+  // rows) -- run them concurrently instead of back-to-back so a slow-but-
+  // working connection boots faster, and so the worst case if the network
+  // is completely dead is one SUPA_NETWORK_TIMEOUT_MS wait, not two stacked
+  // ones. loadRolePermMatrix() must come after: it reads ROLE_LIST, which
+  // loadRoles() sets.
+  await Promise.all([loadRoles(), loadUsers()]);
   await loadRolePermMatrix();
   let session = null;
   try{
@@ -3487,6 +3629,7 @@ function clearUserForm(){
   document.getElementById('uName').value = '';
   document.getElementById('uUsername').value = '';
   document.getElementById('uPassword').value = '';
+  document.getElementById('uEmployeeId').value = '';
   document.getElementById('uRole').value = 'Site Engineer';
   document.getElementById('uSite').value = '';
   document.getElementById('usersFormTitle').textContent = 'Add new user';
@@ -3500,6 +3643,7 @@ function loadUserIntoForm(id){
   document.getElementById('uName').value = u.name;
   document.getElementById('uUsername').value = u.username;
   document.getElementById('uPassword').value = u.password;
+  document.getElementById('uEmployeeId').value = u.hrCode || '';
   document.getElementById('uRole').value = u.role;
   document.getElementById('uSite').value = u.site || '';
   document.getElementById('usersFormTitle').textContent = 'Editing ' + u.name;
@@ -3513,6 +3657,7 @@ document.getElementById('uSaveBtn').onclick = async () => {
   const name = document.getElementById('uName').value.trim();
   const username = document.getElementById('uUsername').value.trim();
   const password = document.getElementById('uPassword').value;
+  const hrCode = document.getElementById('uEmployeeId').value.trim();
   const role = document.getElementById('uRole').value;
   const site = SITE_LOCKED_ROLES.includes(role) ? document.getElementById('uSite').value : '';
   if(!name || !username || !password){ showToast('Name, username and password are required'); return; }
@@ -3520,10 +3665,10 @@ document.getElementById('uSaveBtn').onclick = async () => {
   if(dupe){ showToast('That username is already taken'); return; }
   if(id){
     const u = USERS.find(x => String(x.id) === String(id));
-    if(u){ Object.assign(u, { name, username, password, role, site }); }
+    if(u){ Object.assign(u, { name, username, password, hrCode, role, site }); }
   }else{
     const newId = USERS.length ? Math.max(...USERS.map(x => x.id)) + 1 : 1;
-    USERS.push({ id: newId, name, username, password, role, site });
+    USERS.push({ id: newId, name, hrCode, username, password, role, site });
   }
   await saveUsers();
   showToast('User saved');
