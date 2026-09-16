@@ -5267,7 +5267,10 @@ const DEFAULT_USERS = [];
 const LOGIN_EMAIL_DOMAIN = "staff.memcouae.ae";
 const USERS_FUNCTION = "memco-users";
 const AUTH_TIMEOUT_MS = 15000;
-function loginEmailFor(username){ return String(username || '').trim().toLowerCase() + '@' + LOGIN_EMAIL_DOMAIN; }
+function loginEmailFor(username){
+  const u = String(username || '').trim().toLowerCase();
+  return u.includes('@') ? u : u + '@' + LOGIN_EMAIL_DOMAIN; // accepts 'admin' or the full login email
+}
 async function supaAuthUserId(){
   const c = getSupaClient();
   if(!c) return null;
