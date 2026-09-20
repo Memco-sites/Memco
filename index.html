@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v44</title>
+<title>MEMCO Portal v46</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -9840,6 +9840,7 @@ document.getElementById('tabVillasBtn').onclick = goVillas;
 // cross-device poll pattern used everywhere else in this app (see
 // PROJECT_OT_SETTINGS_KEY / USERS_KEY).
 async function saveLaborRecords(){
+  try{ invalidateLaborIndex(); }catch(e){}
   invalidateRosterIndex();
   try{ await window.storage.set(LABOR_KEY, JSON.stringify(laborRecords), true); }catch(e){}
   supaSetSharedState(LABOR_KEY, laborRecords); // fire-and-forget, cross-device mirror
@@ -10772,6 +10773,7 @@ let staffDataLoaded = false;
 // Foremen, office staff) had no Supabase mirror at all, so a designation
 // upgrade or mobile edit from one device never showed up anywhere else.
 async function saveStaffRecords(){
+  try{ invalidateLaborIndex(); }catch(e){}
   invalidateRosterIndex();
   try{ await window.storage.set(STAFF_KEY, JSON.stringify(staffRecords), true); }catch(e){}
   supaSetSharedState(STAFF_KEY, staffRecords); // fire-and-forget, cross-device mirror
@@ -11527,8 +11529,11 @@ function buildDriverStaffCandidates(){
     list.push({ name: s.name, code: s.code, mobile: s.mobile || '', tag: 'Staff · ' + (s.designation || ''), isDriver, source: 'staff' });
   });
   (typeof laborRecords !== 'undefined' ? laborRecords : []).forEach(l => {
-    const isDriver = /driver/i.test(l.trade || '');
-    list.push({ name: l.name, code: l.code, mobile: l.mobile || '', tag: 'Labor · ' + (l.trade || ''), isDriver, source: 'labor' });
+    const isDriver = /driver|operator/i.test(l.trade || '')
+      || /driver|transport/i.test(l.category || '')
+      || /transport/i.test(l.department || '');
+    list.push({ name: l.name, code: l.code, mobile: l.mobile || '', site: l.site || '',
+                tag: 'Labor · ' + (l.trade || ''), isDriver, source: 'labor' });
   });
   return list;
 }
@@ -11561,6 +11566,18 @@ function getDriverLeaveStatus(driver){
   return null;
 }
 
+function driverCampRoom(code){
+  try{
+    for(const c of (typeof campRecords !== 'undefined' ? campRecords : [])){
+      for(const r of (c.rooms || [])){
+        if((r.occupants || []).some(o => String(o.code || '') === String(code))){
+          return `${c.name} · Room ${r.number}`;
+        }
+      }
+    }
+  }catch(e){}
+  return '';
+}
 function renderDriverRoster(){
   const searchEl = document.getElementById('driverRosterSearch');
   const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
@@ -11620,6 +11637,8 @@ function renderDriverRoster(){
         <div class="vch-driver-big">${vh ? '🚚 ' + escapeHtml(vh.plate) + (isPending && !leaveLabel ? ' ⏳' : '') : '🅿️ Unassigned / Standby'}</div>
         ${leaveLabel ? `<div class="vch-status">🌴 ${escapeHtml(leaveLabel)}</div>` : (isPending ? `<div class="vch-status">⏳ Pending Driver Approval${alreadySent ? ' — 📨 Sent' : ''}</div>` : '')}
         <div class="vch-clock">📄 ${license ? escapeHtml(license) : 'Tap card for details / license type'}</div>
+        ${(() => { const rm = driverCampRoom(d.code); return rm ? `<div class="vch-clock">🏠 ${escapeHtml(rm)}</div>` : ''; })()}
+        ${d.site ? `<div class="vch-clock">📍 ${escapeHtml(d.site)}</div>` : ''}
         ${isPending && canAssignPerm ? `<div class="vch-clock" style="color:var(--ink-dim);">🔑 PIN: ${escapeHtml(vh.handoverPin || '----')}</div>` : ''}
         ${showSendBtn ? `<button class="btn btn-primary" data-send-request="${escapeAttr(d.code || '')}" style="width:100%;margin-top:8px;font-size:10.5px;padding:6px;">${alreadySent ? '🔁 Resend Inspection Request' : '📨 Send Inspection & Handover Request'}</button>` : ''}
       </div>
@@ -12798,8 +12817,9 @@ function campBossLabel(c){
   return c.boss_name + (c.boss_hr ? ' (HR ' + c.boss_hr + ')' : '');
 }
 function mainCamps(){ return campRecords.filter(isMainCamp); }
+function invalidateLaborIndex(){ window.__laborIdx = null; window.__laborIdxAt = 0; }
 function laborIndexByCode(){
-  if(window.__laborIdx && window.__laborIdxAt && (Date.now() - window.__laborIdxAt) < 60000) return window.__laborIdx;
+  if(window.__laborIdx && window.__laborIdxAt && (Date.now() - window.__laborIdxAt) < 15000) return window.__laborIdx;
   const idx = {};
   const add = arr => (Array.isArray(arr) ? arr : []).forEach(l => { if(l && l.code) idx[String(l.code).trim()] = l; });
   add(typeof LABOR_DATA !== 'undefined' ? LABOR_DATA : []);
@@ -23474,6 +23494,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       .sg{display:flex;gap:30px;margin-top:30px}.sg>div{flex:1}.ln{border-top:1px solid #333;margin-top:34px;padding-top:2px;color:#444}
     
 @keyframes campBlink{0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.0)}50%{box-shadow:0 0 0 4px rgba(248,113,113,.35)}}
+
+/* While any window is open, the page behind it must not move */
+html.memco-locked{overflow:hidden !important;}
+body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width:100%;}
+.overlay, .modal, #stApp, #ltApp, #stApp .st-main, #stApp .st-tw, #ltApp .lt-body,
+#campSetOverlay, [id$="Overlay"]{overscroll-behavior:contain;}
 </style></head><body>
       <h1>AL MUHANAD ELECTRO-MECHANICAL CONT. L.L.C.</h1><h2>LABOR TRANSFER / CAMP ALLOCATION</h2>
       <table class="box" style="margin-bottom:12px">
@@ -23742,6 +23768,23 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                   nationality: txt(r['Nationality']), doj: txt(r['DOJ']), dob: txt(r['DOB']),
                   status: txt(r['Status']) || 'ACTIVE'})
     },
+    both: {
+      title: 'Labor + Staff (one file)',
+      required: ['CATEGORY', 'EMP', 'NAME'],
+      cols: [
+        ['CATEGORY',    'Labour',                    'Labour and Driver → labor list · Staff or Supervisor → staff list'],
+        ['EMP',         '4',                         'HR number — never change it for an existing man'],
+        ['NAME',        'Md Jashim Uddin Nurul Islam','Full name'],
+        ['DESIGNATION', 'Electrical Foreman',        'Trade for labor, designation for staff'],
+        ['DOJ',         '16/09/2002',                'Date of joining'],
+        ['NATIONALITY', 'Bangladesh',                'Used for camp room matching'],
+        ['DOB',         '09/04/1984',                'Date of birth'],
+        ['Mobile',      '568245507',                 'Two numbers in one cell are kept as they are'],
+        ['STATUS',      'ACTIVE',                    'ACTIVE · VACATION / SEP.26 · EMERGENCY / 2026 — all are kept'],
+        ['SL',          '1',                         'Serial number — ignored'],
+        ['SITE',        'ACRES',                     'Optional — if the column is missing, each man keeps the site he has now']
+      ]
+    },
     camps: {
       title: 'Camps',
       required: ['Camp', 'Room'],
@@ -23858,6 +23901,91 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     return {rows: out, bad, sheet: found.sheet, headerRow: found.headerRow};
   }
 
+  /* ---------- one file holding both lists ---------- */
+  const CAT_MEMORY = 'bs-category-map-v1';
+  const KNOWN_CAT = {labour: 'labor', labor: 'labor', worker: 'labor',
+                     driver: 'labor', drivers: 'labor', transport: 'labor',
+                     staff: 'staff', supervisor: 'staff', engineer: 'staff', office: 'staff'};
+  // who is looked after by the Transport department
+  function isTransportMan(rec){
+    const t = ((rec && (rec.trade || rec.designation)) || '').toLowerCase();
+    const c = ((rec && rec.category) || '').toLowerCase();
+    return c.includes('driver') || c.includes('transport') || /\bdriver\b|\boperator\b/.test(t);
+  }
+  function catMap(){
+    let saved = {};
+    try{ saved = JSON.parse(localStorage.getItem(CAT_MEMORY) || '{}') || {}; }catch(e){ saved = {}; }
+    return Object.assign({}, KNOWN_CAT, saved);
+  }
+  function rememberCat(word, side){
+    try{
+      const m = JSON.parse(localStorage.getItem(CAT_MEMORY) || '{}') || {};
+      m[String(word).toLowerCase().trim()] = side;
+      localStorage.setItem(CAT_MEMORY, JSON.stringify(m));
+    }catch(e){}
+  }
+  function splitBoth(rows){
+    const map = catMap();
+    const labor = [], staff = [], unknown = {};
+    rows.forEach(r => {
+      const word = txt(r['CATEGORY']).toLowerCase();
+      const side = map[word];
+      if(!side){ unknown[txt(r['CATEGORY'])] = (unknown[txt(r['CATEGORY'])] || 0) + 1; return; }
+      const dsg = txt(r['DESIGNATION']);
+      const base = {code: txt(r['EMP']), name: txt(r['NAME']), site: txt(r['SITE']),
+                    mobile: txt(r['Mobile']), nationality: txt(r['NATIONALITY']),
+                    doj: txt(r['DOJ']), dob: txt(r['DOB']),
+                    status: txt(r['STATUS']) || 'ACTIVE', category: txt(r['CATEGORY'])};
+      if(side === 'labor'){
+        const row = Object.assign({}, base, {trade: dsg});
+        if(isTransportMan(row)) row.department = 'Transport';
+        labor.push(row);
+      }
+      else staff.push(Object.assign({}, base, {designation: dsg}));
+    });
+    return {labor, staff, unknown};
+  }
+  async function askUnknown(unknown){
+    const words = Object.keys(unknown);
+    if(!words.length) return true;
+    return await new Promise(resolve => {
+      const w = document.createElement('div');
+      w.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:18px';
+      w.innerHTML = `<div style="background:#0b2137;border:1px solid rgba(251,191,36,.55);border-radius:14px;max-width:560px;width:100%;
+          padding:18px;color:#e6eef7;font-size:13.5px">
+        <h3 style="margin:0 0 4px">New word(s) in CATEGORY</h3>
+        <div style="opacity:.85;margin-bottom:12px">Tell the app which list each one belongs to. It will remember your answer.</div>
+        ${words.map((word, i) => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid rgba(255,255,255,.12)">
+          <div><b>${esc(word || '(empty)')}</b> <span style="opacity:.75">— ${unknown[word]} row(s)</span></div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-ghost" data-w="${i}" data-side="labor" style="padding:4px 12px">Labor</button>
+            <button class="btn btn-ghost" data-w="${i}" data-side="staff" style="padding:4px 12px">Staff</button>
+            <button class="btn btn-ghost" data-w="${i}" data-side="skip" style="padding:4px 12px">Skip</button>
+          </div></div>`).join('')}
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn btn-primary" data-ok style="flex:1" disabled>Continue</button>
+          <button class="btn btn-ghost" data-cancel style="flex:1">Cancel</button></div></div>`;
+      document.body.appendChild(w);
+      const picked = {};
+      w.addEventListener('click', e => {
+        const b = e.target.closest('[data-w]');
+        if(b){
+          const i = +b.dataset.w;
+          picked[words[i]] = b.dataset.side;
+          b.parentElement.querySelectorAll('[data-w]').forEach(x => x.style.background = '');
+          b.style.background = b.dataset.side === 'skip' ? '#7f1d1d' : '#0e4a7d';
+          w.querySelector('[data-ok]').disabled = Object.keys(picked).length < words.length;
+          return;
+        }
+        if(e.target.closest('[data-cancel]')){ w.remove(); resolve(false); return; }
+        if(e.target.closest('[data-ok]')){
+          Object.entries(picked).forEach(([word, side]) => { if(side !== 'skip') rememberCat(word, side); });
+          w.remove(); resolve(true);
+        }
+      });
+    });
+  }
+
   /* ---------- labor / staff ---------- */
   async function runPeople(kind, file, mode){
     const def = SHEETS[kind];
@@ -23885,6 +24013,87 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 400);
     }catch(e){}
+  }
+
+  async function handleBothFile(file, mode, boxId){
+    const box = document.getElementById(boxId);
+    const show = (html, colour) => {
+      box.style.display = 'block';
+      box.style.cssText = 'display:block;margin:10px 0;padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.55;'
+        + (colour === 'bad' ? 'background:rgba(220,38,38,.12);border:1px solid rgba(248,113,113,.5);'
+         : colour === 'warn' ? 'background:rgba(245,158,11,.12);border:1px solid rgba(251,191,36,.5);'
+         : 'background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.35);');
+      box.innerHTML = html;
+    };
+    show(`⏳ Reading <b>${esc(file.name)}</b>…`);
+    let info;
+    try{ info = await readRows(file, 'both'); }
+    catch(err){ show(`❌ ${esc(err.message).replace(/\n/g, '<br>')}`, 'bad'); return; }
+
+    let parts = splitBoth(info.rows);
+    if(Object.keys(parts.unknown).length){
+      const go = await askUnknown(parts.unknown);
+      if(!go){ box.style.display = 'none'; return; }
+      parts = splitBoth(info.rows);
+    }
+    const stillUnknown = Object.entries(parts.unknown);
+    const L = typeof laborRecords !== 'undefined' ? laborRecords : [];
+    const S2 = typeof staffRecords !== 'undefined' ? staffRecords : [];
+    const count = (incoming, list) => {
+      const have = new Set(list.map(x => String(x.code)));
+      const add = incoming.filter(x => !have.has(String(x.code))).length;
+      const fileCodes = new Set(incoming.map(x => String(x.code)));
+      return {add, upd: incoming.length - add, rem: list.filter(x => !fileCodes.has(String(x.code))).length};
+    };
+    const cl = count(parts.labor, L), cs = count(parts.staff, S2);
+    show(`
+      <b>📄 ${esc(file.name)}</b> — sheet “${esc(info.sheet)}”, header row ${info.headerRow}<br>
+      <b>${parts.labor.length}</b> labor · <b>${parts.staff.length}</b> staff read${info.bad ? ` · ${info.bad} row(s) skipped` : ''}<br>
+      Labor: ${cl.upd} updated · ${cl.add} new${mode === 'replace' ? ` · <b style="color:#fca5a5">${cl.rem} removed</b>` : ''}<br>
+      Staff: ${cs.upd} updated · ${cs.add} new${mode === 'replace' ? ` · <b style="color:#fca5a5">${cs.rem} removed</b>` : ''}
+      ${stillUnknown.length ? `<br>⚠ Skipped CATEGORY: ${esc(stillUnknown.map(([w, n]) => `${w} (${n})`).join(', '))}` : ''}
+      <br><span style="opacity:.8">Each man keeps the site he has now — this file has no site column.</span>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn ${mode === 'replace' ? 'btn-danger' : 'btn-primary'}" id="bsGo2" style="flex:1">
+          ${mode === 'replace' ? '⚠ Replace both lists' : '✔ Update both lists'}</button>
+        <button class="btn btn-ghost" id="bsCancel2" style="flex:1">Cancel</button>
+      </div>`, mode === 'replace' ? 'warn' : '');
+
+    document.getElementById('bsCancel2').onclick = () => { box.style.display = 'none'; };
+    document.getElementById('bsGo2').onclick = async (ev) => {
+      ev.currentTarget.disabled = true;
+      if(!confirm(mode === 'replace'
+        ? `Replace BOTH lists?\n\nLabor: ${L.length} now → ${parts.labor.length} (${cl.rem} removed)\nStaff: ${S2.length} now → ${parts.staff.length} (${cs.rem} removed)\n\nA backup is downloaded first.`
+        : `Update ${parts.labor.length} labor and ${parts.staff.length} staff record(s)?\n\nA backup is downloaded first.`)){
+        ev.currentTarget.disabled = false; return;
+      }
+      backup('Labor', L); backup('Staff', S2);
+      const merge = (list, incoming) => {
+        if(mode === 'replace'){
+          const byCode = {}; list.forEach(x => { byCode[String(x.code)] = x; });
+          return incoming.map(x => Object.assign({}, byCode[String(x.code)] || {}, x,
+            {site: x.site || (byCode[String(x.code)] || {}).site || ''}));
+        }
+        const out = list.slice();
+        incoming.forEach(x => {
+          const i = out.findIndex(y => String(y.code) === String(x.code));
+          if(i >= 0) out[i] = Object.assign({}, out[i], x, {site: x.site || out[i].site || ''});
+          else out.push(x);
+        });
+        return out;
+      };
+      try{
+        laborRecords = merge(L, parts.labor);
+        if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
+        await saveLaborRecords();
+        staffRecords = merge(S2, parts.staff);
+        await saveStaffRecords();
+        if(typeof renderLaborView === 'function') renderLaborView();
+        if(typeof logChange === 'function') logChange('People', `${mode === 'replace' ? 'Replaced' : 'Updated'} labor + staff from one Excel file`, '');
+        box.style.display = 'none';
+        toast(`Saved — ${laborRecords.length} labor · ${staffRecords.length} staff`);
+      }catch(e){ show(`❌ Could not save: ${esc(e.message || e)}`, 'bad'); }
+    };
   }
 
   async function handlePeopleFile(kind, file, mode, boxId){
@@ -23959,7 +24168,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
   /* ---------- buttons on the three screens ---------- */
   function buttonRow(kind, boxId, fileId){
-    return `<div class="att-one-line" style="margin-bottom:10px;">
+    const both = kind === 'labor' ? `<div class="att-one-line" style="margin-bottom:6px;">
+        <button class="btn btn-ghost" data-bs-format="both" style="flex:1;">📋 One-file format (Labor + Staff)</button>
+        <label class="btn btn-primary" style="flex:1;cursor:pointer;text-align:center;">📥 Update both from one file
+          <input type="file" data-bs-file="both" data-bs-mode="update" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
+        <label class="btn btn-ghost" style="flex:1;cursor:pointer;text-align:center;border-color:rgba(248,113,113,.6);color:#fca5a5">♻ Replace both
+          <input type="file" data-bs-file="both" data-bs-mode="replace" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
+      </div>` : '';
+    return both + `<div class="att-one-line" style="margin-bottom:10px;">
         <button class="btn btn-ghost" data-bs-format="${kind}" style="flex:1;">📋 See the format</button>
         <label class="btn btn-primary" style="flex:1;cursor:pointer;text-align:center;">📥 Update from Excel
           <input type="file" data-bs-file="${kind}" data-bs-mode="update" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
@@ -24014,7 +24230,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const file = inp.files && inp.files[0];
     inp.value = '';
     if(!file) return;
-    await handlePeopleFile(kind, file, mode, kind === 'labor' ? 'bsLaborBox' : 'bsStaffBox');
+    if(kind === 'both') await handleBothFile(file, mode, 'bsLaborBox');
+    else await handlePeopleFile(kind, file, mode, kind === 'labor' ? 'bsLaborBox' : 'bsStaffBox');
   });
   setInterval(mount, 2000);
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
@@ -24022,6 +24239,348 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 })();
 </script>
 <!-- ============ END EXCEL UPDATE / REPLACE ============ -->
+
+
+<script id="scrollLockJs">
+(function(){
+  'use strict';
+  // the rules are added from here, so they can never be lost in the page's CSS
+  const css = document.createElement('style');
+  css.id = 'memcoLockCss';
+  css.textContent = `
+    html.memco-locked, body.memco-locked{overflow:hidden !important;height:100% !important;}
+    body.memco-locked{position:fixed !important;left:0 !important;right:0 !important;width:100% !important;}
+    .overlay, .modal, #stApp, #ltApp, #stApp .st-main, #stApp .st-tw, #ltApp .lt-body,
+    #campSetOverlay, [id$="Overlay"]{overscroll-behavior:contain;}`;
+  document.head.appendChild(css);
+  function covers(el, named){
+    if(!el || !el.isConnected) return false;
+    const cs = getComputedStyle(el);
+    if(cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+    if(cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+    if(!named && (parseInt(cs.zIndex, 10) || 0) < 900) return false;
+    const r = el.getBoundingClientRect();
+    return r.width >= window.innerWidth * 0.5 && r.height >= window.innerHeight * 0.5;
+  }
+  function anyWindowOpen(){
+    const sel = '.overlay, #stApp, #ltApp, #campSetOverlay, #permMatrixOverlay, [id$="Overlay"]';
+    if([...document.querySelectorAll(sel)].some(el => covers(el, true))) return true;
+    // a window built on the fly (no id, no class) — judged by how it sits on the screen
+    return [...document.body.children].some(el => covers(el, false));
+  }
+  let locked = false, keepY = 0, lastY = 0;
+  window.addEventListener('scroll', () => {
+    if(!locked) lastY = window.scrollY || document.documentElement.scrollTop || 0;
+  }, {passive: true});
+  function apply(){
+    const open = anyWindowOpen();
+    if(open === locked) return;
+    locked = open;
+    if(open){
+      keepY = window.scrollY || document.documentElement.scrollTop || lastY || 0;
+      document.documentElement.classList.add('memco-locked');
+      document.body.classList.add('memco-locked');
+      document.body.style.top = (-keepY) + 'px';
+    }else{
+      document.documentElement.classList.remove('memco-locked');
+      document.body.classList.remove('memco-locked');
+      document.body.style.top = '';
+      try{ window.scrollTo(0, keepY); lastY = keepY; }catch(e){}
+    }
+  }
+  const mo = new MutationObserver(() => apply());
+  function start(){
+    mo.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class']});
+    setInterval(apply, 700);
+    apply();
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})();
+</script>
+
+<!-- ============ SITE-WISE UPLOAD + WAITING FOR SITE ============ -->
+<script id="siteSheetJs">
+(function(){
+  'use strict';
+  const esc = s => (typeof escapeHtml === 'function') ? escapeHtml(s == null ? '' : String(s))
+    : String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const toast = m => { if(typeof showToast === 'function') showToast(m); };
+  const txt = v => String(v == null ? '' : v).trim();
+  const WAITING = '';                       // empty site = waiting for a site
+  const canDo = () => { try{ return currentUser && ['Super Admin', 'HR'].includes(currentUser.role); }catch(e){ return false; } };
+
+  function sites(){
+    try{
+      if(typeof unifiedSites !== 'undefined' && unifiedSites.length) return unifiedSites.slice();
+      const set = new Set();
+      (laborRecords || []).forEach(l => { if(l.site) set.add(l.site); });
+      (staffRecords || []).forEach(s => { if(s.site) set.add(s.site); });
+      return [...set].sort();
+    }catch(e){ return []; }
+  }
+  const waitingLabor = () => (typeof laborRecords !== 'undefined' ? laborRecords : []).filter(l => !txt(l.site));
+  const waitingStaff = () => (typeof staffRecords !== 'undefined' ? staffRecords : []).filter(s => !txt(s.site));
+
+  /* ---------- read a site sheet: HR No + Name are enough ---------- */
+  async function readSiteSheet(file){
+    const lower = (file.name || '').toLowerCase();
+    let book;
+    if(lower.endsWith('.csv') || lower.endsWith('.txt')){
+      const text = await file.text();
+      book = {names: ['CSV'], rows: async () => window.MemcoSheet.readCsv(text)};
+    } else if(lower.endsWith('.xlsx') || lower.endsWith('.xlsm')){
+      book = await window.MemcoSheet.readXlsx(await file.arrayBuffer());
+    } else {
+      throw new Error('Please use an .xlsx or .csv file.');
+    }
+    const norm = h => String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const HR = ['hrno', 'hr', 'hrcode', 'emp', 'empno', 'empcode', 'code', 'employeeid'];
+    const NM = ['name', 'employeename', 'workername', 'fullname'];
+    for(let si = 0; si < book.names.length; si++){
+      const rows = await book.rows(si);
+      for(let h = 0; h < Math.min(rows.length, 30); h++){
+        let hi = -1, ni = -1;
+        (rows[h] || []).forEach((cell, i) => {
+          const n = norm(cell);
+          if(hi < 0 && HR.includes(n)) hi = i;
+          if(ni < 0 && NM.includes(n)) ni = i;
+        });
+        if(hi >= 0){
+          const out = [];
+          rows.slice(h + 1).forEach(r => {
+            const code = txt(r[hi]);
+            if(!code) return;
+            out.push({code, name: ni >= 0 ? txt(r[ni]) : ''});
+          });
+          return {rows: out, sheet: book.names[si], headerRow: h + 1, hasName: ni >= 0};
+        }
+      }
+    }
+    throw new Error('No "HR No" column found.\n\nThe sheet needs one column of HR numbers (HR No / EMP / Code) and, if you like, a Name column. Nothing else is needed.');
+  }
+
+  /* ---------- the panel on the Labor screen ---------- */
+  function panelHtml(){
+    const wl = waitingLabor().length, ws = waitingStaff().length;
+    return `
+      <div class="att-one-line" style="margin-bottom:6px;">
+        <select id="ssSite" style="flex:1;padding:8px;border-radius:8px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
+          <option value="">— choose the site this sheet belongs to —</option>
+          ${sites().map(s => `<option>${esc(s)}</option>`).join('')}
+        </select>
+        <label class="btn btn-primary" style="flex:1;cursor:pointer;text-align:center;">📍 Load this site's people
+          <input type="file" id="ssFile" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
+        <button class="btn btn-ghost" id="ssWaitBtn" style="flex:1;${(wl + ws) ? 'border-color:rgba(251,191,36,.6);color:#fcd34d' : ''}">
+          🕓 Waiting for site${(wl + ws) ? ` (${wl + ws})` : ''}</button>
+      </div>
+      <div id="ssBox" style="display:none"></div>`;
+  }
+
+  function mount(){
+    if(!canDo()) return;
+    const host = document.getElementById('bsLaborBox');
+    if(!host || document.getElementById('ssSite')) return;
+    const d = document.createElement('div');
+    d.id = 'ssPanel';
+    d.innerHTML = panelHtml();
+    host.parentNode.insertBefore(d, host);
+  }
+  function refreshPanel(){
+    const p = document.getElementById('ssPanel');
+    if(!p) return;
+    const keep = document.getElementById('ssSite') ? document.getElementById('ssSite').value : '';
+    p.innerHTML = panelHtml();
+    if(keep && document.getElementById('ssSite')) document.getElementById('ssSite').value = keep;
+  }
+
+  /* ---------- load one site's sheet ---------- */
+  async function loadSite(file, site){
+    const box = document.getElementById('ssBox');
+    const show = (html, colour) => {
+      box.style.display = 'block';
+      box.style.cssText = 'display:block;margin:10px 0;padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.55;'
+        + (colour === 'bad' ? 'background:rgba(220,38,38,.12);border:1px solid rgba(248,113,113,.5);'
+         : 'background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.35);');
+      box.innerHTML = html;
+    };
+    show(`⏳ Reading <b>${esc(file.name)}</b>…`);
+    let info;
+    try{ info = await readSiteSheet(file); }
+    catch(e){ show(`❌ ${esc(e.message).replace(/\n/g, '<br>')}`, 'bad'); return; }
+    if(!info.rows.length){ show('❌ No HR numbers found in the sheet.', 'bad'); return; }
+
+    const L = typeof laborRecords !== 'undefined' ? laborRecords : [];
+    const S = typeof staffRecords !== 'undefined' ? staffRecords : [];
+    const findIn = code => L.find(x => String(x.code) === String(code)) || S.find(x => String(x.code) === String(code));
+    const fileCodes = new Set(info.rows.map(r => String(r.code)));
+
+    const unknown = [], coming = [], staying = [], nameOff = [];
+    info.rows.forEach(r => {
+      const rec = findIn(r.code);
+      if(!rec){ unknown.push(r); return; }
+      if(r.name && rec.name && r.name.toLowerCase().slice(0, 6) !== rec.name.toLowerCase().slice(0, 6)) nameOff.push({r, rec});
+      if(txt(rec.site).toUpperCase() === site.toUpperCase()) staying.push(rec);
+      else coming.push({rec, from: txt(rec.site) || 'no site'});
+    });
+    const leaving = L.concat(S).filter(x => txt(x.site).toUpperCase() === site.toUpperCase() && !fileCodes.has(String(x.code)));
+
+    show(`
+      <b>📄 ${esc(file.name)}</b> — sheet “${esc(info.sheet)}”, header row ${info.headerRow}<br>
+      Site: <b>${esc(site)}</b> · <b>${info.rows.length}</b> HR number(s) in the sheet<br>
+      <b>${staying.length}</b> already on this site · <b style="color:#6ee7b7">${coming.length}</b> will move here
+      · <b style="color:#fcd34d">${leaving.length}</b> will go to “Waiting for site”
+      ${coming.length ? `<div style="margin-top:6px;opacity:.9">Coming from: ${esc([...new Set(coming.map(c => c.from))].join(' · '))}</div>` : ''}
+      ${unknown.length ? `<div style="margin-top:6px;color:#fca5a5">⚠ ${unknown.length} HR number(s) not in the app at all: ${esc(unknown.slice(0, 10).map(u => u.code).join(', '))}${unknown.length > 10 ? '…' : ''} — these are skipped. Load them first from the main list.</div>` : ''}
+      ${nameOff.length ? `<div style="margin-top:6px;color:#fcd34d">⚠ ${nameOff.length} name(s) do not match the HR number, e.g. ${esc(nameOff[0].r.code)} — sheet says “${esc(nameOff[0].r.name)}”, app says “${esc(nameOff[0].rec.name)}”</div>` : ''}
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="ssGo" style="flex:1">✔ Put these ${coming.length + staying.length} on ${esc(site)}</button>
+        <button class="btn btn-ghost" id="ssCancel" style="flex:1">Cancel</button>
+      </div>`);
+
+    document.getElementById('ssCancel').onclick = () => { box.style.display = 'none'; };
+    document.getElementById('ssGo').onclick = async (ev) => {
+      ev.currentTarget.disabled = true;
+      if(!confirm(`Site: ${site}\n\n${coming.length} will move here\n${leaving.length} will go to "Waiting for site"\n\nA backup is downloaded first.`)){
+        ev.currentTarget.disabled = false; return;
+      }
+      try{
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify({labor: L, staff: S}, null, 2)], {type: 'application/json'}));
+        a.download = `MEMCO_Sites_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 400);
+      }catch(e){}
+      coming.forEach(c => { c.rec.site = site; });
+      leaving.forEach(x => { x.site = WAITING; });
+      try{
+        if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
+        await saveLaborRecords();
+        await saveStaffRecords();
+        if(typeof logChange === 'function') logChange('Labor', `Site sheet loaded for ${site}: ${coming.length} moved in, ${leaving.length} to waiting`, {site});
+        if(typeof renderLaborView === 'function') renderLaborView();
+        box.style.display = 'none';
+        refreshPanel();
+        toast(`${site}: ${coming.length} moved in · ${leaving.length} waiting for a site`);
+      }catch(e){ show(`❌ Could not save: ${esc(e.message || e)}`, 'bad'); }
+    };
+  }
+
+  /* ---------- the "waiting for site" window ---------- */
+  function openWaiting(){
+    const w = document.createElement('div');
+    w.id = 'ssWaitOverlay';
+    w.style.cssText = 'position:fixed;inset:0;z-index:9300;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:16px';
+    w.innerHTML = `<div style="background:#0b2137;border:1px solid rgba(56,189,248,.3);border-radius:14px;max-width:1000px;width:100%;
+        height:min(86vh,760px);display:flex;flex-direction:column;padding:16px;color:#e6eef7;font-size:13.5px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div><h3 style="margin:0">🕓 Waiting for site</h3>
+          <div style="opacity:.8;font-size:12.5px">Nobody is marking their attendance — they are on no site. Tick them and send them to a site.</div></div>
+        <button class="btn btn-ghost" data-x style="padding:4px 12px">✕ Close</button></div>
+      <div class="att-one-line" style="margin:10px 0">
+        <input id="ssqW" placeholder="Search HR, name or trade" style="flex:2;padding:8px;border-radius:8px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
+        <select id="ssKind" style="flex:1;padding:8px;border-radius:8px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
+          <option value="">Labor + Staff</option><option value="labor">Labor only</option><option value="staff">Staff only</option></select>
+        <button class="btn btn-ghost" id="ssCsv" style="flex:1">⬇ Excel (CSV)</button>
+      </div>
+      <div id="ssWrap" style="flex:1;min-height:0;overflow:auto;border:1px solid rgba(56,189,248,.15);border-radius:10px"></div>
+      <div class="att-one-line" style="margin-top:10px">
+        <span id="ssCount" style="opacity:.85"></span>
+        <select id="ssTo" style="flex:1;padding:8px;border-radius:8px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
+          <option value="">— send the ticked ones to —</option>
+          ${sites().map(s => `<option>${esc(s)}</option>`).join('')}</select>
+        <button class="btn btn-primary" id="ssSend" style="flex:1">➡ Send to this site</button>
+      </div></div>`;
+    document.body.appendChild(w);
+    const draw = () => {
+      const q = (document.getElementById('ssqW').value || '').trim().toLowerCase();
+      const kind = document.getElementById('ssKind').value;
+      let rows = [];
+      if(kind !== 'staff') rows = rows.concat(waitingLabor().map(x => ({x, kind: 'Labor'})));
+      if(kind !== 'labor') rows = rows.concat(waitingStaff().map(x => ({x, kind: 'Staff'})));
+      if(q) rows = rows.filter(({x}) => ((x.code || '') + ' ' + (x.name || '') + ' ' + (x.trade || x.designation || '')).toLowerCase().includes(q));
+      rows.sort((a, b) => String(a.x.name || '').localeCompare(String(b.x.name || '')));
+      document.getElementById('ssWrap').innerHTML = !rows.length
+        ? '<div style="padding:24px;text-align:center;opacity:.8">Everybody has a site. 👍</div>'
+        : `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
+            <thead><tr style="background:#0d3358;position:sticky;top:0">
+              <th style="padding:7px"><input type="checkbox" id="ssAll"></th>
+              <th style="padding:7px;text-align:left">HR</th><th style="padding:7px;text-align:left">Name</th>
+              <th style="padding:7px;text-align:left">Trade / designation</th><th style="padding:7px;text-align:left">List</th>
+              <th style="padding:7px;text-align:left">Nationality</th><th style="padding:7px;text-align:left">Camp room</th></tr></thead>
+            <tbody>${rows.map(({x, kind}) => `<tr>
+              <td style="padding:6px;text-align:center"><input type="checkbox" class="ssW" data-code="${esc(x.code)}"></td>
+              <td style="padding:6px"><b>${esc(x.code)}</b></td><td style="padding:6px">${esc(x.name)}</td>
+              <td style="padding:6px">${esc(x.trade || x.designation || '')}</td>
+              <td style="padding:6px">${kind}</td><td style="padding:6px">${esc(x.nationality || '')}</td>
+              <td style="padding:6px;opacity:.85">${esc(typeof driverCampRoom === 'function' ? (driverCampRoom(x.code) || '—') : '—')}</td></tr>`).join('')}
+            </tbody></table>`;
+      const all = document.getElementById('ssAll');
+      if(all) all.addEventListener('change', () => {
+        w.querySelectorAll('.ssW').forEach(c => { c.checked = all.checked; });
+        count();
+      });
+      w.querySelectorAll('.ssW').forEach(c => c.addEventListener('change', count));
+      count();
+    };
+    const count = () => {
+      const n = w.querySelectorAll('.ssW:checked').length;
+      document.getElementById('ssCount').textContent = `${n} ticked`;
+    };
+    document.getElementById('ssqW').addEventListener('input', draw);
+    document.getElementById('ssKind').addEventListener('change', draw);
+    document.getElementById('ssCsv').addEventListener('click', () => {
+      const rows = [['HR', 'Name', 'Trade / designation', 'List', 'Nationality', 'Mobile']];
+      waitingLabor().forEach(x => rows.push([x.code, x.name, x.trade || '', 'Labor', x.nationality || '', x.mobile || '']));
+      waitingStaff().forEach(x => rows.push([x.code, x.name, x.designation || '', 'Staff', x.nationality || '', x.mobile || '']));
+      const out = '\ufeff' + rows.map(r => r.map(v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([out], {type: 'text/csv;charset=utf-8'}));
+      a.download = `MEMCO_Waiting_for_site_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 400);
+    });
+    document.getElementById('ssSend').addEventListener('click', async () => {
+      const to = document.getElementById('ssTo').value;
+      const codes = [...w.querySelectorAll('.ssW:checked')].map(c => c.dataset.code);
+      if(!to){ toast('Choose the site first'); return; }
+      if(!codes.length){ toast('Tick at least one person'); return; }
+      if(!confirm(`Send ${codes.length} person(s) to ${to}?`)) return;
+      const set = new Set(codes.map(String));
+      (laborRecords || []).forEach(x => { if(set.has(String(x.code))) x.site = to; });
+      (staffRecords || []).forEach(x => { if(set.has(String(x.code))) x.site = to; });
+      try{
+        if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
+        await saveLaborRecords();
+        await saveStaffRecords();
+        if(typeof logChange === 'function') logChange('Labor', `${codes.length} person(s) sent from waiting to`, {site: to});
+        if(typeof renderLaborView === 'function') renderLaborView();
+        toast(`${codes.length} sent to ${to}`);
+        draw(); refreshPanel();
+      }catch(e){ toast('Could not save — try again'); }
+    });
+    w.addEventListener('click', e => { if(e.target === w || e.target.closest('[data-x]')){ w.remove(); refreshPanel(); } });
+    draw();
+  }
+
+  document.addEventListener('click', e => {
+    if(e.target.closest('#ssWaitBtn')){ e.preventDefault(); openWaiting(); }
+  });
+  document.addEventListener('change', async e => {
+    const f = e.target.closest('#ssFile');
+    if(!f) return;
+    const file = f.files && f.files[0];
+    const site = document.getElementById('ssSite').value;
+    f.value = '';
+    if(!file) return;
+    if(!site){ toast('Choose the site first'); return; }
+    await loadSite(file, site);
+  });
+  setInterval(mount, 2000);
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
+  window.MemcoSiteSheet = {openWaiting, waitingLabor, waitingStaff};
+})();
+</script>
+<!-- ============ END SITE-WISE UPLOAD ============ -->
 
 </body>
 </html>
