@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v41.5</title>
+<title>MEMCO Portal v42.1</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -18489,6 +18489,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .st-head-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 #stApp .st-who{font-size:12px;color:#9cc3e4}
 #stApp .st-shell{flex:1;min-height:0;display:flex}
+#stApp .st-cond{display:flex;gap:4px;flex-wrap:wrap}
+#stApp .st-cond .st-btn{padding:3px 8px;font-size:11.5px}
+
 #stApp .st-tw{max-height:min(var(--tw-max, 70vh), calc(100vh - 250px))}
 #stApp .st-main.st-fit .st-tw{max-height:none}
 @media (max-height:800px){#stApp .st-tw{max-height:calc(100vh - 250px)}
@@ -19231,7 +19234,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const opening = list.filter(s => s.status === 'opening').length;
     const ib = S.inbox || {};
     const quick = [
-      ['req',      '🧾', 'Site Requisitions', 'Material asked by technicians & foremen', num(ib.site_req)],
+      ['req',      '🧾', 'Take / Return material', 'Technicians & foremen take material, or bring it back', num(ib.site_req)],
       ['mr',       '📝', 'Material Requests',  'Site needs material that is not in stock',  num(ib.mr_store) + num(ib.mr_pm) + num(ib.mr_main)],
       ['issue',    '📤', 'Issue Voucher',      'Give material out of the store',            0],
       ['transfer', '🚚', 'Transfers',          'Send or receive material between stores',   num(S.pending.incoming)],
@@ -20302,7 +20305,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['lpopending','🧾 LPO pending delivery', 'Ordered but not yet received'],
     ['toolsout',  '🛠️ Tools outstanding', 'Tools issued and not yet returned'],
     ['minstock',  '⚠️ Below minimum stock', 'Company total under the item\'s minimum level'],
-    ['slow',      '🐢 Slow / dead stock', 'Items in stock with no issue or transfer out for N days']
+    ['slow',      '🐢 Slow / dead stock', 'Items in stock with no issue or transfer out for N days'],
+    ['damaged',   '🔴 Damaged stock',      'Material returned as damaged — kept apart from usable stock']
   ];
   async function pageAll(make, key){
     const out = []; let last = null;
@@ -20556,6 +20560,22 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         .sort((a, b) => b[5] - a[5]);
       render(['Code','Description','Unit','Minimum','In stock','Short by'], out, {num: [3, 4, 5]});
     };
+    RUN.damaged = async () => {
+      let rows = [];
+      try{ rows = await rpc('st_damaged_stock', {p_store: storeF() || null, p_search: val('rpQ').trim()}) || []; }
+      catch(e){
+        $('rpOut').innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>11_memco_return_condition.sql</b> in Supabase to switch this on.</div>`;
+        $('rpInfo').textContent = ''; return;
+      }
+      const rate = await lastRates();
+      const out = rows.map(r => [storeName(r.store_id), r.code, r.description || '', r.brand || '', r.unit || '',
+        num(r.qty), Math.round(num(r.qty) * num(rate(r.code, r.brand)) * 100) / 100,
+        r.last_by || '', r.last_by_hr || '', r.last_doc || '', r.taken_in_by || '', dmyt(r.last_at)])
+        .sort((a, b) => b[6] - a[6]);
+      render(['Store','Code','Description','Brand','Unit','Damaged qty','Value (AED)','Brought back by','HR','Note no','Taken in by','When'], out,
+        {num: [5, 6], money: [6], totals: [5, 6],
+         info: out.length ? 'This material is NOT counted in usable stock' : 'Nothing damaged — good news'});
+    };
     RUN.slow = async () => {
       const days = Math.max(1, parseInt(val('rpDays'), 10) || 90);
       const cutoff = new Date(Date.now() - days * 86400000).toISOString();
@@ -20617,7 +20637,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
 
   /* ---------------- site requisitions (technician / foreman → store) ---------------- */
-  const REQ_STATUS = {pending:'Waiting for store', partly_issued:'Partly issued', closed:'Completed',
+  const REQ_STATUS = {pending:'Waiting for store', partly_issued:'Partly done', closed:'Completed',
                       rejected:'Rejected', cancelled:'Cancelled'};
   function reqOpen(r){ return (r.lines || []).reduce((a, l) => a + Math.max(num(l.qty) - num(l.issued), 0), 0); }
   function reqDone(r){
@@ -20671,20 +20691,25 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const myOwn = reqs.filter(r => r.created_by === (me2.authId || '') || r.requester_hr === String(me2.hrCode || ''));
     const liveStores = viewStores().filter(s => s.status === 'live');
     main.innerHTML = `
-      <h2>Site Requisitions <span class="st-muted">— material asked from the store</span></h2>
+      <h2>Take / Return material <span class="st-muted">— site requisitions &amp; returns</span></h2>
+      <div class="st-actions" style="margin:0 0 10px">
+        <button type="button" class="st-btn" id="rqModeTake">📤 Take material</button>
+        <button type="button" class="st-btn st-ghost" id="rqModeBack">📥 Return material</button>
+      </div>
       <div class="st-note">A technician, plumber, AC technician, foreman or engineer asks the store for material.
         The store keeper issues what he gives — stock goes down and a Stock Issue Voucher is printed. Part quantity can be issued and the rest stays pending.</div>
 
       ${forMe.length ? `<h3>🧾 Waiting for my store (${forMe.length})</h3><div id="rqIn"></div>` : ''}
 
-      <h3>New requisition</h3>
+      <h3 id="rqFormTitle">New requisition</h3>
       <div class="st-card">
         <div class="st-note" style="margin-bottom:10px"><b>Start with HR No.</b> — employee name, trade, project and the normal project store are filled automatically. Related shows only the employee's own trade. General / Hardware, Consumables and Tools are available from their separate buttons.</div>
         <div class="st-row">
-          <div class="st-field s"><label class="st-l">HR No</label><input id="rqHr" value="${esc(me2.hrCode || '')}" autocomplete="off" placeholder="e.g. 109"></div>
+          <div class="st-field s"><label class="st-l">HR No</label><input id="rqHr" value="${esc((arg && arg.hr) || me2.hrCode || '')}" autocomplete="off" placeholder="e.g. 109"></div>
           <div class="st-field" style="flex:2"><label class="st-l">Employee name</label><input id="rqWho" value="${esc(me2.name || '')}" readonly></div>
           <div class="st-field s"><label class="st-l">Trade</label><input id="rqTrade" readonly></div>
-          <div class="st-field"><label class="st-l">Project / Site</label><select id="rqProj"></select></div>
+          <div class="st-field"><label class="st-l">Project / Site</label><select id="rqProj"></select>
+            <div id="rqStoreHint" class="st-muted" style="font-size:11.5px;color:#fcd34d"></div></div>
           <div class="st-field"><label class="st-l">Store</label><select id="rqStore">${storeOptions(liveStores, (liveStores.find(s => mine.includes(s.id)) || liveStores[0] || {}).id)}</select></div>
         </div>
         <div class="st-row" style="margin-top:8px">
@@ -20706,6 +20731,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <h3 style="margin-bottom:6px">Selected material <span class="st-muted" id="rqSelCount">(0)</span></h3>
           <div id="rqLines"></div>
         </div>
+        <div id="rqHoldBox" style="display:none"></div>
         <div class="st-row" style="margin-top:12px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="rqSend">🧾 Send requisition</button></div>
       </div>
 
@@ -20722,6 +20748,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
     const pickedReq = new Map();
     let rqAvail = {}, rqAll = {}, rqStockErr = '';
+    let rqMode = (arg && arg.mode === 'return') ? 'return' : 'issue';
     let rqEmployee = null;
     let rqScope = 'RELATED';
 
@@ -20777,14 +20804,25 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         return rank(a)-rank(b) || num(a.sort)-num(b.sort);
       });
     }
+    function projectFromSite(site){
+      const t = String(site || '').trim().toUpperCase();
+      if(!t) return '';
+      const hit = S.projects.find(p => String(p.app_site || '').trim().toUpperCase() === t)
+        || S.projects.find(p => String(p.name || '').trim().toUpperCase() === t)
+        || S.projects.find(p => String(p.name || '').toUpperCase().includes(t));
+      return hit ? hit.code : '';
+    }
     function setProjectOptions(projectCode){
       const related = projectCode ? S.projects.filter(p => p.code === projectCode) : [];
       const list = related.length ? related : S.projects;
       $('rqProj').innerHTML = list.map(p => `<option value="P:${esc(p.code)}" ${p.code===projectCode?'selected':''}>${esc(projectLabel(p.code))}</option>`).join('');
       const pc = ($('rqProj').value || '').replace(/^P:/,'');
-      const use = storeListFor(pc);
-      const withStock = use.find(st => Object.values(rqAll || {}).some(m => num(m[st.id]) > 0));
-      $('rqStore').innerHTML = storeOptions(use, (withStock || use[0] || {}).id);
+      const own = storeForProject(pc);              // the store(s) of THIS project
+      const canPickAny = ['admin', 'main'].includes(S.access);
+      const use = (own.length && !canPickAny) ? own : storeListFor(pc);
+      $('rqStore').innerHTML = storeOptions(use, (own[0] || use[0] || {}).id);
+      const hint = $('rqStoreHint');
+      if(hint) hint.textContent = own.length ? '' : 'No store is linked to this project yet — tell the admin (Stores > Admin > store projects).';
     }
     async function refreshRqAvail(){
       // ONE read of the whole company stock — per store AND per brand.
@@ -20895,7 +20933,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         rqScope = 'RELATED'; // every HR change starts from that employee's own trade
         pickedReq.clear();
         renderSelected();
-        setProjectOptions(rec.project_code || '');
+        const laborSite = rec.site || (laborIndexByCode()[hr] || {}).site || '';
+        const bySite = projectFromSite(laborSite);
+        setProjectOptions(bySite || rec.project_code || '');
+        if(laborSite && !bySite && !rec.project_code){
+          $('rqMatInfo').textContent = `Site "${laborSite}" is not linked to any project yet`;
+        }
         drawChips(); await refreshRqAvail();
       }catch(e){
         rqEmployee=null; $('rqWho').value=''; $('rqTrade').value=''; $('rqHr').classList.remove('rq-person-ok');
@@ -20906,10 +20949,77 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
     setProjectOptions('');
     drawChips(); renderSelected();
+    if(arg && arg.hr){ setTimeout(() => { lookupHr().then(() => { if(rqMode === 'return') drawHolding(); }); }, 60); }
+    function applyMode(){
+      const back = rqMode === 'return';
+      $('rqModeTake').className = 'st-btn' + (back ? ' st-ghost' : '');
+      $('rqModeBack').className = 'st-btn' + (back ? '' : ' st-ghost');
+      $('rqFormTitle').textContent = back ? 'Return material to the store' : 'New requisition';
+      $('rqSend').textContent = back ? '📥 Offer this return' : '🧾 Send requisition';
+      const grid = $('rqMatGrid') ? $('rqMatGrid').closest('.st-card') || $('rqMatGrid').parentElement : null;
+      if(grid) grid.style.display = back ? 'none' : '';
+      const chips = document.querySelector('.rq-chips');
+      if(chips) chips.style.display = back ? 'none' : '';
+      if($('rqMatQ')) $('rqMatQ').style.display = back ? 'none' : '';
+      $('rqHoldBox').style.display = back ? '' : 'none';
+      pickedReq.clear(); renderSelected();
+      if(back) drawHolding();
+    }
+    async function drawHolding(){
+      const hr = $('rqHr').value.trim();
+      const box = $('rqHoldBox');
+      if(!hr){ box.innerHTML = '<div class="st-empty">Enter the HR number first.</div>'; return; }
+      box.innerHTML = '<div class="st-empty">Loading what he still holds…</div>';
+      let all = [];
+      try{ all = await rpc('st_req_holding', {p_hr: hr, p_store: null}) || []; }
+      catch(e){ box.innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; return; }
+      const here = $('rqStore').value;
+      const rows = all.filter(r => r.store_id === here);
+      if(!rows.length){
+        const others = [...new Set(all.map(r => r.store_id))];
+        box.innerHTML = `<div class="st-empty">Nothing is outstanding against HR ${esc(hr)} in <b>${esc(storeName(here))}</b>.
+          ${others.length ? `<div style="margin-top:8px">He took material from:
+            ${others.map(sid => `<button type="button" class="st-btn st-sm" data-goto-store="${esc(sid)}">${esc(storeName(sid))}</button>`).join(' ')}</div>`
+            : '<div class="st-muted" style="margin-top:4px">Only material taken through this app can be returned here.</div>'}</div>`;
+        box.querySelectorAll('[data-goto-store]').forEach(b2 => b2.addEventListener('click', () => {
+          const sid = b2.dataset.gotoStore;
+          if(![...$('rqStore').options].some(o => o.value === sid)){
+            const st2 = storeById(sid);
+            if(st2) $('rqStore').add(new Option(st2.name, sid));
+          }
+          $('rqStore').value = sid;
+          drawHolding();
+        }));
+        return;
+      }
+      box.innerHTML = `<div class="st-muted" style="margin:6px 0">Tick what he is bringing back and write the quantity —
+        it cannot be more than he still holds.</div>
+        <div class="st-tw"><table class="st-t st-compact"><thead><tr><th>Code</th><th>Description</th><th>Brand</th><th>Unit</th>
+          <th class="n">Taken</th><th class="n">Returned</th><th class="n">Still with him</th><th class="n">Return now</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td><b>${esc(r.code)}</b></td><td>${esc(r.description || '')}</td><td>${esc(r.brand || '')}</td>
+          <td>${esc(r.unit || '')}</td><td class="n">${fmt(r.taken)}</td><td class="n">${fmt(r.returned)}</td>
+          <td class="n"><b>${fmt(r.holding)}</b></td>
+          <td class="n"><input type="number" min="0" step="any" max="${num(r.holding)}" style="width:100px;text-align:right"
+            data-back="${esc(r.code)}" data-bb="${esc(r.brand || '')}" data-max="${num(r.holding)}"
+            data-desc="${esc(r.description || '')}" data-unit="${esc(r.unit || '')}"></td></tr>`).join('')}
+        </tbody></table></div>`;
+      box.querySelectorAll('[data-back]').forEach(inp => inp.addEventListener('input', () => {
+        const q = num(inp.value), max = num(inp.dataset.max);
+        if(q > max){ inp.value = max; toast(`He only holds ${fmt(max)}`, true); }
+        const key = inp.dataset.back;
+        if(num(inp.value) > 0){
+          pickedReq.set(key, {code: key, description: inp.dataset.desc, brand: inp.dataset.bb,
+                              unit: inp.dataset.unit, qty: num(inp.value)});
+        } else pickedReq.delete(key);
+        renderSelected();
+      }));
+    }
+    $('rqModeTake').addEventListener('click', () => { rqMode = 'issue'; applyMode(); });
+    $('rqModeBack').addEventListener('click', () => { rqMode = 'return'; applyMode(); });
     let hrTimer;
-    $('rqHr').addEventListener('input',()=>{ clearTimeout(hrTimer); hrTimer=setTimeout(lookupHr,300); });
+    $('rqHr').addEventListener('input',()=>{ clearTimeout(hrTimer); hrTimer=setTimeout(()=>{ lookupHr(); if(rqMode==='return') drawHolding(); },300); });
     $('rqMatQ').addEventListener('input',drawPicker);
-    $('rqStore').addEventListener('change',refreshRqAvail);
+    $('rqStore').addEventListener('change',()=>{ refreshRqAvail(); if(rqMode==='return') drawHolding(); });
     $('rqProj').addEventListener('change',()=>{
       const pc=$('rqProj').value.replace(/^P:/,'');
       const use=storeListFor(pc);
@@ -20924,14 +21034,19 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const pv = $('rqProj').value;
       const lines = [...pickedReq.values()].map(i=>({code:i.code,description:i.description,brand:i.brand||'',unit:i.unit||'',qty:num(i.qty),remarks:''})).filter(x=>x.qty>0);
       if(!lines.length) throw new Error('Select at least one material and enter quantity.');
-      const r = await rpc('st_req_create', {p: {
+      const payload = {
         store_id: $('rqStore').value, project_code: pv.startsWith('P:') ? pv.slice(2) : '',
         department: '', location: $('rqLoc').value.trim(),
         needed_by: null, requester: $('rqWho').value.trim(), requester_hr: $('rqHr').value.trim(),
         trade: $('rqTrade').value.trim(), note: $('rqNote').value.trim(), lines
-      }});
-      toast(`${r.req_no} sent to ${storeName(r.store_id)}.`);
-      go('req');
+      };
+      const r = rqMode === 'return'
+        ? await rpc('st_return_create', {p: payload})
+        : await rpc('st_req_create',    {p: payload});
+      toast(rqMode === 'return'
+        ? `${r.req_no} — return offered to ${storeName(r.store_id)}.`
+        : `${r.req_no} sent to ${storeName(r.store_id)}.`);
+      go('req', {hr: $('rqHr').value.trim(), mode: rqMode}, true);
     }));
     // --- store side: issue against a requisition ---
     async function drawIn(){
@@ -20945,11 +21060,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="st-row" style="justify-content:space-between">
             <div><b>${esc(r.req_no)}</b> · ${esc(dmy(r.created_at))} · <b>${esc(r.requester)}</b>${r.trade ? ' (' + esc(r.trade) + ')' : ''}
               ${r.requester_hr ? ' · HR ' + esc(r.requester_hr) : ''} · ${esc(storeName(r.store_id))}
+              ${r.kind === 'return' ? '<span class="st-pill p-live" style="margin-left:6px">RETURN</span>' : ''}
               <div class="st-muted">${esc(r.project_code ? projectLabel(r.project_code) : r.department)}${r.location ? ' · ' + esc(r.location) : ''}${r.note ? ' · “' + esc(r.note) + '”' : ''}</div></div>
             <div>${pill(r.status, REQ_STATUS[r.status])}</div>
           </div>
           <div class="st-tw" style="margin-top:8px"><table class="st-t"><thead><tr><th>Code</th><th>Description</th><th>Brand</th><th>Unit</th>
-            <th class="n">Needed</th><th class="n">Already issued</th><th class="n">In store</th><th class="n">Issue now</th></tr></thead><tbody>
+            <th class="n">${r.kind === 'return' ? 'Returning' : 'Needed'}</th><th class="n">${r.kind === 'return' ? 'Taken back' : 'Already issued'}</th>
+            <th class="n">In store</th><th class="n">${r.kind === 'return' ? 'Take back now' : 'Issue now'}</th>
+            ${r.kind === 'return' ? '<th>Condition</th>' : ''}</tr></thead><tbody>
             ${(r.lines || []).map(l => {
               const openq = Math.max(num(l.qty) - num(l.issued), 0);
               const have = num(((avail[r.store_id] || {})[l.code] || {})[l.brand || ''] || 0);
@@ -20957,23 +21075,42 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                 <td class="n">${fmt(l.qty)}</td><td class="n">${fmt(l.issued)}</td>
                 <td class="n ${have < openq ? 'low' : ''}">${fmt(have)}</td>
                 <td class="n"><input type="number" min="0" step="any" data-give="${esc(l.code)}" data-gb="${esc(l.brand || '')}"
-                  value="${esc(Math.min(openq, have) || 0)}" style="width:100px;text-align:right"></td></tr>`;
+                  value="${esc((r.kind === 'return' ? openq : Math.min(openq, have)) || 0)}" style="width:100px;text-align:right"></td>
+                ${r.kind === 'return' ? `<td><div class="st-cond" data-condrow="${esc(l.code)}|${esc(l.brand || '')}">
+                  ${[['good','🟢 As taken'],['bad','🟠 Bad condition'],['damaged','🔴 Damaged']].map(([v, t], i) =>
+                    `<button type="button" class="st-btn st-sm ${i ? 'st-ghost' : ''}" data-cond="${v}">${t}</button>`).join('')}
+                </div></td>` : ''}</tr>`;
             }).join('')}
           </tbody></table></div>
           <div class="st-row" style="margin-top:10px">
             <div class="st-field"><input data-note placeholder="Note (reason is required to reject)"></div>
-            <button type="button" class="st-btn st-ok" data-issue="${esc(r.id)}">📤 Issue & print voucher</button>
+            <button type="button" class="st-btn st-ok" data-issue="${esc(r.id)}">${r.kind === 'return' ? '📥 Take back & print note' : '📤 Issue & print voucher'}</button>
             <button type="button" class="st-btn st-danger" data-reject="${esc(r.id)}">✕ Reject</button>
             <button type="button" class="st-btn st-ghost" data-print="${esc(r.id)}">🖨 Print requisition</button>
           </div>
         </div>`).join('');
+      $('rqIn').querySelectorAll('[data-cond]').forEach(b => b.addEventListener('click', () => {
+        const row = b.closest('[data-condrow]');
+        row.querySelectorAll('[data-cond]').forEach(x => x.classList.add('st-ghost'));
+        b.classList.remove('st-ghost');
+        row.dataset.value = b.dataset.cond;
+      }));
       $('rqIn').querySelectorAll('[data-issue]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
         const box = b.closest('[data-rq]');
         const r = forMe.find(x => x.id === b.dataset.issue);
-        const give = [...box.querySelectorAll('[data-give]')].map(i => ({code: i.dataset.give, brand: i.dataset.gb, qty: num(i.value)})).filter(x => x.qty > 0);
+        const give = [...box.querySelectorAll('[data-give]')].map(i => {
+          const key = i.dataset.give + '|' + (i.dataset.gb || '');
+          const row = box.querySelector(`[data-condrow="${CSS.escape(key)}"]`);
+          return {code: i.dataset.give, brand: i.dataset.gb, qty: num(i.value),
+                  condition: (row && row.dataset.value) || 'good'};
+        }).filter(x => x.qty > 0);
         if(!give.length) throw new Error('Enter at least one quantity.');
-        const res = await rpc('st_req_issue', {p_id: r.id, p_lines: give, p_date: todayIso(), p_note: box.querySelector('[data-note]').value.trim()});
-        toast(`${res.voucher.doc_no} issued against ${r.req_no}.`);
+        const res = r.kind === 'return'
+          ? await rpc('st_return_accept', {p_id: r.id, p_lines: give, p_date: todayIso(), p_note: box.querySelector('[data-note]').value.trim()})
+          : await rpc('st_req_issue',     {p_id: r.id, p_lines: give, p_date: todayIso(), p_note: box.querySelector('[data-note]').value.trim()});
+        toast(r.kind === 'return'
+          ? `${res.voucher.doc_no} — taken back into ${storeName(r.store_id)}${num(res.damaged) ? ` · ${fmt(res.damaged)} damaged` : ''}.`
+          : `${res.voucher.doc_no} issued against ${r.req_no}.`);
         printDoc(res.voucher);
         S.availCache = {};
         go('req');
