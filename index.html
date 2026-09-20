@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v40.3</title>
+<title>MEMCO Portal v41.3</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -4339,6 +4339,7 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
 
   <div class="letterhead">
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+      <button class="btn btn-ghost" id="globalBackBtn" style="display:none;flex-shrink:0;">← Back</button>
       <button class="btn btn-ghost" id="globalHomeBtn" style="display:none;flex-shrink:0;">🏠 Home</button>
       <button class="btn btn-ghost" id="manageUsersBtn" style="display:none;font-size:11.5px;padding:6px 10px;flex-shrink:0;">👥 Users</button>
       <button class="btn btn-ghost" id="permMatrixBtn" style="display:none;font-size:11.5px;padding:6px 10px;flex-shrink:0;">⚙️ Permissions</button>
@@ -4467,40 +4468,40 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
         <div class="hc-sub">Camp management, room allocation & capacity</div>
         <div class="hc-stat" id="homeCampsStat">…</div>
       </div>
-      <div class="home-card" id="homeTransferCard">
+      <div class="home-card" id="homeStoresCard">
         <div class="hc-num">6</div>
+        <div class="hc-icon"><i data-lucide="package"></i></div>
+        <div class="hc-title">Stores</div>
+        <div class="hc-sub">Stock, issue vouchers, transfers, LPO &amp; receiving</div>
+        <div class="hc-stat" id="homeStoresStat">Open stores</div>
+      </div>
+      <div class="home-card" id="homeTransferCard">
+        <div class="hc-num">7</div>
         <div class="hc-icon"><i data-lucide="arrow-left-right"></i></div>
         <div class="hc-title">Transfer Labor</div>
         <div class="hc-sub">Move workers between project sites</div>
         <div class="hc-stat" id="homeTransferStat">…</div>
       </div>
       <div class="home-card" id="homeStaffCard">
-        <div class="hc-num">7</div>
+        <div class="hc-num">8</div>
         <div class="hc-icon"><i data-lucide="users"></i></div>
         <div class="hc-title">Staff</div>
         <div class="hc-sub">Site-wise staff directory & contacts</div>
         <div class="hc-stat" id="homeStaffStat">…</div>
       </div>
       <div class="home-card" id="homeVehiclesCard">
-        <div class="hc-num">8</div>
+        <div class="hc-num">9</div>
         <div class="hc-icon"><i data-lucide="car"></i></div>
         <div class="hc-title">Vehicles / Fleet</div>
         <div class="hc-sub">Registration & insurance expiry tracking</div>
         <div class="hc-stat" id="homeVehiclesStat">…</div>
       </div>
       <div class="home-card" id="homePpeCard">
-        <div class="hc-num">9</div>
+        <div class="hc-num">10</div>
         <div class="hc-icon"><i data-lucide="shield-check"></i></div>
         <div class="hc-title">PPE &amp; Safety Gear</div>
         <div class="hc-sub">Issue records, camp stock &amp; re-issue forecast</div>
         <div class="hc-stat" id="homePpeStat">…</div>
-      </div>
-      <div class="home-card home-card-disabled" id="homeCustomCard">
-        <div class="hc-num">10</div>
-        <div class="hc-icon"><i data-lucide="puzzle"></i></div>
-        <div class="hc-title">Custom Module</div>
-        <div class="hc-sub">Reserved for future use</div>
-        <div class="hc-stat">Under Construction</div>
       </div>
     </div>
   </div>
@@ -5999,7 +6000,7 @@ let ROLE_LIST = BASE_ROLE_LIST.slice();
 // Supervisor and Foreman are field roles tied to one site, same as Site
 // Engineer.
 const SITE_LOCKED_ROLES = ["Site Engineer","Site Supervisor","Foreman","Worker"];
-const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeCampsCard","homeTransferCard","homeStaffCard","homeVehiclesCard","homePpeCard","homeCustomCard"];
+const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeCampsCard","homeTransferCard","homeStaffCard","homeVehiclesCard","homePpeCard","homeStoresCard"];
 // Legacy static defaults — used ONLY to seed the editable permission matrix
 // the very first time it's created, and to seed any brand-new role/card/
 // action key discovered later (e.g. a freshly-added dashboard card, or a
@@ -6008,12 +6009,12 @@ const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard"
 // for an existing role+key combination.
 const LEGACY_ROLE_CARDS = {
   "Super Admin": ALL_HOME_CARDS.slice(),
-  "Site Engineer": ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeStaffCard","homeCustomCard"],
-  "Camp Boss": ["homeCampsCard","homePpeCard","homeCustomCard"],
+  "Site Engineer": ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeStaffCard","homeStoresCard"],
+  "Camp Boss": ["homeCampsCard","homePpeCard","homeStoresCard"],
   // Storekeeper: seeded with the PPE module only (issue PPE + manage PPE
   // stock). Everything else for this role still starts unticked.
   "Storekeeper": ["homePpeCard"],
-  "Transport Manager": ["homeVehiclesCard","homeCustomCard"],
+  "Transport Manager": ["homeVehiclesCard","homeStoresCard"],
   // Site Supervisor: "view site progress and log attendance/labor requests".
   "Site Supervisor": ["homeAttendanceCard","homeLaborCard","homeVillasCard"],
   // Foreman: "restricted strictly to basic daily attendance marking and
@@ -8199,7 +8200,39 @@ const HOLIDAYS_KEY = "public-holidays-v1";
 let holidayDates = []; // extra official public holidays (YYYY-MM-DD) beyond the standing weekly Sunday holiday
 let holidayDatesLoaded = false;
 
+/* ---- Back / Home history for the main app ---- */
+window.__navStack = window.__navStack || [];
+window.__curView = window.__curView || 'homeView';
+function navRemember(entry){
+  const st = window.__navStack;
+  const last = st[st.length - 1];
+  if(last && last.id === entry.id && String(last.sub || '') === String(entry.sub || '')) return;
+  st.push(entry);
+  if(st.length > 40) st.shift();
+  updateBackBtn();
+}
+function updateBackBtn(){
+  const b = document.getElementById('globalBackBtn');
+  if(!b) return;
+  const here = ['homeView'].includes(window.__curView || '');
+  b.style.display = (!here && window.__navStack.length) ? 'block' : 'none';
+}
+function navBack(){
+  const st = window.__navStack;
+  const prev = st.pop();
+  window.__navSilent = true;
+  try{
+    if(!prev){ goHome(); }
+    else if(prev.sub === 'camp' && typeof openCamp === 'function'){ showSection('campsView'); openCamp(prev.arg); }
+    else { showSection(prev.id); if(prev.id === 'campsView' && typeof renderCampsList === 'function') renderCampsList(); }
+  }finally{ window.__navSilent = false; }
+  updateBackBtn();
+}
 function showSection(id){
+  if(!window.__navSilent && window.__curView && window.__curView !== id){
+    navRemember({id: window.__curView, sub: window.__curSub, arg: window.__curArg});
+  }
+  window.__curView = id; window.__curSub = ''; window.__curArg = '';
   ['homeView','directoryView','attendanceView','laborView','staffView','villasView','campsView','transferView','vehiclesView','ppeView','adminHubView'].forEach(v => {
     document.getElementById(v).style.display = (v===id) ? '' : 'none';
   });
@@ -8207,6 +8240,7 @@ function showSection(id){
   document.getElementById('tabRow').style.display = 'none';
   const globalHomeBtn = document.getElementById('globalHomeBtn');
   if(globalHomeBtn) globalHomeBtn.style.display = (id === 'homeView' || (lockedSite && !currentUser)) ? 'none' : 'block';
+  updateBackBtn();
   const map = {homeView:'tabHomeBtn', directoryView:'tabDirectoryBtn', attendanceView:'tabAttendanceBtn', laborView:'tabLaborBtn', villasView:'tabVillasBtn'};
   Object.values(map).forEach(b => document.getElementById(b).classList.remove('active'));
   if(map[id]) document.getElementById(map[id]).classList.add('active');
@@ -8277,7 +8311,8 @@ document.getElementById('campBackToLaborBtn').onclick = async () => {
   }
 };
 
-document.getElementById('globalHomeBtn').onclick = goHome;
+document.getElementById('globalHomeBtn').onclick = () => { window.__navStack = []; goHome(); };
+document.getElementById('globalBackBtn').onclick = navBack;
 document.getElementById('homeCampsCard').onclick = goCamps;
 document.getElementById('homeTransferCard').onclick = goTransfer;
 document.getElementById('homeStaffCard').onclick = goStaff;
@@ -8344,7 +8379,10 @@ document.querySelectorAll('#vehiclesTopTabs [data-vtab]').forEach(btn => {
     else renderVehiclesList();
   });
 });
-document.getElementById('homeCustomCard').onclick = () => showToast('This module is under construction');
+document.getElementById('homeStoresCard').onclick = () => {
+  if(window.MemcoStores && typeof MemcoStores.open === 'function') MemcoStores.open();
+  else showToast('Stores is still loading — try again in a moment');
+};
 
 document.getElementById('homeBellBtn').onclick = openActivityModal;
 document.getElementById('homeAvatarBtn').onclick = () => ensureName(() => {
@@ -13083,6 +13121,11 @@ document.getElementById('addCampBtn').onclick = () => ensureName(async () => {
 });
 
 function openCamp(campId){
+  if(!window.__navSilent){
+    navRemember({id: 'campsView', sub: window.__curSub === 'camp' ? 'camp' : '', arg: window.__curArg || ''});
+    window.__curSub = 'camp'; window.__curArg = campId;
+    updateBackBtn();
+  }
   currentCampId = campId;
   document.getElementById('campsListPicker').style.display = 'none';
   document.getElementById('campDetailView').style.display = '';
@@ -18380,12 +18423,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     <div class="st-brand"><span class="st-logo">📦</span><div><div class="st-title">MEMCO Stores</div><div class="st-sub">Stock · Transfers · Issue Vouchers</div></div></div>
     <div class="st-head-right">
       <span class="st-who" id="stWho"></span>
+      <button type="button" class="st-btn st-ghost" id="stBackBtn" title="Back">← Back</button>
+      <button type="button" class="st-btn st-ghost" id="stHomeBtn" title="Home">🏠 Home</button>
+      <button type="button" class="st-btn st-ghost" id="stMenuBtn" title="Show / hide the menu">☰</button>
       <button type="button" class="st-btn st-ghost" id="stRefreshBtn" title="Reload">⟳</button>
       <button type="button" class="st-btn st-ghost" id="stCloseBtn">✕ Close</button>
     </div>
   </header>
-  <nav class="st-tabs" id="stTabs"></nav>
-  <main class="st-main" id="stMain"></main>
+  <div class="st-shell">
+    <nav class="st-tabs" id="stTabs"></nav>
+    <main class="st-main" id="stMain"></main>
+  </div>
   <div class="st-toast" id="stToast"></div>
   <datalist id="stItemsList"></datalist>
   <datalist id="stBrandList"></datalist>
@@ -18402,12 +18450,39 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .st-sub{font-size:11.5px;color:#8fb3d1}
 #stApp .st-head-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 #stApp .st-who{font-size:12px;color:#9cc3e4}
-#stApp .st-tabs{display:flex;gap:4px;padding:8px 12px;overflow-x:auto;background:#071f36;border-bottom:1px solid rgba(56,189,248,.15);scrollbar-width:thin}
+#stApp .st-shell{flex:1;min-height:0;display:flex}
+#stApp .st-tw{max-height:min(var(--tw-max, 70vh), calc(100vh - 250px))}
+#stApp .st-main.st-fit .st-tw{max-height:none}
+@media (max-height:800px){#stApp .st-tw{max-height:calc(100vh - 250px)}
+  #stApp .rq-grid{max-height:calc(100vh - 400px)}}
+@media (max-height:700px){#stApp .st-tw{max-height:calc(100vh - 230px)}}
+#stApp .st-main.st-fit{overflow:hidden;display:flex;flex-direction:column;padding-bottom:10px}
+#stApp .st-stats{display:flex;gap:10px;margin:10px 0;flex-wrap:wrap}
+#stApp .st-stat{flex:1;min-width:130px;background:linear-gradient(160deg,#0d3358,#0a2540);border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:8px 12px}
+#stApp .st-stat.hot{border-color:rgba(248,113,113,.6)}
+#stApp .st-stat b{display:block;font-size:19px}
+#stApp .st-stat span{color:#8fb3d1;font-size:12px}
+#stApp .st-cols{flex:1;min-height:0;display:flex;gap:14px;margin-top:8px}
+#stApp .st-col{flex:2;min-width:0;display:flex;flex-direction:column;min-height:0}
+#stApp .st-col-side{flex:1}
+#stApp .st-colbody{flex:1;min-height:0;overflow:auto}
+@media (max-width:1000px){#stApp .st-cols{flex-direction:column}#stApp .st-col-side{flex:0 0 auto;max-height:240px}}
+#stApp .st-home{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+#stApp .st-home-card{background:linear-gradient(160deg,#0d3358,#0a2540);border:1px solid rgba(56,189,248,.25);border-radius:14px;padding:14px;cursor:pointer;transition:transform .12s,border-color .12s}
+#stApp .st-home-card:hover{transform:translateY(-2px);border-color:#38bdf8}
+#stApp .st-home-card.hot{border-color:rgba(248,113,113,.65);background:linear-gradient(160deg,#3b1d2a,#0a2540)}
+#stApp .st-home-ico{font-size:24px;margin-bottom:6px}
+#stApp .st-home-t{font-weight:700;font-size:15px}
+#stApp .st-home-s{color:#8fb3d1;font-size:12.5px;margin-top:3px;line-height:1.4}
+#stApp .st-tabs{flex:0 0 218px;display:flex;flex-direction:column;gap:3px;padding:10px 8px;overflow-y:auto;overflow-x:hidden;background:#071f36;border-right:1px solid rgba(56,189,248,.18)}
+#stApp.st-menu-off .st-tabs{display:none}
+#stApp .st-tabs .st-tab{width:100%;text-align:left;white-space:normal;line-height:1.25}
+#stApp .st-tabs-old{display:flex;gap:4px;padding:8px 12px;overflow-x:auto;background:#071f36;border-bottom:1px solid rgba(56,189,248,.15);scrollbar-width:thin}
 #stApp .st-tab{flex:0 0 auto;border:1px solid transparent;background:transparent;color:#b8cfe4;padding:7px 12px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px;white-space:nowrap}
 #stApp .st-tab:hover{background:rgba(56,189,248,.08)}
 #stApp .st-tab.on{background:#0e4a7d;color:#fff;border-color:rgba(56,189,248,.45)}
 #stApp .st-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-left:5px;border-radius:9px;background:#e11d48;color:#fff;font-size:11px;text-align:center}
-#stApp .st-main{flex:1;overflow:auto;padding:16px;max-width:1500px;width:100%;margin:0 auto}
+#stApp .st-main{flex:1;min-width:0;overflow:auto;padding:16px;width:100%;margin:0}
 #stApp h2{font-size:18px;margin:4px 0 12px}
 #stApp h3{font-size:15px;margin:18px 0 8px;color:#cfe3f5}
 #stApp .st-card{background:#0a2540;border:1px solid rgba(56,189,248,.18);border-radius:12px;padding:14px;margin-bottom:14px}
@@ -18456,8 +18531,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .st-t.st-vert thead th.n span{writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;max-height:120px;font-weight:600}
 #stApp .st-t.st-vert td.n,#stApp .st-t.st-vert th.n{min-width:34px;padding-left:3px;padding-right:5px}
 #stApp .st-t.st-vert .c2{max-width:190px}
-#stApp .st-sticky .c1{position:sticky;left:0;z-index:2;background:#0a2540}
-#stApp .st-sticky .c2{position:sticky;left:86px;z-index:2;background:#0a2540}
+#stApp .st-sticky .c1{position:sticky;left:0;z-index:2;background:#0a2540;width:94px;min-width:94px}
+#stApp .st-sticky .c2{position:sticky;left:94px;z-index:2;background:#0a2540;min-width:210px}
 #stApp .st-sticky thead .c1,#stApp .st-sticky thead .c2{z-index:3;background:#0d3358}
 #stApp .st-sticky tr:hover .c1,#stApp .st-sticky tr:hover .c2{background:#0f3355}
 @media (max-width:700px){#stApp .st-sticky .c2{position:static}}
@@ -18476,7 +18551,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .rq-chips{display:flex;gap:6px;flex-wrap:wrap}
 #stApp .rq-chip{border:1px solid rgba(148,163,184,.35);background:#0b2a47;color:#cfe3f5;border-radius:999px;padding:5px 10px;font-size:11px;cursor:pointer}
 #stApp .rq-chip.on{border-color:#38bdf8;background:#0d3a60;color:#fff}
-#stApp .rq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(285px,1fr));gap:7px;max-height:360px;overflow:auto;padding:2px}
+#stApp .rq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(285px,1fr));gap:7px;max-height:min(360px,calc(100vh - 430px));overflow:auto;padding:2px}
 #stApp .rq-item{border:1px solid rgba(148,163,184,.24);background:#0a2540;border-radius:8px;padding:8px;cursor:pointer;text-align:left;color:#e5f2ff}
 #stApp .rq-item:hover{border-color:#38bdf8;background:#0d3358}
 #stApp .rq-item.sel{border-color:#22c55e;background:#0d3d39}
@@ -18508,6 +18583,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   #stApp .st-lines td.c-avail{text-align:left}
   #stApp .st-lines td.c-del{grid-column:1 / -1;text-align:right}
   #stApp .st-main{padding:10px}
+  #stApp .st-shell{flex-direction:column}
+  #stApp .st-tabs{flex:0 0 auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid rgba(56,189,248,.18)}
+  #stApp .st-tabs .st-tab{width:auto;white-space:nowrap}
   #stApp .st-field,#stApp .st-field.s{min-width:100%;flex:1 1 100%}
   #stApp .st-sub,#stApp .st-who{display:none}
 }
@@ -18709,6 +18787,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     try{
       const ib = await rpc('st_inbox', {});
       S.inbox = ib || {};
+      try{ setNav(!!S.access); }catch(e){}
       try{
         const mine2 = enterStores(false).map(x => x.id);
         if(mine2.length){
@@ -18998,6 +19077,19 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   }
 
   /* ---------------- shell ---------------- */
+  function updateNavButtons(){
+    const b = $('stBackBtn');
+    if(b) b.style.visibility = (S.nav && S.nav.length) ? 'visible' : 'hidden';
+  }
+  function tabAllowedFor(k){
+    const staffOnly = S.access === 'staff';
+    if(k === 'admin') return isAdmin();
+    if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm'))
+      || (k === 'lpo' && hasRole('procurement')) || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
+    if(S.access === 'viewer') return !['issue','opening','receive','tools'].includes(k);
+    if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
+    return true;
+  }
   function renderTabs(){
     const staffOnly = S.access === 'staff';
     const tabs = TABS.filter(([k]) => {
@@ -19027,8 +19119,18 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const u = me();
     $('stWho').textContent = u ? `${u.name} · ${({admin:'Admin', main:'Main Store', keeper:'Store Keeper', viewer:'Viewer', staff:'Staff'})[S.access] || ''}${S.roles.length ? ' · ' + S.roles.map(r => r === 'pm' ? 'PM' : r[0].toUpperCase() + r.slice(1)).join(', ') : ''}` : '';
   }
-  async function go(tab, arg){
-    S.tab = tab; renderTabs();
+  async function go(tab, arg, viaBack){
+    const mainEl = $('stMain');
+    if(mainEl) mainEl.classList.remove('st-fit');
+    if(!viaBack){
+      S.nav = S.nav || [];
+      const last = S.nav[S.nav.length - 1];
+      const same = last && last.tab === tab && JSON.stringify(last.arg || null) === JSON.stringify(arg || null);
+      if(S.tab && !same) S.nav.push({tab: S.tab, arg: S.lastArg});
+      if(S.nav.length > 40) S.nav.shift();
+    }
+    S.lastArg = arg;
+    S.tab = tab; renderTabs(); updateNavButtons();
     const main = $('stMain');
     if(S.setupMissing){
       main.innerHTML = `<div class="st-note warn"><b>Stores database not set up.</b><br>Open Supabase → SQL Editor, paste <b>memco_stores_phase1.sql</b> and press Run. Then press ⟳ here.</div>`;
@@ -19048,7 +19150,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     app.style.display = 'flex';
     document.body.style.overflow = 'hidden';
     S.loaded = false;
-    await go(S.tab || 'dash');
+    S.nav = [];
+    const own = enterStores(false);
+    if(S.access === 'keeper' && own.length === 1) await go('store', own[0].id, true);
+    else await go('dash', null, true);
   }
   function close(){
     $('stApp').style.display = 'none';
@@ -19072,7 +19177,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(s.status === 'not_started') btn = `<button type="button" class="st-btn st-warn st-sm" data-status="${esc(s.id)}" data-to="opening">Start opening stock</button>`;
         if(s.status === 'opening') btn = `<button type="button" class="st-btn st-sm" data-open-store="${esc(s.id)}">Enter opening stock</button>`;
       }
-      return `<div class="st-store ${s.level === 'branch' ? 'child' : ''}">
+      return `<div class="st-store ${s.level === 'branch' ? 'child' : ''}" data-store-card="${esc(s.id)}" style="cursor:pointer">
         <div class="st-store-name">${esc(s.name)}</div>
         <div style="margin:6px 0">${pill('level', LEVEL_LABEL[s.level])}${pill(s.status)}<span class="st-pill p-level">${esc(s.region)}</span>${canEnter(s.id) ? '<span class="st-pill p-live">My store</span>' : ''}</div>
         <div class="st-muted" style="margin-top:6px">Keeper</div><div style="font-size:12.5px">${keepers}</div>
@@ -19086,8 +19191,26 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     list.forEach(s => { if(!ordered.includes(s)) ordered.push(s); });
     const live = list.filter(s => s.status === 'live').length;
     const opening = list.filter(s => s.status === 'opening').length;
+    const ib = S.inbox || {};
+    const quick = [
+      ['req',      '🧾', 'Site Requisitions', 'Material asked by technicians & foremen', num(ib.site_req)],
+      ['mr',       '📝', 'Material Requests',  'Site needs material that is not in stock',  num(ib.mr_store) + num(ib.mr_pm) + num(ib.mr_main)],
+      ['issue',    '📤', 'Issue Voucher',      'Give material out of the store',            0],
+      ['transfer', '🚚', 'Transfers',          'Send or receive material between stores',   num(S.pending.incoming)],
+      ['request',  '📨', 'Requests',           'Ask another store for material',            num(S.pending.requests)],
+      ['receive',  '📦', 'Receiving',          'Material coming in from suppliers (DO)',    num(ib.receive)],
+      ['stock',    '📊', 'Company Stock',      'What every store holds right now',          0],
+      ['reports',  '📈', 'Reports',            'Valuation, movement, pending, ABC',         0]
+    ].filter(q => VIEWS[q[0]] && tabAllowedFor(q[0]));
     main.innerHTML = `
-      <h2>Stores</h2>
+      <h2>Stores — home</h2>
+      <div class="st-home">${quick.map(([k, icon, title, sub, n]) => `
+        <div class="st-home-card ${n ? 'hot' : ''}" data-go="${k}">
+          <div class="st-home-ico">${icon}</div>
+          <div class="st-home-t">${esc(title)}${n ? `<span class="st-badge">${n}</span>` : ''}</div>
+          <div class="st-home-s">${esc(sub)}</div>
+        </div>`).join('')}</div>
+      <h2 style="margin-top:18px">Stores</h2>
       ${(S.pending.incoming || S.pending.requests) ? `<div class="st-note warn">
         ${S.pending.incoming ? `🚚 <b>${S.pending.incoming}</b> transfer(s) waiting for you to receive. <button type="button" class="st-btn st-sm" data-go="transfer">Open</button><br>` : ''}
         ${S.pending.requests ? `📨 <b>${S.pending.requests}</b> stock request(s) waiting for your answer. <button type="button" class="st-btn st-sm" data-go="request">Open</button>` : ''}
@@ -19096,7 +19219,11 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         A store can only issue or transfer after its opening stock is entered and it is set <b>Live</b>. Each store starts on its own day — nothing mixes between stores.</div>
       <div class="st-grid">${ordered.map(card).join('')}</div>`;
     main.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
-    main.querySelectorAll('[data-open-store]').forEach(b => b.addEventListener('click', () => go('opening', b.dataset.openStore)));
+    main.querySelectorAll('[data-open-store]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); go('opening', b.dataset.openStore); }));
+    main.querySelectorAll('[data-store-card]').forEach(cd => cd.addEventListener('click', (e) => {
+      if(e.target.closest('button')) return;
+      go('store', cd.dataset.storeCard);
+    }));
     main.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
       if(!confirm(`Start entering opening stock for "${storeName(b.dataset.status)}"?`)) return;
       await rpc('st_store_status', {p_store: b.dataset.status, p_status: b.dataset.to});
@@ -19174,7 +19301,116 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <optgroup label="Departments (no project code)">${DEPARTMENTS.map(d => `<option value="D:${esc(d)}">${esc(d)}</option>`).join('')}</optgroup>`;
   }
 
-  VIEWS.issue = async function(main){
+  VIEWS.store = async function(main, storeId){
+    const st = storeById(storeId);
+    if(!st){ await VIEWS.dash(main); return; }
+    S.storeFocus = st.id;
+    main.innerHTML = `<h2>${esc(st.name)}</h2><div class="st-empty">Loading…</div>`;
+    const c = client();
+    let rows = [], docs = [];
+    try{ rows = await rpc('st_company_stock', {p_search: '', p_store: st.id, p_only_nonzero: true, p_limit: 20000}) || []; }catch(e){}
+    try{
+      docs = await query(c.from('st_docs').select('doc_type,doc_no,doc_date,status,store_id,to_store_id,project_code,party,ext_ref,lines')
+        .or(`store_id.eq.${st.id},to_store_id.eq.${st.id}`).order('doc_no', {ascending:false}).limit(12));
+    }catch(e){ docs = []; }
+    let lines = 0, qty = 0, value = 0, lowN = 0;
+    const rate = await lastRates().catch(() => (() => 0));
+    rows.forEach(r => {
+      const q = num((r.stores || {})[st.id]);
+      if(!q) return;
+      lines++; qty += q; value += q * num(rate(r.code, r.brand));
+      const it = S.itemMap[r.code] || {};
+      if(num(it.min_qty) > 0 && q < num(it.min_qty)) lowN++;
+    });
+    const transit = rows.reduce((a, r) => a + num(r.transit), 0);
+    const mine = canEnter(st.id);
+    const act = (k, icon, label, arg) => `<button type="button" class="st-btn ${mine ? '' : 'st-ghost'} st-store-act"
+        data-sgo="${k}" data-sarg="${esc(arg == null ? st.id : arg)}">${icon} ${esc(label)}</button>`;
+    const ib = S.inbox || {};
+    main.classList.add('st-fit');
+    main.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+        <div><h2 style="margin-bottom:4px">${esc(st.name)}</h2>
+          <div>${pill('level', LEVEL_LABEL[st.level])}${pill(st.status)}<span class="st-pill p-level">${esc(st.region)}</span>
+            ${mine ? '<span class="st-pill p-live">My store</span>' : ''}</div></div>
+        <button type="button" class="st-btn st-ghost st-sm" data-sgo="dash">🏬 All stores</button>
+      </div>
+      <div class="st-stats">
+        <div class="st-stat"><b>${fmt(lines)}</b><span>lines in stock</span></div>
+        <div class="st-stat"><b>${money(value)}</b><span>stock value</span></div>
+        <div class="st-stat ${lowN ? 'hot' : ''}"><b>${fmt(lowN)}</b><span>below minimum</span></div>
+        <div class="st-stat ${transit ? 'hot' : ''}"><b>${fmt(transit)}</b><span>in transit</span></div>
+      </div>
+      <div class="st-actions" style="flex-wrap:wrap">
+        ${st.status === 'not_started' && ['admin','main'].includes(S.access)
+          ? `<button type="button" class="st-btn st-warn" data-status="${esc(st.id)}" data-to="opening">▶ Start opening stock</button>` : ''}
+        ${st.status !== 'live' ? act('opening', '📥', 'Opening stock') : ''}
+        ${act('issue', '📤', 'Issue voucher')}
+        ${act('transfer', '🚚', 'Transfer / receive')}
+        ${act('request', '📨', 'Ask another store')}
+        ${act('receive', '📦', 'Receive from supplier')}
+        ${act('tools', '🛠️', 'Tools')}
+        ${act('ledger', '📒', 'Stock ledger')}
+        ${act('req', '🧾', 'Site requisitions')}
+      </div>
+      <div class="st-cols">
+        <div class="st-col">
+          <div class="st-row" style="margin:6px 0">
+            <div class="st-field"><input id="sfQ" placeholder="Search code, name or brand"></div>
+            <button type="button" class="st-btn st-ghost st-sm" id="sfCsv">⬇ Excel</button>
+          </div>
+          <div id="sfStock" class="st-colbody"></div>
+        </div>
+        <div class="st-col st-col-side">
+          <h3 style="margin:6px 0">Last documents</h3>
+          <div class="st-colbody">
+      ${docs.length ? `<div class="st-tw" style="max-height:none;height:100%"><table class="st-t st-compact"><thead><tr><th>Type</th><th>No</th><th>Date</th><th>Details</th><th>Status</th></tr></thead><tbody>
+        ${docs.map(d => `<tr><td>${esc(d.doc_type)}</td><td><b>${esc(d.doc_no)}</b></td><td>${esc(dmy(d.doc_date))}</td>
+          <td>${esc(d.doc_type === 'STV' ? storeName(d.store_id) + ' → ' + storeName(d.to_store_id)
+                 : d.doc_type === 'GRN' ? (d.party || '') + (d.ext_ref ? ' · DO ' + d.ext_ref : '')
+                 : (d.project_code ? projectLabel(d.project_code) : ''))} · ${(d.lines || []).length} line(s)</td>
+          <td>${pill(d.status)}</td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="st-empty">No documents yet.</div>'}
+          </div>
+        </div>
+      </div>`;
+
+    const drawStock = () => {
+      const q = ($('sfQ').value || '').trim();
+      const out = rows.map(r => ({r, q: num((r.stores || {})[st.id])})).filter(x => x.q)
+        .filter(x => !q || smartMatch(`${x.r.code} ${x.r.description} ${x.r.brand} ${x.r.category}`, q.toLowerCase()))
+        .sort((a, b) => a.r.code.localeCompare(b.r.code));
+      $('sfStock').innerHTML = !out.length ? '<div class="st-empty">Nothing found.</div>' : `
+        <div class="st-tw" style="max-height:none;height:calc(100% - 20px)"><table class="st-t st-compact"><thead><tr>
+          <th>Code</th><th>Description</th><th>Brand</th><th>Unit</th><th class="n">Qty</th><th class="n">Min</th></tr></thead><tbody>
+          ${out.slice(0, 1500).map(({r, q: qq}) => { const it = S.itemMap[r.code] || {};
+            const low = num(it.min_qty) > 0 && qq < num(it.min_qty);
+            return `<tr><td><b>${esc(r.code)}</b></td><td>${esc(r.description)}</td><td>${esc(r.brand || '')}</td><td>${esc(r.unit)}</td>
+              <td class="n ${low ? 'low' : ''}">${fmt(qq)}</td><td class="n">${num(it.min_qty) ? fmt(it.min_qty) : ''}</td></tr>`; }).join('')}
+        </tbody></table></div><div class="st-muted" style="margin-top:4px">${out.length.toLocaleString()} line(s)${out.length > 1500 ? ' — first 1,500 shown' : ''}</div>`;
+    };
+    $('sfQ').addEventListener('input', drawStock);
+    $('sfCsv').addEventListener('click', () => {
+      const out = rows.map(r => ({r, q: num((r.stores || {})[st.id])})).filter(x => x.q);
+      if(!out.length){ toast('Nothing to export', true); return; }
+      downloadCsv(`MEMCO_${st.id}_stock_${todayIso()}.csv`,
+        [['Store','Code','Description','Brand','Unit','Qty'], ...out.map(({r, q}) => [st.name, r.code, r.description, r.brand, r.unit, q])]);
+    });
+    drawStock();
+    main.querySelectorAll('[data-sgo]').forEach(b => b.addEventListener('click', () => {
+      const k = b.dataset.sgo;
+      go(k, k === 'dash' ? null : (b.dataset.sarg || st.id));
+    }));
+    main.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+      if(!confirm(`Start entering opening stock for "${st.name}"?`)) return;
+      await rpc('st_store_status', {p_store: b.dataset.status, p_status: b.dataset.to});
+      S.loaded = false; toast('Store is now in Opening Stock mode.');
+      go('store', st.id);
+    })));
+  };
+
+  VIEWS.issue = async function(main, argStore){
+    if(argStore) S.storeFocus = argStore;
     const mine = enterStores(true);
     if(!mine.length){
       main.innerHTML = `<h2>Stock Issue Voucher</h2><div class="st-note warn">You have no <b>live</b> store to issue from. A store must finish opening stock and be set Live first.</div>`;
@@ -19184,7 +19420,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <h2>Stock Issue Voucher</h2>
       <div class="st-card">
         <div class="st-row">
-          <div class="st-field"><label class="st-l">Warehouse (issue from)</label><select id="stIsStore">${storeOptions(mine, mine[0].id)}</select></div>
+          <div class="st-field"><label class="st-l">Warehouse (issue from)</label><select id="stIsStore">${storeOptions(mine, (mine.some(x => x.id === S.storeFocus) ? S.storeFocus : mine[0].id))}</select></div>
           <div class="st-field s"><label class="st-l">Date</label><input type="date" id="stIsDate" value="${todayIso()}"></div>
           <div class="st-field"><label class="st-l">Issued to</label><select id="stIsProj"></select></div>
           <div class="st-field s"><label class="st-l">MR number</label><input id="stIsMr" placeholder="DXB-26-1245"></div>
@@ -19225,7 +19461,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     loadList().catch(e => { $('stIsList').innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; });
   };
 
-  VIEWS.transfer = async function(main){
+  VIEWS.transfer = async function(main, argStore){
+    if(typeof argStore === 'string' && storeById(argStore)) S.storeFocus = argStore;
     const mine = enterStores(true);
     const live = S.stores.filter(s => s.status === 'live');
     main.innerHTML = `
@@ -19236,7 +19473,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <h3>Send a transfer</h3>
       <div class="st-card">
         <div class="st-row">
-          <div class="st-field"><label class="st-l">From (my store)</label><select id="stTrFrom">${storeOptions(mine, mine[0].id)}</select></div>
+          <div class="st-field"><label class="st-l">From (my store)</label><select id="stTrFrom">${storeOptions(mine, (mine.some(x => x.id === S.storeFocus) ? S.storeFocus : mine[0].id))}</select></div>
           <div class="st-field"><label class="st-l">To store</label><select id="stTrTo">${storeOptions(live, '', '— choose —')}</select></div>
           <div class="st-field"><label class="st-l">Note</label><input id="stTrNote"></div>
         </div>
@@ -19310,7 +19547,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <h3>New request</h3>
       <div class="st-card">
         <div class="st-row">
-          <div class="st-field"><label class="st-l">For (my store)</label><select id="stRqFor">${storeOptions(mine, mine[0].id)}</select></div>
+          <div class="st-field"><label class="st-l">For (my store)</label><select id="stRqFor">${storeOptions(mine, (mine.some(x => x.id === S.storeFocus) ? S.storeFocus : mine[0].id))}</select></div>
           <div class="st-field"><label class="st-l">Request from</label><select id="stRqFrom">${storeOptions(holders, pre.holder || '', '— choose store —')}</select></div>
           <div class="st-field"><label class="st-l">Note</label><input id="stRqNote" placeholder="Why it is needed"></div>
         </div>
@@ -19619,7 +19856,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         rpc('st_company_stock', {p_search:'', p_store: store, p_only_nonzero: true, p_limit: 3000})
       ]);
       $('stOpTotals').innerHTML = !(tot || []).length ? '<div class="st-empty">Nothing entered yet.</div>' :
-        `<div class="st-tw" style="max-height:45vh"><table class="st-t"><thead><tr><th>Code</th><th>Description</th><th>Brand</th><th>Unit</th><th class="n">Qty</th></tr></thead><tbody>
+        `<div class="st-tw" style="--tw-max:45vh;"><table class="st-t"><thead><tr><th>Code</th><th>Description</th><th>Brand</th><th>Unit</th><th class="n">Qty</th></tr></thead><tbody>
         ${tot.map(r => `<tr><td>${esc(r.code)}</td><td>${esc(r.description)}</td><td>${esc(r.brand || '')}</td><td>${esc(r.unit)}</td><td class="n"><b>${fmt((r.stores || {})[store])}</b></td></tr>`).join('')}</tbody></table></div>
         <div class="st-muted" style="margin-top:4px">${tot.length} item(s)</div>`;
       $('stOpBatches').innerHTML = docTable(docs, {actions: d => `<button type="button" class="st-btn st-danger st-sm" data-del="${esc(d.id)}">Delete batch</button>`});
@@ -19666,7 +19903,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     await load();
   };
 
-  VIEWS.ledger = async function(main){
+  VIEWS.ledger = async function(main, argStore){
+    if(typeof argStore === 'string' && storeById(argStore)) S.storeFocus = argStore;
     const stores = viewStores();
     main.innerHTML = `
       <h2>Stock Ledger</h2>
@@ -19691,7 +19929,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const out = rows.map(m => { bal += num(m.qty); return {...m, bal}; }).reverse();
       $('stLgOut').innerHTML = !rows.length ? '<div class="st-empty">No movements for this item in this store.</div>' : `
         <div class="st-note"><b>${esc(it.code)}</b> ${esc(it.description)} · ${esc(storeName(store))} · ${brandF ? 'Brand ' + esc(brandF) : 'All brands'} · Balance <b>${fmt(bal)} ${esc(it.unit)}</b></div>
-        <div class="st-tw" style="max-height:65vh"><table class="st-t"><thead><tr><th>Date / time</th><th>Type</th><th>Doc No</th><th>Brand</th><th>Project</th><th class="n">In</th><th class="n">Out</th><th class="n">Balance</th></tr></thead><tbody>
+        <div class="st-tw" style="--tw-max:65vh;"><table class="st-t"><thead><tr><th>Date / time</th><th>Type</th><th>Doc No</th><th>Brand</th><th>Project</th><th class="n">In</th><th class="n">Out</th><th class="n">Balance</th></tr></thead><tbody>
         ${out.map(m => `<tr><td>${esc(dmyt(m.created_at))}</td><td>${esc(MOVE_LABEL[m.move_type] || m.move_type)}</td><td>${esc(m.doc_no)}</td><td>${esc(m.brand || '')}</td><td>${esc(m.project_code ? projectLabel(m.project_code) : '')}</td>
           <td class="n">${num(m.qty) > 0 ? fmt(m.qty) : ''}</td><td class="n">${num(m.qty) < 0 ? fmt(-num(m.qty)) : ''}</td><td class="n"><b>${fmt(m.bal)}</b></td></tr>`).join('')}
         </tbody></table></div>`;
@@ -19830,7 +20068,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       $('stItInfo').innerHTML = total
         ? `Showing <b>${(from + 1).toLocaleString()}–${to.toLocaleString()}</b> of <b>${total.toLocaleString()}</b> item(s)${total !== S.items.length ? ` (filtered from ${S.items.length.toLocaleString()})` : ''}${fuzzy ? ' · <b>includes similar spellings</b>' : ''}${canEdit ? ' · edit Unit / Brand / Category / Rate / Min directly in the row — it saves when you press Enter or leave the box' : ''}`
         : 'No items match.';
-      $('stItList').innerHTML = !total ? '' : `<div class="st-tw" style="max-height:62vh"><table class="st-t"><thead><tr><th>Code</th><th>Description</th><th>Unit</th><th>Brand</th><th>Category</th><th class="n">Rate</th><th class="n">Min</th><th></th></tr></thead><tbody>
+      $('stItList').innerHTML = !total ? '' : `<div class="st-tw" style="--tw-max:62vh;"><table class="st-t"><thead><tr><th>Code</th><th>Description</th><th>Unit</th><th>Brand</th><th>Category</th><th class="n">Rate</th><th class="n">Min</th><th></th></tr></thead><tbody>
         ${filtered.slice(from, to).map(rowHtml).join('')}</tbody></table></div>`;
       const pages = Math.ceil(total / PAGE);
       $('stItPager').innerHTML = pages > 1 ? `
@@ -20111,7 +20349,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       $('rpInfo').innerHTML = `<b>${storeF() ? esc(storeName(storeF())) : 'All my stores'}</b> · <b>${rows.length.toLocaleString()}</b> line(s)${qf() ? ` · search “${esc(val('rpQ'))}”` : ''}${opts.info ? ' · ' + opts.info : ''}`;
       const cell = (v, i) => numCols.has(i) ? (typeof v === 'number' ? (opts.money && opts.money.includes(i) ? money(v) : fmt(v)) : esc(v)) : esc(v);
       $('rpOut').innerHTML = !rows.length ? `<div class="st-empty">Nothing found${qf() ? ` for “${esc(val('rpQ'))}”` : ' for these filters'}.${qf() ? ' <button type="button" class="st-btn st-sm" data-clear>✖ Clear search</button>' : ''}</div>` : `
-        <div class="st-tw" style="max-height:66vh"><table class="st-t"><thead><tr>${head.map((h, i) => `<th class="${numCols.has(i) ? 'n' : ''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>
+        <div class="st-tw" style="--tw-max:66vh;"><table class="st-t"><thead><tr>${head.map((h, i) => `<th class="${numCols.has(i) ? 'n' : ''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>
         ${rows.slice(0, 3000).map(r => `<tr>${r.map((v, i) => `<td class="${numCols.has(i) ? 'n' : ''}">${cell(v, i)}</td>`).join('')}</tr>`).join('')}
         ${totals ? `<tr style="font-weight:700;background:#0d3358">${totals.map((t, i) => `<td class="${numCols.has(i) ? 'n' : ''}">${i === 0 ? 'TOTAL' : (t == null ? '' : (opts.money && opts.money.includes(i) ? money(t) : fmt(t)))}</td>`).join('')}</tr>` : ''}
         </tbody></table></div>${rows.length > 3000 ? '<div class="st-muted">First 3,000 lines shown — the Excel export has all lines.</div>' : ''}`;
@@ -20740,7 +20978,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         return smartMatch(`${r.req_no} ${r.requester} ${r.trade} ${r.location} ${storeName(r.store_id)} ${(r.lines || []).map(l => l.code + ' ' + l.description).join(' ')}`, q);
       });
       $('rqList').innerHTML = !shown.length ? '<div class="st-empty">Nothing found.</div>' : `
-        <div class="st-tw" style="max-height:60vh"><table class="st-t"><thead><tr><th>No</th><th>Date</th><th>Requested by</th><th>Store</th><th>Project</th>
+        <div class="st-tw" style="--tw-max:60vh;"><table class="st-t"><thead><tr><th>No</th><th>Date</th><th>Requested by</th><th>Store</th><th>Project</th>
           <th class="n">Items</th><th class="n">Given</th><th>Status</th><th></th></tr></thead><tbody>
         ${shown.map(r => `<tr><td><b>${esc(r.req_no)}</b></td><td>${esc(dmy(r.created_at))}</td>
           <td>${esc(r.requester)}${r.trade ? `<div class="st-muted">${esc(r.trade)}</div>` : ''}</td>
@@ -20763,7 +21001,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const box = document.createElement('div');
         box.id = 'rqHistBox';
         box.style.cssText = 'position:fixed;inset:0;z-index:9200;background:rgba(2,10,20,.8);display:flex;align-items:center;justify-content:center;padding:20px';
-        box.innerHTML = `<div class="st-card" style="max-width:820px;width:100%;max-height:80vh;overflow:auto">
+        box.innerHTML = `<div class="st-card" style="max-width:820px;width:100%;--tw-max:80vh;overflow:auto">
           <div class="st-row" style="justify-content:space-between"><div><b>${esc(r.req_no)}</b> · ${esc(r.requester)} · ${esc(storeName(r.store_id))} ${pill(r.status, REQ_STATUS[r.status])}</div>
           <button type="button" class="st-btn st-ghost st-sm" data-close>✕ Close</button></div>
           ${historyHtml(r)}</div>`;
@@ -21662,7 +21900,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   }
 
   /* ---------- Receiving (DO / GRN) ---------- */
-  VIEWS.receive = async function(main){
+  VIEWS.receive = async function(main, argStore){
+    if(typeof argStore === 'string' && storeById(argStore)) S.storeFocus = argStore;
     const c = client();
     const [lpos, grns] = await Promise.all([
       query(c.from('st_lpo').select('*').in('status', ['open','partly_received']).order('lpo_date')),
@@ -21674,7 +21913,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <div class="st-card"><div class="st-row">
         <div class="st-field" style="flex:2"><label class="st-l">LPO</label><select id="rcLpo"><option value="">— choose (${mineOrAll.length} open) —</option>
           ${mineOrAll.map(o => `<option value="${esc(o.id)}">${esc(o.lpo_no)} · ${esc(o.supplier)} · to ${esc(storeName(o.delivery_store))}${o.mr_no ? ' · ' + esc(o.mr_no) : ''}</option>`).join('')}</select></div>
-        <div class="st-field"><label class="st-l">Receive into store</label><select id="rcStore">${storeOptions(enterStores(true), '')}</select></div>
+        <div class="st-field"><label class="st-l">Receive into store</label><select id="rcStore">${storeOptions(enterStores(true), enterStores(true).some(x => x.id === S.storeFocus) ? S.storeFocus : '')}</select></div>
       </div><div id="rcBody"></div></div>
       <h3>Send receipts to Focus</h3>
       <div class="st-card"><div class="st-row">
@@ -21753,7 +21992,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   };
 
   /* ---------- Tools ---------- */
-  VIEWS.tools = async function(main){
+  VIEWS.tools = async function(main, argStore){
+    if(typeof argStore === 'string' && storeById(argStore)) S.storeFocus = argStore;
     const mine = enterStores(true);
     const ids = isAdmin() || S.access === 'main' || S.access === 'viewer' ? S.stores.map(s => s.id) : enterStores(false).map(s => s.id);
     const docs = ids.length ? await query(client().from('st_docs').select('*').eq('doc_type', 'TIS').in('store_id', ids).order('created_at', {ascending:false}).limit(400)) : [];
@@ -21762,7 +22002,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     main.innerHTML = `<h2>Tools — issue & return</h2>
       ${mine.length ? `<div class="st-card"><h3 style="margin-top:0">Issue tools</h3>
         <div class="st-row">
-          <div class="st-field"><label class="st-l">From store</label><select id="tlStore">${storeOptions(mine, mine[0].id)}</select></div>
+          <div class="st-field"><label class="st-l">From store</label><select id="tlStore">${storeOptions(mine, (mine.some(x => x.id === S.storeFocus) ? S.storeFocus : mine[0].id))}</select></div>
           <div class="st-field s"><label class="st-l">HR number</label><input id="tlHr" placeholder="e.g. 1042"></div>
           <div class="st-field"><label class="st-l">Given to (name) *</label><input id="tlName"></div>
           <div class="st-field"><label class="st-l">Project</label><select id="tlProj"><option value="">—</option>${S.projects.map(p => `<option value="${esc(p.code)}">${esc(p.code)} — ${esc(p.app_site || p.name)}</option>`).join('')}</select></div>
@@ -21845,6 +22085,21 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     setNav(!!S.access);
   }
   function setNav(on){
+    try{
+      const card = document.getElementById('homeStoresCard');
+      const stat = document.getElementById('homeStoresStat');
+      if(card && stat){
+        const allowed = !!S.access;
+        card.style.display = allowed ? '' : 'none';
+        if(allowed){
+          const own = enterStores(false).length, all = (S.stores || []).length;
+          const tasks = Object.values(S.inbox || {}).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0);
+          stat.textContent = tasks ? `${tasks} task(s) waiting`
+            : (!all ? 'Open stores' : (own ? `${own} of ${all} store(s) — my stores` : `${all} store(s)`));
+          stat.style.color = tasks ? '#fca5a5' : '';
+        }
+      }
+    }catch(e){}
     const b = $('storesNavBtn');
     if(b) b.style.display = on ? 'inline-block' : 'none';
     let m = $('stMobileBtn');
@@ -21885,6 +22140,21 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     document.addEventListener('focusin', suggest, true);
     const nb = $('storesNavBtn'); if(nb) nb.addEventListener('click', open);
     $('stCloseBtn').addEventListener('click', close);
+    const backBtn = $('stBackBtn');
+    if(backBtn) backBtn.addEventListener('click', () => {
+      S.nav = S.nav || [];
+      const prev = S.nav.pop();
+      if(prev) go(prev.tab, prev.arg, true); else go('dash', null, true);
+    });
+    const homeBtn = $('stHomeBtn');
+    if(homeBtn) homeBtn.addEventListener('click', () => { S.nav = []; go('dash', null, true); });
+    const menuBtn = $('stMenuBtn');
+    if(menuBtn) menuBtn.addEventListener('click', () => {
+      const app = $('stApp');
+      app.classList.toggle('st-menu-off');
+      try{ localStorage.setItem('st-menu-off', app.classList.contains('st-menu-off') ? '1' : '0'); }catch(e){}
+    });
+    try{ if(localStorage.getItem('st-menu-off') === '1') $('stApp').classList.add('st-menu-off'); }catch(e){}
     $('stRefreshBtn').addEventListener('click', () => { S.loaded = false; S.setupMissing = false; S.availCache = {}; go(S.tab); });
     document.addEventListener('keydown', e => { if(e.key === 'Escape' && $('stApp').style.display !== 'none' && !document.querySelector('#stApp input:focus')) close(); });
     setInterval(checkAccess, 2000);
@@ -22769,7 +23039,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <div style="flex:1;min-width:180px"><div class="lt-muted">Search worker</div>
           <input id="ltNQ" placeholder="name, HR or trade" style="width:100%"></div>
       </div>
-      <div id="ltNList" class="lt-wrap" style="margin-top:10px;max-height:46vh"></div>
+      <div id="ltNList" class="lt-wrap" style="margin-top:10px;--tw-max:46vh;"></div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
         <span id="ltNCount" class="lt-muted">0 selected</span><span style="flex:1"></span>
         <input id="ltNNote" placeholder="Note (optional)" style="flex:1;min-width:180px">
@@ -22824,7 +23094,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <input id="ltQ" placeholder="Search number, site, worker" style="min-width:200px">
         <button class="lt-btn lt-ghost lt-sm" id="ltCsv">⬇ Excel (CSV)</button>
       </div>
-      <div class="lt-wrap" style="margin-top:10px;max-height:60vh"><table><thead><tr>
+      <div class="lt-wrap" style="margin-top:10px;--tw-max:60vh;"><table><thead><tr>
         <th>No</th><th>Date</th><th>From → To</th><th>Camp</th><th class="n">Men</th><th>Now with</th><th>Stage</th><th>Age</th><th></th>
       </tr></thead><tbody id="ltRows"></tbody></table></div></div>`;
   }
@@ -22867,7 +23137,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const t = LIST.find(x => x.id === id); if(!t) return;
     const box = document.createElement('div');
     box.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(2,10,20,.85);display:flex;align-items:center;justify-content:center;padding:18px';
-    box.innerHTML = `<div class="lt-card" style="max-width:860px;width:100%;max-height:80vh;overflow:auto;background:#0b2137">
+    box.innerHTML = `<div class="lt-card" style="max-width:860px;width:100%;--tw-max:80vh;overflow:auto;background:#0b2137">
       <div style="display:flex;justify-content:space-between;align-items:center"><b>${esc(t.no)} — history</b>
         <button class="lt-btn lt-ghost lt-sm" data-x>✕ Close</button></div>
       <div class="lt-wrap" style="margin-top:10px;max-height:none"><table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Note</th></tr></thead><tbody>
