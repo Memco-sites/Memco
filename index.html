@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v42.1</title>
+<title>MEMCO Portal v43</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -5867,6 +5867,22 @@ function recordSupaOutcome(ok, errorMessage){
 // or null if the row doesn't exist yet, the SDK hasn't finished loading
 // yet, the call timed out, or Supabase can't be reached for any other
 // reason.
+async function supaGetSharedStamp(id){
+  if(!supabaseConfigured()) return null;
+  const client = getSupaClient();
+  if(!client) return null;
+  try{
+    const result = await withTimeout(
+      client.from(SUPABASE_SYNC_TABLE).select('updated_at').eq('id', id).limit(1),
+      SUPA_NETWORK_TIMEOUT_MS, null
+    );
+    if(!result) return null;
+    const { data: rows, error } = result;
+    if(error) return null;
+    recordSupaOutcome(true);
+    return (rows && rows[0]) ? rows[0].updated_at : null;
+  }catch(e){ return null; }
+}
 async function supaGetSharedState(id){
   if(!supabaseConfigured()) return null;
   const client = getSupaClient();
@@ -5969,6 +5985,11 @@ function startSupabasePolling(id, onRemoteChange){
   if(_supaPollStarted[id]) return; // guard against ever stacking duplicate intervals for the same key
   _supaPollStarted[id] = true;
   setInterval(async () => {
+    // step 1: a few bytes — did anything change?
+    const stamp = await supaGetSharedStamp(id);
+    if(!stamp) return;
+    if(supaLastSeenAt[id] === stamp) return;
+    // step 2: only now pull the whole set
     const remote = await supaGetSharedState(id);
     if(!remote) return;
     if(supaLastSeenAt[id] === remote.updatedAt) return;
@@ -18785,6 +18806,20 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   }
 
   /* ---------------- data ---------------- */
+  // The same stock question asked twice within a minute is answered from memory
+  const STOCK_TTL = 60000;
+  async function stockRpc(args, force){
+    S.stockCache = S.stockCache || {};
+    const key = JSON.stringify(args);
+    const hit = S.stockCache[key];
+    if(!force && hit && (Date.now() - hit.at) < STOCK_TTL) return hit.rows;
+    const rows = await rpc('st_company_stock', args) || [];
+    S.stockCache[key] = {at: Date.now(), rows};
+    const keys = Object.keys(S.stockCache);
+    if(keys.length > 12) delete S.stockCache[keys[0]];
+    return rows;
+  }
+  function clearStockCache(){ S.stockCache = {}; S.availCache = {}; }
   async function loadAll(){
     const c = client(); if(!c) throw new Error('Server connection is still loading.');
     const [stores, projects] = await Promise.all([
@@ -18793,6 +18828,33 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ]);
     S.stores = stores; S.projects = projects;
     try{ S.people = await rpc('st_people', {}) || []; }catch(e){ S.people = []; S.setupMissing = false; }
+    // ---- item master: kept on this device, downloaded again only when it changed ----
+    const ITEM_CACHE = 'st-items-cache-v1';
+    let stamp = null;
+    try{
+      const cnt = await wait(c.from('st_items').select('code', {count: 'exact', head: true}), 12000);
+      const last = await query(c.from('st_items').select('updated_at').order('updated_at', {ascending: false}).limit(1));
+      stamp = {n: (cnt && cnt.count) || 0, t: (last[0] && last[0].updated_at) || ''};
+    }catch(e){ stamp = null; }
+    if(stamp){
+      try{
+        const raw = localStorage.getItem(ITEM_CACHE);
+        if(raw){
+          const box = JSON.parse(raw);
+          if(box && box.n === stamp.n && box.t === stamp.t && Array.isArray(box.items) && box.items.length){
+            S.items = box.items;
+            S.itemMap = {}; box.items.forEach(i => { S.itemMap[i.code] = i; });
+            S.activeItems = box.items.filter(i => i.active);
+            refreshBrandUnitLists();
+            clearStockCache();
+            S.loaded = true;
+            S.itemsFromCache = true;
+            await loadPending();
+            return;
+          }
+        }
+      }catch(e){}
+    }
     const items = [];
     try{
       let after = '';
@@ -18820,8 +18882,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     S.itemMap = {}; items.forEach(i => { S.itemMap[i.code] = i; });
     S.activeItems = items.filter(i => i.active);
     refreshBrandUnitLists();
-    S.availCache = {};
+    clearStockCache();
     S.loaded = true;
+    S.itemsFromCache = false;
+    if(stamp){
+      try{ localStorage.setItem(ITEM_CACHE, JSON.stringify({n: stamp.n, t: stamp.t, items})); }
+      catch(e){ try{ localStorage.removeItem(ITEM_CACHE); }catch(e2){} }
+    }
     await loadPending();
   }
   async function loadPending(){
@@ -18853,7 +18920,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   async function availFor(store, force){
     if(!store) return {};
     if(!force && S.availCache[store] && (Date.now() - S.availCache[store].at < 30000)) return S.availCache[store].map;
-    const rows = await rpc('st_company_stock', {p_search:'', p_store:store, p_only_nonzero:true, p_limit:3000});
+    const rows = await stockRpc({p_search:'', p_store:store, p_only_nonzero:true, p_limit:3000});
     const map = {};
     (rows || []).forEach(r => {
       const q = num((r.stores || {})[store]);
@@ -19288,7 +19355,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     let cols = [];
     const run = () => busy($('stSkGo'), async () => {
       const store = $('stSkStore').value || null;
-      rows = await rpc('st_company_stock', {p_search: $('stSkQ').value.trim(), p_store: store, p_only_nonzero: $('stSkNz').value === '1', p_limit: 3000}) || [];
+      rows = await stockRpc({p_search: $('stSkQ').value.trim(), p_store: store, p_only_nonzero: $('stSkNz').value === '1', p_limit: 3000}) || [];
       const used = new Set(); rows.forEach(r => Object.keys(r.stores || {}).forEach(k => used.add(k)));
       cols = S.stores.filter(s => used.has(s.id) || (store && s.id === store));
       const myLive = enterStores(true);
@@ -19349,7 +19416,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     main.innerHTML = `<h2>${esc(st.name)}</h2><div class="st-empty">Loading…</div>`;
     const c = client();
     let rows = [], docs = [];
-    try{ rows = await rpc('st_company_stock', {p_search: '', p_store: st.id, p_only_nonzero: true, p_limit: 20000}) || []; }catch(e){}
+    try{ rows = await stockRpc({p_search: '', p_store: st.id, p_only_nonzero: true, p_limit: 20000}) || []; }catch(e){}
     try{
       docs = await query(c.from('st_docs').select('doc_type,doc_no,doc_date,status,store_id,to_store_id,project_code,party,ext_ref,lines')
         .or(`store_id.eq.${st.id},to_store_id.eq.${st.id}`).order('doc_no', {ascending:false}).limit(12));
@@ -19562,14 +19629,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(note === null) return;
         await rpc('st_transfer_receive', {p_doc: d.id, p_note: note});
         toast(`${d.doc_no} received — stock added to ${storeName(d.to_store_id)}.`);
-        S.availCache = {}; await loadPending(); renderTabs(); load();
+        clearStockCache(); await loadPending(); renderTabs(); load();
       })));
       $('stTrHist').querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
         const d = hist.find(x => x.id === b.dataset.cancel);
         const note = prompt(`Cancel ${d.doc_no}? Stock goes back to ${storeName(d.store_id)}.\nReason:`, '');
         if(note === null) return;
         await rpc('st_transfer_cancel', {p_doc: d.id, p_note: note});
-        toast(`${d.doc_no} cancelled.`); S.availCache = {}; if(ed) ed.reloadAvail(); load();
+        toast(`${d.doc_no} cancelled.`); clearStockCache(); if(ed) ed.reloadAvail(); load();
       })));
     }
     await load();
@@ -19645,7 +19712,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const res = await rpc('st_request_respond', {p_doc: d.id, p_accept: true, p_lines: full ? null : give, p_note: box.querySelector('[data-note]').value.trim()});
         toast(`Accepted — transfer ${res.transfer.doc_no} is on its way.`);
         printDoc(res.transfer);
-        S.availCache = {}; await loadPending(); renderTabs(); load();
+        clearStockCache(); await loadPending(); renderTabs(); load();
       })));
       $('stRqIn').querySelectorAll('[data-reject]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
         const box = b.closest('[data-rq]');
@@ -20400,7 +20467,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const RUN = {};
     RUN.valuation = async () => {
       const rate = await lastRates();
-      const rows = await rpc('st_company_stock', {p_search: '', p_store: storeF() || null, p_only_nonzero: true, p_limit: 20000}) || [];
+      const rows = await stockRpc({p_search: '', p_store: storeF() || null, p_only_nonzero: true, p_limit: 20000}) || [];
       const out = [];
       rows.forEach(r => Object.entries(r.stores || {}).forEach(([sid, q]) => {
         if(!inStores(sid) || !num(q) || !matchQ(r.code, r.description, r.brand, r.category)) return;
@@ -20552,7 +20619,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     RUN.minstock = async () => {
       const withMin = S.items.filter(i => num(i.min_qty) > 0);
       if(!withMin.length){ render([], [], {}); $('rpOut').innerHTML = '<div class="st-note warn">No item has a minimum stock level yet. Set “Min” in Items (e.g. for fast-moving consumables).</div>'; return; }
-      const rows = await rpc('st_company_stock', {p_search: '', p_store: storeF() || null, p_only_nonzero: false, p_limit: 20000}) || [];
+      const rows = await stockRpc({p_search: '', p_store: storeF() || null, p_only_nonzero: false, p_limit: 20000}) || [];
       const tot = {};
       rows.forEach(r => { tot[r.code] = (tot[r.code] || 0) + Object.entries(r.stores || {}).filter(([sid]) => inStores(sid)).reduce((a, [, q]) => a + num(q), 0); });
       const out = withMin.filter(i => num(tot[i.code]) < num(i.min_qty) && matchQ(i.code, i.description, i.brand))
@@ -20828,7 +20895,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       // ONE read of the whole company stock — per store AND per brand.
       // (The old per-store read sometimes came back empty and showed 0 everywhere.)
       try{
-        const all = await rpc('st_company_stock', {p_search:'', p_store:null, p_only_nonzero:true, p_limit:20000}) || [];
+        const all = await stockRpc({p_search:'', p_store:null, p_only_nonzero:true, p_limit:20000}) || [];
         rqAll = {};
         all.forEach(r => {
           const code = r.code, brand = r.brand || '';
@@ -21112,7 +21179,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           ? `${res.voucher.doc_no} — taken back into ${storeName(r.store_id)}${num(res.damaged) ? ` · ${fmt(res.damaged)} damaged` : ''}.`
           : `${res.voucher.doc_no} issued against ${r.req_no}.`);
         printDoc(res.voucher);
-        S.availCache = {};
+        clearStockCache();
         go('req');
       })));
       $('rqIn').querySelectorAll('[data-reject]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
@@ -21810,7 +21877,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const vals = collect(pn('stPnIssue'), 'issue').filter(v => v.qty > 0);
       if(!vals.length) throw new Error('Enter at least one quantity.');
       const d = await rpc('st_mr_site_issue', {p_id: m.id, p_vals: vals, p_date: pn('stPnIssue').querySelector('[data-date]').value || null, p_note: note(pn('stPnIssue'))});
-      toast(`Issued ${d.doc_no}`); printDoc(d); S.availCache = {}; go('mr', {open: m.id});
+      toast(`Issued ${d.doc_no}`); printDoc(d); clearStockCache(); go('mr', {open: m.id});
     }));
     if(pn('stPnMain')){
       const host = pn('stPnMain');
@@ -21836,7 +21903,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           const from = host.querySelector('[data-from]').value;
           if(!confirm(`Send ${vals.length} item(s) from ${storeName(from)} to ${storeName(m.store_id)}?`)) return;
           const d = await rpc('st_mr_send', {p_id: m.id, p_from: from, p_vals: vals, p_note: note(host)});
-          toast(`Transfer ${d.doc_no} sent.`); printDoc(d); S.availCache = {};
+          toast(`Transfer ${d.doc_no} sent.`); printDoc(d); clearStockCache();
         } else {
           const vals = collect(host, 'buy');
           const total = vals.reduce((a, v) => a + v.qty, 0);
@@ -22161,7 +22228,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const d = await rpc('st_grn_create', {p_lpo: o.id, p_store: $('rcStore').value, p_do_no: $('rcDo').value.trim(),
           p_do_date: $('rcDate').value || null, p_vals: vals, p_note: $('rcNote').value.trim()});
         toast(`${d.doc_no} saved — stock added to ${storeName(d.store_id)}.`);
-        d.lpo_no = o.lpo_no; printDoc(d); S.availCache = {}; await loadPending(); go('receive');
+        d.lpo_no = o.lpo_no; printDoc(d); clearStockCache(); await loadPending(); go('receive');
       }));
     });
   };
@@ -22201,7 +22268,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(!$('tlName').value.trim()) throw new Error('Enter who receives the tools.');
         const d = await rpc('st_tool_issue', {p_store: $('tlStore').value, p_holder: $('tlName').value.trim(), p_holder_hr: $('tlHr').value.trim(),
           p_project: $('tlProj').value, p_due: $('tlDue').value || null, p_lines: lines, p_note: $('tlNote').value.trim()});
-        toast(`${d.doc_no} issued to ${d.party}.`); printDoc(d); S.availCache = {}; go('tools');
+        toast(`${d.doc_no} issued to ${d.party}.`); printDoc(d); clearStockCache(); go('tools');
       }));
     }
     const drawOut = () => {
@@ -22226,7 +22293,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const vals = [...box.querySelectorAll('[data-ret]')].map(i => ({code: i.dataset.ret, brand: i.dataset.brand, qty: num(i.value)})).filter(v => v.qty > 0);
         if(!vals.length) throw new Error('Enter the returned quantities.');
         const r = await rpc('st_tool_return', {p_doc: b.dataset.return, p_vals: vals, p_note: box.querySelector('[data-note]').value.trim()});
-        toast(`${r.doc_no} — tools received back.`); printDoc(r); S.availCache = {}; go('tools');
+        toast(`${r.doc_no} — tools received back.`); printDoc(r); clearStockCache(); go('tools');
       })));
       $('tlOut').querySelectorAll('[data-reprint]').forEach(b => b.addEventListener('click', () => printDoc(docs.find(x => x.id === b.dataset.reprint))));
     };
@@ -22330,7 +22397,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       try{ localStorage.setItem('st-menu-off', app.classList.contains('st-menu-off') ? '1' : '0'); }catch(e){}
     });
     try{ if(localStorage.getItem('st-menu-off') === '1') $('stApp').classList.add('st-menu-off'); }catch(e){}
-    $('stRefreshBtn').addEventListener('click', () => { S.loaded = false; S.setupMissing = false; S.availCache = {}; go(S.tab); });
+    $('stRefreshBtn').addEventListener('click', () => { S.loaded = false; S.setupMissing = false; clearStockCache(); go(S.tab); });
     document.addEventListener('keydown', e => { if(e.key === 'Escape' && $('stApp').style.display !== 'none' && !document.querySelector('#stApp input:focus')) close(); });
     setInterval(checkAccess, 2000);
     setInterval(async () => {
