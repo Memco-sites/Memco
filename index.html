@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v41.3</title>
+<title>MEMCO Portal v41.4</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -5999,7 +5999,7 @@ let ROLE_LIST = BASE_ROLE_LIST.slice();
 // project site in the data model, so a Camp Boss sees all camps. Site
 // Supervisor and Foreman are field roles tied to one site, same as Site
 // Engineer.
-const SITE_LOCKED_ROLES = ["Site Engineer","Site Supervisor","Foreman","Worker"];
+const SITE_LOCKED_ROLES = ["Site Engineer","Site Supervisor","Foreman","Worker","Project Engineer","Project Manager","Timekeeper"];
 const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeCampsCard","homeTransferCard","homeStaffCard","homeVehiclesCard","homePpeCard","homeStoresCard"];
 // Legacy static defaults — used ONLY to seed the editable permission matrix
 // the very first time it's created, and to seed any brand-new role/card/
@@ -7414,6 +7414,8 @@ function initLock(){
       applyLockUI();
       return;
     }
+    // site-locked role with NO project assigned yet — warn, do not silently show everything
+    try{ showNoSiteWarning(currentUser.role); }catch(e){}
   }
   const raw = decodeURIComponent((location.hash || '').replace(/^#/, '')).trim();
   if(!raw){ lockedSite = null; applyLockUI(); return; }
@@ -8227,6 +8229,20 @@ function navBack(){
     else { showSection(prev.id); if(prev.id === 'campsView' && typeof renderCampsList === 'function') renderCampsList(); }
   }finally{ window.__navSilent = false; }
   updateBackBtn();
+}
+function showNoSiteWarning(role){
+  let el = document.getElementById('noSiteWarn');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'noSiteWarn';
+    el.style.cssText = 'margin:10px 0;padding:10px 14px;border-radius:10px;background:rgba(245,158,11,.15);'
+      + 'border:1px solid rgba(251,191,36,.55);color:#fde68a;font-size:13.5px;line-height:1.5';
+    const host = document.querySelector('#homeView .hero') || document.getElementById('homeView');
+    if(host && host.parentNode) host.parentNode.insertBefore(el, host.nextSibling);
+  }
+  el.innerHTML = `⚠ <b>No project assigned to you yet.</b> As a <b>${escapeHtml(role)}</b> you should only see your own
+    project(s). Until an admin sets your project in <b>Users → Assigned Site</b> (or Admin Hub → Project access for more
+    than one project), you can still see every site — please tell the admin.`;
 }
 function showSection(id){
   if(!window.__navSilent && window.__curView && window.__curView !== id){
