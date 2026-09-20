@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v43</title>
+<title>MEMCO Portal v43.1</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -22706,15 +22706,20 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     </div>
   </header>
   <div class="sa-body">
-    <div class="sa-note">Tick who may use the app. <b>Login</b> is needed first — without it the person cannot register and cannot sign in.
+    <div class="sa-note"><b>Staff sign in freely</b> — this screen is for the <b>labor side</b> (workers, foremen, supervisors…).
+      Tick who may use the app. <b>Login</b> is needed first — without it the person cannot register and cannot sign in.
       <b>Attendance</b> lets him mark attendance, <b>Store</b> lets him ask the store for material. Changes apply at once, also to people already signed in.</div>
     <div class="sa-filters">
       <div class="sa-f"><label>Search</label><input id="saQ" placeholder="HR number, name or trade"></div>
       <div class="sa-f s"><label>Site</label><select id="saSite"></select></div>
       <div class="sa-f s"><label>Show</label><select id="saOnly">
-        <option value="">Everyone</option><option value="allowed">Allowed to log in</option>
-        <option value="blocked">Not allowed</option><option value="store">Store allowed</option>
-        <option value="accounts">Has an account</option></select></div>
+        <option value="">Labor only (needs permission)</option>
+        <option value="allowed">Labor — allowed to log in</option>
+        <option value="blocked">Labor — not allowed</option>
+        <option value="store">Labor — store allowed</option>
+        <option value="accounts">Labor — has an account</option>
+        <option value="staff">Staff only (log in freely)</option>
+        <option value="all">Everyone (labor + staff)</option></select></div>
       <button type="button" class="sa-btn" id="saSearch">Search</button>
       <button type="button" class="sa-btn sa-ghost" id="saCsv">⬇ Excel (CSV)</button>
     </div>
@@ -22868,14 +22873,18 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <th class="c">Login</th><th class="c">Attendance</th><th class="c">Store</th>
       <th>Role on site</th><th>Account</th><th>Last change</th></tr></thead><tbody>
       ${rows.map(r0 => { const r = current(r0); const dis = r0.may_edit ? '' : 'disabled';
+        const auto = !!r0.auto_login;
         return `<tr data-hr="${esc(r.hr_code)}" class="${S.dirty.has(r.hr_code) ? 'changed' : ''} ${r0.may_edit ? '' : 'locked'}">
         <td class="c"><input type="checkbox" class="sa-pick" ${dis}></td>
-        <td><b>${esc(r.hr_code)}</b></td><td>${esc(r.name)}</td><td>${esc(r.trade)}</td><td>${esc(r.site)}</td>
-        <td class="c"><input type="checkbox" data-f="can_login" ${r.can_login ? 'checked' : ''} ${dis}></td>
+        <td><b>${esc(r.hr_code)}</b></td><td>${esc(r.name)}${auto ? ' <span class="sa-muted">(staff)</span>' : ''}</td>
+        <td>${esc(r.trade)}</td><td>${esc(r.site)}</td>
+        <td class="c">${auto ? '<span class="sa-pill p-on" title="Staff always have login">auto</span>'
+          : `<input type="checkbox" data-f="can_login" ${r.can_login ? 'checked' : ''} ${dis}>`}</td>
         <td class="c"><input type="checkbox" data-f="can_attendance" ${r.can_attendance ? 'checked' : ''} ${dis}></td>
         <td class="c"><input type="checkbox" data-f="can_store" ${r.can_store ? 'checked' : ''} ${dis}></td>
-        <td><select class="sa-role" data-f="site_role" ${dis}>${SITE_ROLES.concat(SITE_ROLES.includes(r.site_role) ? [] : [r.site_role])
-            .map(x => `<option ${x === r.site_role ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></td>
+        <td>${auto ? '<span class="sa-muted">set in Users</span>'
+          : `<select class="sa-role" data-f="site_role" ${dis}>${SITE_ROLES.concat(SITE_ROLES.includes(r.site_role) ? [] : [r.site_role])
+              .map(x => `<option ${x === r.site_role ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`}</td>
         <td>${r0.has_account ? (r0.blocked ? '<span class="sa-pill p-blk">blocked</span>' : '<span class="sa-pill p-on">active</span>')
                              : '<span class="sa-pill p-off">no account</span>'}</td>
         <td class="sa-muted">${r0.updated_name ? esc(r0.updated_name) + '<br>' + esc(fmtDate(r0.updated_at)) : '—'}</td>
@@ -22914,6 +22923,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const r0 = S.rows.find(x => x.hr_code === tr.dataset.hr);
       const set = (f, v) => { const el = tr.querySelector(`[data-f="${f}"]`); if(el){ el.checked = v; } };
       const patch = {};
+      if(r0 && r0.auto_login && (what === 'login-on' || what === 'login-off')) return;
       if(what === 'login-on'){ patch.can_login = true; set('can_login', true); }
       if(what === 'login-off'){ patch.can_login = false; patch.can_attendance = false; patch.can_store = false;
         set('can_login', false); set('can_attendance', false); set('can_store', false); }
