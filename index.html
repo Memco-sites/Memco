@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v46</title>
+<title>MEMCO Portal v46.1</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -24168,19 +24168,22 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 
   /* ---------- buttons on the three screens ---------- */
   function buttonRow(kind, boxId, fileId){
-    const both = kind === 'labor' ? `<div class="att-one-line" style="margin-bottom:6px;">
-        <button class="btn btn-ghost" data-bs-format="both" style="flex:1;">📋 One-file format (Labor + Staff)</button>
-        <label class="btn btn-primary" style="flex:1;cursor:pointer;text-align:center;">📥 Update both from one file
-          <input type="file" data-bs-file="both" data-bs-mode="update" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
-        <label class="btn btn-ghost" style="flex:1;cursor:pointer;text-align:center;border-color:rgba(248,113,113,.6);color:#fca5a5">♻ Replace both
-          <input type="file" data-bs-file="both" data-bs-mode="replace" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
-      </div>` : '';
-    return both + `<div class="att-one-line" style="margin-bottom:10px;">
-        <button class="btn btn-ghost" data-bs-format="${kind}" style="flex:1;">📋 See the format</button>
-        <label class="btn btn-primary" style="flex:1;cursor:pointer;text-align:center;">📥 Update from Excel
-          <input type="file" data-bs-file="${kind}" data-bs-mode="update" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
-        <label class="btn btn-ghost" style="flex:1;cursor:pointer;text-align:center;border-color:rgba(248,113,113,.6);color:#fca5a5">♻ Replace whole list
-          <input type="file" data-bs-file="${kind}" data-bs-mode="replace" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
+    const one = kind === 'labor';
+    const b = (cls, icon, label, title) =>
+      `<button class="bs-b ${cls}" ${title ? `title="${esc(title)}"` : ''} data-bs-format="${label.k}">
+         <span class="bs-i">${icon}</span><span>${esc(label.t)}</span></button>`;
+    const f = (cls, icon, text, k, mode, title) =>
+      `<label class="bs-b ${cls}" title="${esc(title)}"><span class="bs-i">${icon}</span><span>${esc(text)}</span>
+         <input type="file" data-bs-file="${k}" data-bs-mode="${mode}" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>`;
+    return `<div class="bs-bar">
+        <button class="bs-b bs-info" title="What the columns must look like" data-bs-format="${kind}">
+          <span class="bs-i">📋</span><span>Format</span></button>
+        ${one ? `<button class="bs-b bs-info" title="One file holding both lists" data-bs-format="both">
+          <span class="bs-i">🗂️</span><span>Both format</span></button>` : ''}
+        ${f('bs-go', '📥', kind === 'labor' ? 'Update labor' : 'Update staff', kind, 'update', 'Update from an Excel file — nothing is deleted')}
+        ${one ? f('bs-go', '👥', 'Update both', 'both', 'update', 'One file with labor and staff together') : ''}
+        ${f('bs-warn', '♻', one ? 'Replace list' : 'Replace staff', kind, 'replace', 'The list becomes exactly what the file says')}
+        ${one ? f('bs-warn', '♻', 'Replace both', 'both', 'replace', 'Both lists become exactly what the file says') : ''}
       </div>
       <div id="${boxId}" style="display:none"></div>`;
   }
@@ -24245,6 +24248,30 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 (function(){
   'use strict';
   // the rules are added from here, so they can never be lost in the page's CSS
+  const bsCss = document.createElement('style');
+  bsCss.id = 'memcoBarCss';
+  bsCss.textContent = `
+    .bs-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:stretch;margin:0 0 6px}
+    .bs-bar-site{margin-bottom:10px}
+    .bs-b{flex:1 1 130px;min-width:110px;display:flex;align-items:center;justify-content:center;gap:6px;
+      padding:8px 10px;border-radius:10px;cursor:pointer;font:inherit;font-size:12.5px;font-weight:600;
+      white-space:nowrap;border:1px solid rgba(56,189,248,.28);background:rgba(56,189,248,.07);color:#cfe3f5;
+      transition:transform .1s,border-color .12s,background .12s}
+    .bs-b:hover{transform:translateY(-1px);background:rgba(56,189,248,.14);border-color:#38bdf8}
+    .bs-i{font-size:14px;line-height:1}
+    .bs-info{}
+    .bs-go{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.45);color:#a7f3d0}
+    .bs-go:hover{background:rgba(16,185,129,.2);border-color:#10b981}
+    .bs-warn{background:rgba(248,113,113,.10);border-color:rgba(248,113,113,.45);color:#fca5a5}
+    .bs-warn:hover{background:rgba(248,113,113,.18);border-color:#f87171}
+    .bs-site{background:rgba(129,140,248,.12);border-color:rgba(129,140,248,.45);color:#c7d2fe}
+    .bs-site:hover{background:rgba(129,140,248,.2);border-color:#818cf8}
+    .bs-wait{}
+    .bs-wait-on{background:rgba(245,158,11,.14);border-color:rgba(251,191,36,.55);color:#fcd34d}
+    .bs-sel{flex:2 1 200px;min-width:160px;padding:8px 10px;border-radius:10px;font:inherit;font-size:12.5px;
+      background:#051a2e;color:#e6eef7;border:1px solid rgba(129,140,248,.45)}
+    @media (max-width:760px){.bs-b{flex:1 1 46%;font-size:12px}.bs-sel{flex:1 1 100%}}`;
+  document.head.appendChild(bsCss);
   const css = document.createElement('style');
   css.id = 'memcoLockCss';
   css.textContent = `
@@ -24361,17 +24388,17 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 
   /* ---------- the panel on the Labor screen ---------- */
   function panelHtml(){
-    const wl = waitingLabor().length, ws = waitingStaff().length;
+    const n = waitingLabor().length + waitingStaff().length;
     return `
-      <div class="att-one-line" style="margin-bottom:6px;">
-        <select id="ssSite" style="flex:1;padding:8px;border-radius:8px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
-          <option value="">— choose the site this sheet belongs to —</option>
+      <div class="bs-bar bs-bar-site">
+        <select id="ssSite" class="bs-sel">
+          <option value="">📍 Site for the next sheet…</option>
           ${sites().map(s => `<option>${esc(s)}</option>`).join('')}
         </select>
-        <label class="btn btn-primary" style="flex:1;cursor:pointer;text-align:center;">📍 Load this site's people
+        <label class="bs-b bs-site" title="Load the people of the chosen site"><span class="bs-i">📍</span><span>Load site list</span>
           <input type="file" id="ssFile" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
-        <button class="btn btn-ghost" id="ssWaitBtn" style="flex:1;${(wl + ws) ? 'border-color:rgba(251,191,36,.6);color:#fcd34d' : ''}">
-          🕓 Waiting for site${(wl + ws) ? ` (${wl + ws})` : ''}</button>
+        <button class="bs-b ${n ? 'bs-wait-on' : 'bs-wait'}" id="ssWaitBtn" title="People with no site — their attendance is not being marked">
+          <span class="bs-i">🕓</span><span>Waiting${n ? ` · ${n}` : ''}</span></button>
       </div>
       <div id="ssBox" style="display:none"></div>`;
   }
