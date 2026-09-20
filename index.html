@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v41.4</title>
+<title>MEMCO Portal v41.5</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -15540,7 +15540,13 @@ window.addEventListener('load', safeCreateLucideIcons);
       if(b && b.style.display!=='none'){ b.click(); return; }
       const hv=document.getElementById('homeView'); if(hv) hv.style.display=''; return;
     }
-    const t=document.getElementById(id); if(t) t.click();
+    const t=document.getElementById(id);
+    if(!t) return;
+    if(ownHidden(t)){
+      if(typeof showToast==='function') showToast('You do not have permission for this section');
+      return;
+    }
+    t.click();
   }
   function build(){
     if(document.getElementById('erpSidebar')) return;
@@ -15557,9 +15563,15 @@ window.addEventListener('load', safeCreateLucideIcons);
     const app=document.getElementById('appRoot'); if(app) app.insertBefore(top,app.firstChild);
     const mob=el('nav',{id:'erpMobileNav','aria-label':'Mobile navigation'});
     [['Home','🏠','homeView'],['Labor','👷','homeLaborCard'],['Attendance','✓','homeAttendanceCard'],['Vehicles','🚙','homeVehiclesCard'],['More','☰','homeDirectoryCard']].forEach(([label,ico,target])=>{
-      const b=el('button',{class:'erp-m-btn',type:'button'},`<span>${ico}</span>${label}`); b.onclick=()=>clickTarget(target); mob.appendChild(b);
+      const b=el('button',{class:'erp-m-btn',type:'button','data-target':target},`<span>${ico}</span>${label}`); b.onclick=()=>clickTarget(target); mob.appendChild(b);
     });
     document.body.appendChild(mob);
+  }
+  function ownHidden(el){
+    if(!el) return true;
+    if(el.style && el.style.display === 'none') return true;
+    if(el.classList && el.classList.contains('home-card-disabled')) return true;
+    return false;
   }
   function sync(){
     const app=document.getElementById('appRoot');
@@ -15572,8 +15584,18 @@ window.addEventListener('load', safeCreateLucideIcons);
       if(id==='homeView'){ btn.style.display=''; return; }
       const target=document.getElementById(id);
       // Mirror existing permission visibility where possible.
-      btn.style.display=(target && getComputedStyle(target).display==='none')?'none':'';
+      btn.style.display=ownHidden(target)?'none':'';
     });
+    // the mobile bar follows exactly the same permissions as the side menu
+    const mob=document.getElementById('erpMobileNav');
+    if(mob){
+      mob.querySelectorAll('[data-target]').forEach(btn=>{
+        const id=btn.getAttribute('data-target');
+        if(id==='homeView' || id==='erpMoreBtn'){ btn.style.display=''; return; }
+        const target=document.getElementById(id);
+        btn.style.display=ownHidden(target)?'none':'';
+      });
+    }
   }
   function start(){
     build(); sync();
