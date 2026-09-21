@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v47.1</title>
+<title>MEMCO Portal v49</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -5750,7 +5750,7 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
 const SUPABASE_URL = "https://ixnqmzzttjmuqehdzjdi.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_7K7_yzzEjjs6JftlClpKQQ_-yhPySGB";
 const SUPABASE_SYNC_TABLE = "app_shared_state";
-const SUPABASE_POLL_MS = 4000;
+const SUPABASE_POLL_MS = 6000;
 function supabaseConfigured(){
   return !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 }
@@ -5970,6 +5970,7 @@ function startSupabasePolling(id, onRemoteChange){
   if(_supaPollStarted[id]) return; // guard against ever stacking duplicate intervals for the same key
   _supaPollStarted[id] = true;
   setInterval(async () => {
+    if(document.hidden) return;                 // tab in the background — check again when it comes back
     // step 1: a few bytes — did anything change?
     const stamp = await supaGetSharedStamp(id);
     if(!stamp) return;
@@ -6572,7 +6573,7 @@ async function tryResumeSession(){
   // of the day, so a freshly-created user or a just-changed permission is
   // actually visible on this device before anyone can try to log in --
   // rather than only self-correcting a few seconds later via the poll loop.
-  await waitForSupabaseSdkReady(SUPABASE_POLL_MS);
+  await waitForSupabaseSdkReady(4000);
   // loadRoles() and loadUsers() are independent reads (different Supabase
   // rows) -- run them concurrently instead of back-to-back so a slow-but-
   // working connection boots faster, and so the worst case if the network
@@ -18718,6 +18719,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['mr',       '📝 Material Requests'],
     ['requirements','📐 Project Limits'],
     ['dash',     '🏠 Stores'],
+    ['links',    '🔗 Store ⇄ Project'],
+    ['manage',   '🏬 Manage Stores'],
     ['stock',    '📊 Company Stock'],
     ['issue',    '📤 Issue Voucher'],
     ['transfer', '🚚 Transfers'],
@@ -18774,8 +18777,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function cleanErr(m){
     m = String(m || 'Something went wrong');
     if(/function .* does not exist|Could not find the function|relation .* does not exist|schema cache/i.test(m)){
-      S.setupMissing = true;
-      return 'The Stores database is not set up yet. Run memco_stores_phase1.sql in Supabase.';
+      // only while Stores is first loading does a missing piece mean "not set up at all"
+      if(!S.loaded){
+        S.setupMissing = true;
+        return 'The Stores database is not set up yet. Run memco_stores_phase1.sql in Supabase.';
+      }
+      const fn = (m.match(/function\s+(?:public\.)?([a-z_]+)/i) || [])[1] || 'a new part';
+      return `This part needs a newer database update (${fn}). Run the latest SQL file from the MEMCO_SQL zip in Supabase.`;
     }
     return m.replace(/^.*?ERROR:\s*/,'');
   }
@@ -18786,6 +18794,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(!r) throw new Error('Server did not respond. Check your internet connection.');
     if(r.error) throw new Error(cleanErr(r.error.message));
     return r.data;
+  }
+  async function rpcOptional(name, args){
+    const c = client();
+    if(!c) return null;
+    try{
+      const r = await wait(c.rpc(name, args || {}), 15000);
+      if(!r || r.error) return null;
+      return r.data;
+    }catch(e){ return null; }
   }
   async function query(builder){
     const r = await wait(builder, 25000);
@@ -18882,16 +18899,24 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       query(c.from('st_stores').select('*').order('sort')),
       query(c.from('st_projects').select('*').eq('active', true).order('code'))
     ]);
-    S.stores = stores; S.projects = projects;
+    S.allStores = stores;
+    S.stores = stores.filter(x => x.status !== 'closed'); S.projects = projects;
     try{ S.people = await rpc('st_people', {}) || []; }catch(e){ S.people = []; S.setupMissing = false; }
     // ---- item master: kept on this device, downloaded again only when it changed ----
     const ITEM_CACHE = 'st-items-cache-v1';
     let stamp = null;
     try{
-      const cnt = await wait(c.from('st_items').select('code', {count: 'exact', head: true}), 12000);
-      const last = await query(c.from('st_items').select('updated_at').order('updated_at', {ascending: false}).limit(1));
-      stamp = {n: (cnt && cnt.count) || 0, t: (last[0] && last[0].updated_at) || ''};
-    }catch(e){ stamp = null; }
+      const r = await rpcOptional('st_items_stamp', {});
+      if(r && typeof r === 'object') stamp = {n: Number(r.n) || 0, t: String(r.t || '')};
+      else throw new Error('no stamp');
+    }catch(e){
+      // no stamp function on this database yet — use the saved copy if it is under 12 hours old
+      try{
+        const raw = localStorage.getItem(ITEM_CACHE);
+        const box = raw ? JSON.parse(raw) : null;
+        if(box && box.savedAt && (Date.now() - box.savedAt) < 12 * 3600 * 1000) stamp = {n: box.n, t: box.t};
+      }catch(e2){ stamp = null; }
+    }
     if(stamp){
       try{
         const raw = localStorage.getItem(ITEM_CACHE);
@@ -18941,8 +18966,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     clearStockCache();
     S.loaded = true;
     S.itemsFromCache = false;
-    if(stamp){
-      try{ localStorage.setItem(ITEM_CACHE, JSON.stringify({n: stamp.n, t: stamp.t, items})); }
+    {
+      const st2 = stamp || {n: items.length, t: ''};
+      try{ localStorage.setItem(ITEM_CACHE, JSON.stringify({n: st2.n, t: st2.t, savedAt: Date.now(), items})); }
       catch(e){ try{ localStorage.removeItem(ITEM_CACHE); }catch(e2){} }
     }
     await loadPending();
@@ -19252,6 +19278,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       || (k === 'lpo' && hasRole('procurement')) || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
     if(S.access === 'viewer') return !['issue','opening','receive','tools'].includes(k);
     if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
+    if(k === 'manage') return ['admin','main'].includes(S.access);
     return true;
   }
   function renderTabs(){
@@ -19262,6 +19289,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
       if(S.access === 'viewer') return !['issue','opening','receive','tools'].includes(k);
       if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
+      if(k === 'manage') return ['admin','main'].includes(S.access);
       return true;
     });
     const ib = S.inbox || {};
@@ -19497,8 +19525,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <div><h2 style="margin-bottom:4px">${esc(st.name)}</h2>
           <div>${pill('level', LEVEL_LABEL[st.level])}${pill(st.status)}<span class="st-pill p-level">${esc(st.region)}</span>
             ${mine ? '<span class="st-pill p-live">My store</span>' : ''}</div></div>
-        <button type="button" class="st-btn st-ghost st-sm" data-sgo="dash">🏬 All stores</button>
+        <div style="display:flex;gap:6px">
+          ${['admin','main'].includes(S.access) ? `<button type="button" class="st-btn st-ghost st-sm" id="sfLinks">🔗 Projects</button>` : ''}
+          <button type="button" class="st-btn st-ghost st-sm" data-sgo="dash">🏬 All stores</button></div>
       </div>
+      <div class="st-muted" style="margin-top:4px">Serves: ${(st.project_codes || []).length
+        ? (st.project_codes || []).map(c => esc(projectLabel(c))).join(' · ') : '<b style="color:#fca5a5">no project linked</b>'}</div>
       <div class="st-stats">
         <div class="st-stat"><b>${fmt(lines)}</b><span>lines in stock</span></div>
         <div class="st-stat"><b>${money(value)}</b><span>stock value</span></div>
@@ -19554,6 +19586,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         </tbody></table></div><div class="st-muted" style="margin-top:4px">${out.length.toLocaleString()} line(s)${out.length > 1500 ? ' — first 1,500 shown' : ''}</div>`;
     };
     $('sfQ').addEventListener('input', drawStock);
+    if($('sfLinks')) $('sfLinks').addEventListener('click', () => openLinkPicker(st.id, () => go('store', st.id, true)));
     $('sfCsv').addEventListener('click', () => {
       const out = rows.map(r => ({r, q: num((r.stores || {})[st.id])})).filter(x => x.q);
       if(!out.length){ toast('Nothing to export', true); return; }
@@ -19570,6 +19603,265 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       await rpc('st_store_status', {p_store: b.dataset.status, p_status: b.dataset.to});
       S.loaded = false; toast('Store is now in Opening Stock mode.');
       go('store', st.id);
+    })));
+  };
+
+  /* ---------- Store ⇄ Project links ---------- */
+  function phaseGroup(name){
+    return String(name || '').toUpperCase()
+      .replace(/\s*[-–(]?\s*(PHASE|PH|P)\s*[-.]?\s*\d+\)?\s*$/, '')
+      .replace(/\s*\(\s*\d+\s*\)\s*$/, '')
+      .replace(/^THE\s+/, '').trim() || String(name || '').toUpperCase();
+  }
+  function storesOf(code){ return S.stores.filter(st => (st.project_codes || []).map(String).includes(String(code))); }
+  const canLink = () => ['admin', 'main'].includes(S.access);
+  async function saveLinks(storeId, codes){
+    const c = client();
+    let st = null;
+    const r = c ? await wait(c.rpc('st_store_link_projects', {p_id: storeId, p_codes: codes}), 20000) : null;
+    if(r && !r.error) st = r.data;
+    else if(r && r.error && !/does not exist|Could not find the function|schema cache/i.test(r.error.message || '')){
+      throw new Error(cleanErr(r.error.message));
+    } else {
+      if(S.access !== 'admin') throw new Error('Run 14_memco_store_links.sql in Supabase so the main store can link projects.');
+      st = await rpc('st_store_update', {p_id: storeId, p_name: null, p_keeper_hr: null, p_project_codes: codes});
+    }
+    const i = S.stores.findIndex(x => x.id === st.id); if(i >= 0) S.stores[i] = st;
+    return st;
+  }
+  function openLinkPicker(storeId, afterSave){
+    const st = storeById(storeId); if(!st) return;
+    const chosen = new Set((st.project_codes || []).map(String));
+    const groups = {};
+    S.projects.forEach(p => { const g = phaseGroup(p.name); (groups[g] = groups[g] || []).push(p); });
+    const keys = Object.keys(groups).sort();
+    const w = document.createElement('div');
+    w.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:16px';
+    w.innerHTML = `<div class="st-card" style="max-width:760px;width:100%;height:min(84vh,720px);display:flex;flex-direction:column;background:#0b2137">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div><h3 style="margin:0">🔗 Projects served by ${esc(st.name)}</h3>
+          <div class="st-muted">Tick the projects (all phases, or just some). A project can belong to more than one store.</div></div>
+        <button type="button" class="st-btn st-ghost st-sm" data-x>✕ Close</button></div>
+      <input id="lkQ" placeholder="Search project code or name" style="margin:10px 0">
+      <div id="lkList" style="flex:1;min-height:0;overflow:auto;border:1px solid rgba(56,189,248,.15);border-radius:10px;padding:6px"></div>
+      <div class="st-actions" style="margin-top:10px"><span id="lkN" class="st-muted"></span><span style="flex:1"></span>
+        <button type="button" class="st-btn st-ok" data-save>💾 Save links</button></div></div>`;
+    document.body.appendChild(w);
+    const draw = () => {
+      const q = (w.querySelector('#lkQ').value || '').trim().toLowerCase();
+      w.querySelector('#lkList').innerHTML = keys.map(g => {
+        const ps = groups[g].filter(p => !q || (p.code + ' ' + p.name).toLowerCase().includes(q));
+        if(!ps.length) return '';
+        const all = ps.every(p => chosen.has(String(p.code)));
+        return `<div style="padding:6px 4px;border-bottom:1px solid rgba(56,189,248,.10)">
+          <label style="font-weight:700;display:flex;gap:8px;align-items:center;cursor:pointer">
+            <input type="checkbox" data-group="${esc(g)}" ${all ? 'checked' : ''}> ${esc(g)}
+            ${ps.length > 1 ? `<span class="st-muted" style="font-weight:500">— ${ps.length} phases, tick for all</span>` : ''}</label>
+          ${ps.map(p => { const others = storesOf(p.code).filter(x => x.id !== st.id).map(x => x.name);
+            return `<label style="display:flex;gap:8px;align-items:center;margin:4px 0 0 24px;cursor:pointer">
+              <input type="checkbox" data-code="${esc(p.code)}" ${chosen.has(String(p.code)) ? 'checked' : ''}>
+              <b>${esc(p.code)}</b> ${esc(p.name)}
+              ${others.length ? `<span class="st-muted" style="font-size:11.5px">· also in ${esc(others.join(', '))}</span>` : ''}</label>`; }).join('')}
+        </div>`;
+      }).join('') || '<div class="st-empty">No project matches.</div>';
+      w.querySelector('#lkN').textContent = `${chosen.size} project(s) ticked`;
+    };
+    w.addEventListener('input', e => { if(e.target.id === 'lkQ') draw(); });
+    w.addEventListener('change', e => {
+      const t = e.target;
+      if(t.dataset.code){ if(t.checked) chosen.add(String(t.dataset.code)); else chosen.delete(String(t.dataset.code)); }
+      if(t.dataset.group){ groups[t.dataset.group].forEach(p => { if(t.checked) chosen.add(String(p.code)); else chosen.delete(String(p.code)); }); }
+      draw();
+    });
+    w.addEventListener('click', async e => {
+      if(e.target === w || e.target.closest('[data-x]')){ w.remove(); return; }
+      const b = e.target.closest('[data-save]'); if(!b) return;
+      await busy(b, async () => {
+        await saveLinks(st.id, [...chosen]);
+        toast(`${st.name}: ${chosen.size} project(s) linked`);
+        w.remove();
+        if(afterSave) afterSave();
+      });
+    });
+    draw();
+  }
+  function pickStoreFor(code, afterSave){
+    const p = S.projects.find(x => String(x.code) === String(code));
+    const w = document.createElement('div');
+    w.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:16px';
+    w.innerHTML = `<div class="st-card" style="max-width:520px;width:100%;background:#0b2137">
+      <h3 style="margin:0 0 6px">Which store serves ${esc(code)} — ${esc(p ? p.name : '')}?</h3>
+      <select id="lkStore" style="width:100%">${S.stores.map(x => `<option value="${esc(x.id)}">${esc(x.name)} (${esc(LEVEL_LABEL[x.level] || x.level)})</option>`).join('')}</select>
+      <div class="st-actions" style="margin-top:12px"><button type="button" class="st-btn st-ghost" data-x>Cancel</button>
+        <span style="flex:1"></span><button type="button" class="st-btn st-ok" data-save>🔗 Link</button></div></div>`;
+    document.body.appendChild(w);
+    w.addEventListener('click', async e => {
+      if(e.target === w || e.target.closest('[data-x]')){ w.remove(); return; }
+      const b = e.target.closest('[data-save]'); if(!b) return;
+      await busy(b, async () => {
+        const st = storeById(w.querySelector('#lkStore').value);
+        await saveLinks(st.id, [...new Set((st.project_codes || []).map(String).concat([String(code)]))]);
+        toast(`${code} linked to ${st.name}`);
+        w.remove();
+        if(afterSave) afterSave();
+      });
+    });
+  }
+  VIEWS.links = async function(main){
+    const redraw = () => go('links', null, true);
+    const unlinked = S.projects.filter(p => !storesOf(p.code).length)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    main.innerHTML = `
+      <h2>🔗 Store ⇄ Project</h2>
+      <div class="st-muted" style="margin-bottom:10px">A technician's material list comes from the store linked to his project.
+        ${canLink() ? '' : '<b>Only admin or the main store can change links.</b>'}</div>
+      ${unlinked.length ? `<div class="st-card" style="border-color:rgba(248,113,113,.5);background:rgba(220,38,38,.08)">
+        <b>⚠ ${unlinked.length} project(s) have no store</b> — their people will not see any material.
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+          ${unlinked.map(p => `<span class="st-pill p-draft" style="display:inline-flex;gap:6px;align-items:center">
+            <b>${esc(p.code)}</b> ${esc(p.name)}
+            ${canLink() ? `<button type="button" class="st-btn st-sm" data-link-proj="${esc(p.code)}" style="padding:1px 8px">Link</button>` : ''}</span>`).join('')}
+        </div></div>` : `<div class="st-card" style="border-color:rgba(16,185,129,.5)">✅ Every project is linked to a store.</div>`}
+      <div class="st-grid" style="margin-top:12px">
+        ${S.stores.map(st => { const codes = (st.project_codes || []).map(String);
+          const byGroup = {};
+          codes.forEach(c => { const p = S.projects.find(x => String(x.code) === c);
+            const g = phaseGroup(p ? p.name : c); (byGroup[g] = byGroup[g] || []).push({c, n: p ? p.name : ''}); });
+          return `<div class="st-store">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+              <div><b>${esc(st.name)}</b><div>${pill('level', LEVEL_LABEL[st.level])}${pill(st.status)}</div></div>
+              ${canLink() ? `<button type="button" class="st-btn st-sm" data-link-store="${esc(st.id)}">＋ Projects</button>` : ''}
+            </div>
+            <div style="margin-top:8px">${codes.length ? Object.keys(byGroup).sort().map(g =>
+              `<div style="margin:3px 0"><span class="st-muted" style="font-size:11.5px">${esc(g)}</span><br>${byGroup[g].map(x =>
+                `<span class="st-pill p-live" title="${esc(x.n)}">${esc(x.c)}</span>`).join(' ')}</div>`).join('')
+              : '<span class="st-muted">No project linked</span>'}</div>
+          </div>`; }).join('')}
+      </div>`;
+    main.querySelectorAll('[data-link-store]').forEach(b => b.addEventListener('click', () => openLinkPicker(b.dataset.linkStore, redraw)));
+    main.querySelectorAll('[data-link-proj]').forEach(b => b.addEventListener('click', () => pickStoreFor(b.dataset.linkProj, redraw)));
+  };
+
+  /* ---------- Manage stores ---------- */
+  function personByHr(hr){
+    try{ return (typeof rosterRecordFor === 'function' && rosterRecordFor(String(hr).trim())) || null; }catch(e){ return null; }
+  }
+  function keeperNames(list){
+    return (list || []).map(h => { const r = personByHr(h); return r ? `${esc(r.name)} <span class="st-muted">(HR ${esc(h)})</span>` : `HR ${esc(h)}`; }).join('<br>');
+  }
+  function storeDialog(title, body, onSave){
+    const w = document.createElement('div');
+    w.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:16px';
+    w.innerHTML = `<div class="st-card" style="max-width:620px;width:100%;background:#0b2137;max-height:88vh;overflow:auto">
+      <h3 style="margin:0 0 10px">${title}</h3>${body}
+      <div class="st-actions" style="margin-top:12px"><button type="button" class="st-btn st-ghost" data-x>Cancel</button>
+        <span style="flex:1"></span><button type="button" class="st-btn st-ok" data-save>💾 Save</button></div></div>`;
+    document.body.appendChild(w);
+    w.addEventListener('click', async e => {
+      if(e.target === w || e.target.closest('[data-x]')){ w.remove(); return; }
+      const b = e.target.closest('[data-save]'); if(!b) return;
+      await busy(b, async () => { if(await onSave(w) !== false) w.remove(); });
+    });
+    return w;
+  }
+  function keeperField(id, list){
+    return `<label class="st-l">Store keeper(s) — HR numbers, comma between</label>
+      <input id="${id}" value="${esc((list || []).join(', '))}" placeholder="e.g. 97, 1456" autocomplete="off">
+      <div id="${id}N" class="st-muted" style="margin-top:4px;min-height:16px"></div>`;
+  }
+  function wireKeeperField(w, id){
+    const inp = w.querySelector('#' + id), out = w.querySelector('#' + id + 'N');
+    const draw = () => {
+      const hrs = inp.value.split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+      out.innerHTML = hrs.map(h => { const r = personByHr(h);
+        return r ? `✓ ${esc(r.name)} · ${esc(r.trade || r.designation || '')}` : `<span style="color:#fcd34d">⚠ HR ${esc(h)} not in the list</span>`; }).join('<br>');
+    };
+    inp.addEventListener('input', draw); draw();
+    return () => inp.value.split(/[,\s]+/).map(x => x.trim()).filter(Boolean);
+  }
+  VIEWS.manage = async function(main){
+    const admin = S.access === 'admin', mainKeeper = S.access === 'main';
+    if(!admin && !mainKeeper){ main.innerHTML = '<div class="st-empty">Only admin or the main store can manage stores.</div>'; return; }
+    const all = (S.allStores || S.stores).slice().sort((a, b) => num(a.sort) - num(b.sort));
+    const open = all.filter(x => x.status !== 'closed'), closed = all.filter(x => x.status === 'closed');
+    const redraw = () => { S.loaded = false; go('manage', null, true); };
+    const row = st => `<tr class="${st.status === 'closed' ? 'um-blocked' : ''}">
+      <td><b>${esc(st.name)}</b><div class="st-muted" style="font-size:11px">${esc(st.id)}</div></td>
+      <td>${pill('level', LEVEL_LABEL[st.level])}</td>
+      <td>${st.parent_id ? esc(storeName(st.parent_id)) : '—'}</td>
+      <td>${esc(st.region)}</td><td>${pill(st.status)}</td>
+      <td>${keeperNames(st.keeper_hr) || '<span class="st-muted">none</span>'}</td>
+      <td style="white-space:nowrap;text-align:right">
+        ${st.status === 'closed'
+          ? (admin ? `<button type="button" class="st-btn st-sm" data-reopen="${esc(st.id)}">↺ Reopen</button>` : '')
+          : `<button type="button" class="st-btn st-ghost st-sm" data-rename="${esc(st.id)}">✏️ Rename</button>
+             <button type="button" class="st-btn st-ghost st-sm" data-keep="${esc(st.id)}">👤 Keepers</button>
+             <button type="button" class="st-btn st-ghost st-sm" data-proj="${esc(st.id)}">🔗 Projects</button>
+             ${admin && st.level !== 'company_main' ? `<button type="button" class="st-btn st-ghost st-sm" style="color:#fca5a5" data-remove="${esc(st.id)}">🗑 Remove</button>` : ''}`}
+      </td></tr>`;
+    main.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">🏬 Manage Stores</h2>
+        ${admin ? '<button type="button" class="st-btn st-ok" id="msAdd">➕ Add new store</button>' : ''}</div>
+      <div class="st-muted" style="margin:6px 0 10px">${open.length} store(s) open${closed.length ? ` · ${closed.length} closed` : ''}.
+        A store with history is closed, not deleted — its records stay in the reports.</div>
+      <div class="st-tw"><table class="st-t"><thead><tr><th>Store</th><th>Type</th><th>Under</th><th>Region</th><th>Status</th><th>Keeper(s)</th><th></th></tr></thead>
+        <tbody>${open.map(row).join('')}</tbody></table></div>
+      ${closed.length ? `<h3 style="margin-top:14px">Closed stores</h3><div class="st-tw"><table class="st-t"><tbody>${closed.map(row).join('')}</tbody></table></div>` : ''}`;
+
+    const add = $('msAdd');
+    if(add) add.addEventListener('click', () => {
+      const w = storeDialog('➕ Add new store', `
+        <label class="st-l">Store name</label><input id="msN" placeholder="e.g. Acres - Zone K&L">
+        <div class="st-row" style="margin-top:8px">
+          <div class="st-field"><label class="st-l">Type</label><select id="msL">
+            <option value="site">Site store</option><option value="branch">Branch (zone of a site)</option>
+            <option value="site_main">Site main store</option></select></div>
+          <div class="st-field"><label class="st-l">Under</label><select id="msP"><option value="">— none —</option>
+            ${open.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="st-field s"><label class="st-l">Region</label><select id="msR"><option>DXB</option><option>SHJ</option></select></div>
+        </div>
+        <div style="margin-top:8px">${keeperField('msK', [])}</div>
+        <div class="st-muted" style="margin-top:8px">It starts as "Not started". Link its projects with 🔗, enter the opening stock, then set it Live.</div>`,
+        async (w2) => {
+          const name = w2.querySelector('#msN').value.trim();
+          if(!name){ toast('Write the store name', true); return false; }
+          const st = await rpc('st_store_create', {p: {name, level: w2.querySelector('#msL').value,
+            parent_id: w2.querySelector('#msP').value, region: w2.querySelector('#msR').value, keeper_hr: getK()}});
+          toast(`${st.name} added (${st.id})`);
+          redraw();
+        });
+      const getK = wireKeeperField(w, 'msK');
+      w.querySelector('#msL').addEventListener('change', e => {
+        const p = w.querySelector('#msP');
+        if(e.target.value === 'site_main'){ const m = open.find(x => x.level === 'company_main'); if(m) p.value = m.id; }
+      });
+    });
+    main.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => {
+      const st = storeById(b.dataset.rename);
+      storeDialog(`✏️ Rename ${esc(st.name)}`, `<label class="st-l">New name</label><input id="msRn" value="${esc(st.name)}">
+        <div class="st-muted" style="margin-top:6px">Old documents keep the store; they will show the new name.</div>`,
+        async w => { const nm = w.querySelector('#msRn').value.trim(); if(!nm){ toast('Write the new name', true); return false; }
+          await rpc('st_store_rename', {p_id: st.id, p_name: nm}); toast('Store renamed'); redraw(); });
+    }));
+    main.querySelectorAll('[data-keep]').forEach(b => b.addEventListener('click', () => {
+      const st = storeById(b.dataset.keep);
+      const w = storeDialog(`👤 Keepers of ${esc(st.name)}`, keeperField('msKk', st.keeper_hr) +
+        '<div class="st-muted" style="margin-top:6px">New keepers get this store in their list; people taken off lose it.</div>',
+        async () => { await rpc('st_store_set_keepers', {p_id: st.id, p_hr: getK()}); toast('Keepers saved'); redraw(); });
+      const getK = wireKeeperField(w, 'msKk');
+    }));
+    main.querySelectorAll('[data-proj]').forEach(b => b.addEventListener('click', () => openLinkPicker(b.dataset.proj, redraw)));
+    main.querySelectorAll('[data-remove]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+      const st = storeById(b.dataset.remove);
+      const note = prompt(`Remove "${st.name}"?\n\nIf it has any history it will be CLOSED (kept in the reports), otherwise deleted.\nIt must hold no stock.\n\nReason / approval:`);
+      if(note === null) return;
+      const r = await rpc('st_store_remove', {p_id: st.id, p_note: note});
+      toast(r.action === 'deleted' ? `${st.name} deleted` : `${st.name} closed — its history stays in the reports`);
+      redraw();
+    })));
+    main.querySelectorAll('[data-reopen]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+      await rpc('st_store_reopen', {p_id: b.dataset.reopen}); toast('Store reopened'); redraw();
     })));
   };
 
@@ -20945,7 +21237,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const use = (own.length && !canPickAny) ? own : storeListFor(pc);
       $('rqStore').innerHTML = storeOptions(use, (own[0] || use[0] || {}).id);
       const hint = $('rqStoreHint');
-      if(hint) hint.textContent = own.length ? '' : 'No store is linked to this project yet — tell the admin (Stores > Admin > store projects).';
+      if(hint){
+        hint.innerHTML = own.length ? '' : `No store is linked to this project yet.
+          ${['admin','main'].includes(S.access) ? '<a href="#" id="rqGoLinks" style="color:#7dd3fc">🔗 Link it now</a>' : 'Tell the admin or the main store.'}`;
+        const a = document.getElementById('rqGoLinks');
+        if(a) a.onclick = ev => { ev.preventDefault(); go('links'); };
+      }
     }
     async function refreshRqAvail(){
       // ONE read of the whole company stock — per store AND per brand.
@@ -23740,8 +24037,9 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     const repaint = () => { try{ if(typeof renderCampNotify === 'function') renderCampNotify(); }catch(e){} };
     loadList().then(() => { refreshAlert(); repaint(); });
     setInterval(async () => {
+      if(document.hidden) return;
       if($('ltApp').style.display === 'none'){ await loadList(); refreshAlert(); repaint(); }
-    }, 12000);
+    }, 30000);
     window.addEventListener('storage', (ev) => {
       if(ev.key === KEY){ loadList().then(() => { refreshAlert(); repaint(); }); }
     });
@@ -24272,7 +24570,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     if(kind === 'both') await handleBothFile(file, mode, 'bsLaborBox');
     else await handlePeopleFile(kind, file, mode, kind === 'labor' ? 'bsLaborBox' : 'bsStaffBox');
   });
-  setInterval(mount, 2000);
+  setInterval(() => { if(!document.hidden) mount(); }, 2500);
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
   window.MemcoBulkSheet = {showFormat, downloadSample, SHEETS};
 })();
@@ -24385,10 +24683,9 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
       try{ window.scrollTo(0, keepY); lastY = keepY; }catch(e){}
     }
   }
-  const mo = new MutationObserver(() => apply());
   function start(){
-    mo.observe(document.body, {subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class']});
-    setInterval(apply, 700);
+    setInterval(() => { if(!document.hidden) apply(); }, 400);
+    document.addEventListener('click', () => setTimeout(apply, 30), true);
     apply();
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
@@ -24672,7 +24969,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     if(!site){ toast('Choose the site first'); return; }
     await loadSite(file, site);
   });
-  setInterval(mount, 2000);
+  setInterval(() => { if(!document.hidden) mount(); }, 2500);
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
   window.MemcoSiteSheet = {openWaiting, waitingLabor, waitingStaff};
 })();
@@ -24945,15 +25242,15 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   }
 
   function tick(){
-    mountUsers();
-    decorateUserRows();
+    const ov = document.getElementById('usersOverlay');
+    if(ov && getComputedStyle(ov).display !== 'none'){ mountUsers(); decorateUserRows(); }
     ['renderLaborAttChecklist', 'renderAttSnapshot', 'openDailySiteTimesheets', 'renderLaborView',
      'renderLaborReconciliation'].forEach(wrap);
     banner();
   }
   loadMerge();
-  setInterval(loadMerge, 30000);
-  setInterval(tick, 1500);
+  setInterval(() => { if(!document.hidden) loadMerge(); }, 60000);
+  setInterval(() => { if(!document.hidden) tick(); }, 2000);
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick); else tick();
 
   const css = document.createElement('style');
@@ -25072,7 +25369,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     wrap('saveStaffRecords');
     if(!snap && people().length) snap = takeSnap();
   }
-  setInterval(tick, 1500);
+  setInterval(() => { if(!document.hidden) tick(); }, 2500);
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick); else tick();
   window.MemcoSiteAccount = {syncAccounts, followsHisSite};
 })();
