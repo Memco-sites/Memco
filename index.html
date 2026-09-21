@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v50.1</title>
+<title>MEMCO Portal v50.3</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -20305,17 +20305,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         return `<div class="st-card" style="padding:10px 12px">
           <div style="display:flex;gap:18px;flex-wrap:wrap;font-weight:700;margin-bottom:6px">
             <span style="color:#6ee7b7">✅ Live: ${live.length}</span>
-            <span style="color:#fcd34d">🟠 Entering opening stock: ${op.length}</span>
+            <span style="color:#fcd34d">⏳ Counting (opening stock): ${op.length}</span>
             <span style="color:#94a3b8">⚪ Not started: ${ns.length}</span></div>
           ${live.length ? `<div>${live.map(x => chip(x, 'p-live', '✅')).join('')}</div>` : ''}
-          ${op.length ? `<div>${op.map(x => chip(x, 'p-draft', '🟠')).join('')}</div>` : ''}
+          ${op.length ? `<div>${op.map(x => chip(x, 'p-draft', '⏳')).join('')}</div>` : ''}
           ${ns.length ? `<div style="opacity:.8">${ns.map(x => chip(x, 'p-level', '⚪')).join('')}</div>` : ''}
         </div>`;
       })()}
       ${!openingList.length ? `<div class="st-note warn">No store of yours is in <b>Opening</b> status. ${mgr && notStarted.length ? 'Start one below.' : 'Ask the main store or admin to start it.'}</div>` : `
       <div class="st-card">
         <div class="st-row">
-          <div class="st-field"><label class="st-l">Store <span style="color:#fcd34d;font-weight:700">— 🟠 entering opening stock, NOT live yet</span></label>
+          <div class="st-field"><label class="st-l">Store <span style="color:#fcd34d;font-weight:700">— ⏳ counting, NOT live yet</span></label>
             <select id="stOpStore">${storeOptions(openingList, sel)}</select></div>
           <div class="st-field"><label class="st-l">Note (e.g. counted by / date)</label><input id="stOpNote"></div>
           <label class="st-btn st-ghost" style="cursor:pointer">📥 Fill from Excel<input type="file" id="stOpFile" accept=".xlsx,.xls,.csv" style="display:none"></label>
@@ -20387,7 +20387,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }));
     if($('stOpLive')) $('stOpLive').addEventListener('click', e => busy(e.currentTarget, async () => {
       const id = $('stOpStore').value;
-      if(prompt(`Go Live with "${storeName(id)}"?\nOpening stock will be LOCKED.\n\nType LIVE to confirm:`) !== 'LIVE') return;
+      const typed = prompt(`Go Live with "${storeName(id)}"?\nOpening stock will be LOCKED.\n\nType LIVE to confirm:`);
+      if(typed === null) return;                                  // Cancel
+      if(String(typed).trim().toUpperCase() !== 'LIVE'){
+        alert(`Not done — "${storeName(id)}" is still entering opening stock.\n\nTo go live, type the word LIVE in the box.`);
+        return;
+      }
       await rpc('st_store_status', {p_store: id, p_status: 'live'});
       S.loaded = false; await loadAll();
       alert(`✅ ${storeName(id)} is now LIVE.\n\nIts opening stock is locked. It can now issue, transfer, receive and take returns.`);
@@ -21413,11 +21418,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       $('rqModeBack').className = 'st-btn' + (back ? '' : ' st-ghost');
       $('rqFormTitle').textContent = back ? 'Return material to the store' : 'New requisition';
       $('rqSend').textContent = back ? '📥 Offer this return' : '🧾 Send requisition';
-      const grid = $('rqMatGrid') ? $('rqMatGrid').closest('.st-card') || $('rqMatGrid').parentElement : null;
-      if(grid) grid.style.display = back ? 'none' : '';
-      const chips = document.querySelector('.rq-chips');
-      if(chips) chips.style.display = back ? 'none' : '';
-      if($('rqMatQ')) $('rqMatQ').style.display = back ? 'none' : '';
+      // only the material picker makes way for "what he still holds" — the HR / store form stays
+      const picker = $('rqMatGrid') ? $('rqMatGrid').closest('.rq-picker') : null;
+      if(picker) picker.style.display = back ? 'none' : '';
       $('rqHoldBox').style.display = back ? '' : 'none';
       pickedReq.clear(); renderSelected();
       if(back) drawHolding();
