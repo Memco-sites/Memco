@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v50</title>
+<title>MEMCO Portal v50.1</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -20297,10 +20297,26 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <h2>Opening Stock</h2>
       <div class="st-note">Count one store at a time. Enter its stock here (in several batches if needed), check the totals, then press <b>Go Live</b>.
         After Go Live the opening stock is locked and the store can issue, transfer and request.</div>
+      ${(() => {
+        const mine = enterStores(false);
+        const live = mine.filter(x => x.status === 'live'), op = mine.filter(x => x.status === 'opening'),
+              ns = mine.filter(x => x.status === 'not_started');
+        const chip = (x, cls, icon) => `<span class="st-pill ${cls}" style="margin:2px 4px 2px 0;display:inline-block">${icon} ${esc(x.name)}</span>`;
+        return `<div class="st-card" style="padding:10px 12px">
+          <div style="display:flex;gap:18px;flex-wrap:wrap;font-weight:700;margin-bottom:6px">
+            <span style="color:#6ee7b7">✅ Live: ${live.length}</span>
+            <span style="color:#fcd34d">🟠 Entering opening stock: ${op.length}</span>
+            <span style="color:#94a3b8">⚪ Not started: ${ns.length}</span></div>
+          ${live.length ? `<div>${live.map(x => chip(x, 'p-live', '✅')).join('')}</div>` : ''}
+          ${op.length ? `<div>${op.map(x => chip(x, 'p-draft', '🟠')).join('')}</div>` : ''}
+          ${ns.length ? `<div style="opacity:.8">${ns.map(x => chip(x, 'p-level', '⚪')).join('')}</div>` : ''}
+        </div>`;
+      })()}
       ${!openingList.length ? `<div class="st-note warn">No store of yours is in <b>Opening</b> status. ${mgr && notStarted.length ? 'Start one below.' : 'Ask the main store or admin to start it.'}</div>` : `
       <div class="st-card">
         <div class="st-row">
-          <div class="st-field"><label class="st-l">Store</label><select id="stOpStore">${storeOptions(openingList, sel)}</select></div>
+          <div class="st-field"><label class="st-l">Store <span style="color:#fcd34d;font-weight:700">— 🟠 entering opening stock, NOT live yet</span></label>
+            <select id="stOpStore">${storeOptions(openingList, sel)}</select></div>
           <div class="st-field"><label class="st-l">Note (e.g. counted by / date)</label><input id="stOpNote"></div>
           <label class="st-btn st-ghost" style="cursor:pointer">📥 Fill from Excel<input type="file" id="stOpFile" accept=".xlsx,.xls,.csv" style="display:none"></label>
         </div>
@@ -20311,8 +20327,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       </div>
       <h3>Store totals so far</h3><div id="stOpTotals"></div>
       <h3>Saved batches</h3><div id="stOpBatches"></div>
-      ${mgr ? `<div class="st-row" style="margin-top:14px"><button type="button" class="st-btn st-warn" id="stOpLive">🚀 Go Live with this store</button></div>` : ''}`}
-      ${mgr && notStarted.length ? `<h3>Start opening stock for another store</h3><div class="st-card"><div class="st-row">
+      ${mgr ? `<div class="st-row" style="margin-top:14px;align-items:center;gap:10px"><button type="button" class="st-btn st-warn" id="stOpLive">🚀 Go Live with this store</button>
+        <span class="st-muted">When the whole store is counted. After this it moves to ✅ Live above.</span></div>` : ''}`}
+      ${mgr && notStarted.length ? `<h3>Start opening stock for another store <span class="st-muted" style="font-weight:500;font-size:12px">— these ${notStarted.length} store(s) have not started yet</span></h3><div class="st-card"><div class="st-row">
         <div class="st-field"><select id="stOpStart">${storeOptions(notStarted, '')}</select></div>
         <button type="button" class="st-btn st-warn" id="stOpStartBtn">Start opening</button></div></div>` : ''}`;
     if($('stOpStartBtn')) $('stOpStartBtn').addEventListener('click', e => busy(e.currentTarget, async () => {
@@ -20372,7 +20389,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const id = $('stOpStore').value;
       if(prompt(`Go Live with "${storeName(id)}"?\nOpening stock will be LOCKED.\n\nType LIVE to confirm:`) !== 'LIVE') return;
       await rpc('st_store_status', {p_store: id, p_status: 'live'});
-      S.loaded = false; await loadAll(); toast(`${storeName(id)} is now LIVE.`); go('dash');
+      S.loaded = false; await loadAll();
+      alert(`✅ ${storeName(id)} is now LIVE.\n\nIts opening stock is locked. It can now issue, transfer, receive and take returns.`);
+      go('store', id);
     }));
     await load();
   };
