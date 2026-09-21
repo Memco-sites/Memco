@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v46.1</title>
+<title>MEMCO Portal v47.1</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -4180,8 +4180,10 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
 </div>
 
 <div class="overlay" id="usersOverlay">
-  <div class="modal" style="max-width:480px;">
-    <h3>Manage Users</h3>
+  <div class="modal pm-fixed um-wide" style="max-width:min(1250px,96vw);">
+    <div class="pm-topbar"><b>Manage Users</b>
+      <span id="umCount" style="font-size:12px;opacity:.75;font-weight:500;margin-left:auto;margin-right:10px"></span>
+      <button class="btn btn-ghost" id="usersCloseTop" style="padding:4px 12px">✕ Close</button></div>
     <!-- Super-Admin-only diagnostic: cross-device sync (Supabase) failures
          are deliberately swallowed everywhere else in this app so an
          ordinary staff login never sees a scary error over a transient
@@ -4190,49 +4192,32 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
          otherwise go on forever with nothing visible anywhere. This line
          is the one place that failure surfaces, right where a new user
          actually gets created. See renderSupaHealthLine(). -->
-    <div id="usersSyncHealthLine" style="font-size:11.5px;line-height:1.5;margin:-4px 0 12px;padding:8px 10px;border-radius:6px;display:none;"></div>
-    <div class="field" style="margin-bottom:8px;">
-      <input type="text" id="usersSearchInput" placeholder="Search by HR Number or Full Name…" autocomplete="off">
+    <div class="um-top">
+      <div id="usersSyncHealthLine" class="um-sync" style="display:none;"></div>
+      <div class="field um-search"><input type="text" id="usersSearchInput" placeholder="🔍 Search HR, name, username or role…" autocomplete="off"></div>
     </div>
-    <div id="usersList" style="margin-bottom:14px;max-height:220px;overflow-y:auto;"></div>
-    <div style="border-top:1px solid var(--line);padding-top:12px;margin-top:4px;">
-      <div id="usersFormTitle" style="font-size:12.5px;color:var(--ink-dim);margin-bottom:8px;">Add new user</div>
+    <div id="usersList" class="um-list"></div>
+    <div class="pm-foot um-form">
+      <div id="usersFormTitle" class="um-title">➕ Add new user</div>
       <input type="hidden" id="uEditId" value="">
-      <div class="field">
-        <label>Full name</label>
-        <input type="text" id="uName" placeholder="e.g. Farooq Ahmed">
+      <div class="um-row">
+        <div class="field um-f1"><label>HR No</label><input type="text" id="uEmployeeId" placeholder="e.g. 1042" autocomplete="off"></div>
+        <div class="field um-f2"><label>Full name</label><input type="text" id="uName" placeholder="filled from HR No"></div>
+        <div class="field um-f1"><label>Trade (now)</label><input type="text" id="uTradeNow" readonly tabindex="-1" class="um-ro" placeholder="—"></div>
+        <div class="field um-f1"><label>Current site</label><input type="text" id="uSiteNow" readonly tabindex="-1" class="um-ro" placeholder="—"></div>
       </div>
-      <div class="field">
-        <label>Username</label>
-        <input type="text" id="uUsername" placeholder="e.g. farooq">
-      </div>
-      <div class="field">
-        <label>Password</label>
-        <input type="text" id="uPassword" placeholder="password">
-      </div>
-      <div class="field">
-        <label>Employee ID / HR Number (optional)</label>
-        <input type="text" id="uEmployeeId" placeholder="e.g. 1042">
-      </div>
-      <div class="field">
-        <label>Role</label>
-        <select id="uRole"></select>
-      </div>
-      <div class="field" id="uSiteField">
-        <label>Assigned site</label>
-        <select id="uSite"></select>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-ghost btn-danger" id="uDeleteBtn" style="display:none;">Delete User</button>
-        <div class="right">
+      <div id="uHrHint" class="um-hint"></div>
+      <div class="um-row" style="margin-top:6px">
+        <div class="field um-f1"><label>Username</label><input type="text" id="uUsername" placeholder="e.g. MEMCO1042"></div>
+        <div class="field um-f1"><label>Password</label><input type="text" id="uPassword" placeholder="password"></div>
+        <div class="field um-f1"><label>Role (to give)</label><select id="uRole"></select></div>
+        <div class="field um-f1" id="uSiteField"><label>Assigned site</label><select id="uSite"></select></div>
+        <div class="um-btns">
+          <button class="btn btn-ghost btn-danger" id="uDeleteBtn" style="display:none;">Delete</button>
           <button class="btn btn-ghost" id="uClearBtn">Clear</button>
           <button class="btn btn-primary" id="uSaveBtn">Save User</button>
+          <button class="btn btn-ghost" id="usersCloseBtn" style="display:none">Close</button>
         </div>
-      </div>
-    </div>
-    <div class="modal-actions" style="border-top:none;margin-top:6px;">
-      <div class="right" style="width:100%;">
-        <button class="btn btn-ghost" id="usersCloseBtn" style="width:100%;">Close</button>
       </div>
     </div>
   </div>
@@ -6845,17 +6830,25 @@ function renderUsersScreen(){
   if(visible.length === 0){
     listEl.innerHTML = `<p style="font-size:12px;color:var(--ink-faint);padding:8px 0;">No users match "${escapeHtml(q)}".</p>`;
   } else {
-    listEl.innerHTML = visible.map(u => `
-      <div class="detail-field-row" style="cursor:pointer;flex-wrap:wrap;gap:4px 10px;${u.blocked ? 'opacity:0.6;' : ''}" data-edit-user="${u.id}">
-        <span class="df-label">${escapeHtml(u.name)} <span style="color:var(--ink-faint);">(${escapeHtml(u.username)})</span>${u.hrCode ? ` <span style="color:var(--ink-faint);">HR ${escapeHtml(String(u.hrCode))}</span>` : ''}${u.blocked ? ' <span style="color:var(--red);font-size:10.5px;">🔒 Blocked</span>' : ''}</span>
-        <span class="df-value" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          ${escapeHtml(u.role)}${u.site ? ' · ' + escapeHtml(u.site) : ''}
-          <button type="button" class="btn btn-ghost" style="font-size:10.5px;padding:3px 7px;" data-reset-user="${u.id}">Reset</button>
-          <button type="button" class="btn ${u.blocked ? 'btn-primary' : 'btn-ghost btn-danger'}" style="font-size:10.5px;padding:3px 7px;" data-toggle-block-user="${u.id}">${u.blocked ? 'Unblock' : 'Block'}</button>
-        </span>
-      </div>
-    `).join('');
+    listEl.innerHTML = `<table class="um-t"><thead><tr>
+        <th>HR</th><th>Name</th><th>Username</th><th>Role</th><th>Site</th><th class="um-act">Actions</th></tr></thead><tbody>
+      ${visible.map(u => `
+        <tr data-edit-user="${u.id}" class="${u.blocked ? 'um-blocked' : ''}" title="Click to edit">
+          <td class="um-hr">${u.hrCode ? escapeHtml(String(u.hrCode)) : '—'}</td>
+          <td class="um-name">${escapeHtml(u.name)}${u.blocked ? ' <span class="um-tag">blocked</span>' : ''}</td>
+          <td class="um-dim">${escapeHtml(u.username)}</td>
+          <td class="um-role">${escapeHtml(u.role)}</td>
+          <td class="um-dim">${u.site ? escapeHtml(u.site) : '<span style="opacity:.6">all sites</span>'}</td>
+          <td class="um-act">
+            <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 9px;" data-reset-user="${u.id}">Reset</button>
+            <button type="button" class="btn ${u.blocked ? 'btn-primary' : 'btn-ghost btn-danger'}" style="font-size:11px;padding:3px 9px;" data-toggle-block-user="${u.id}">${u.blocked ? 'Unblock' : 'Block'}</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`;
   }
+  const cnt = document.getElementById('umCount');
+  if(cnt) cnt.textContent = `${USERS.length} user(s)` + (q ? ` · ${visible.length} shown` : '') +
+    ` · ${USERS.filter(u => u.blocked).length} blocked`;
   listEl.querySelectorAll('[data-edit-user]').forEach(row => {
     row.addEventListener('click', () => loadUserIntoForm(Number(row.dataset.editUser)));
   });
@@ -6989,13 +6982,13 @@ async function renderSupaHealthLine(){
   const el = document.getElementById('usersSyncHealthLine');
   if(!el) return;
   if(!supabaseConfigured()){
-    el.style.display = 'block';
+    el.style.display = 'flex';
     el.style.background = 'rgba(127,168,201,0.12)';
     el.style.color = 'var(--steel)';
     el.textContent = 'ℹ️ Cloud sync is not configured — users created here only apply on this device/browser.';
     return;
   }
-  el.style.display = 'block';
+  el.style.display = 'flex';
   el.style.background = 'rgba(127,168,201,0.12)';
   el.style.color = 'var(--steel)';
   el.textContent = '⏳ Checking cloud sync…';
@@ -7114,6 +7107,49 @@ document.getElementById('permMatrixBtn').onclick = () => {
   document.getElementById('permMatrixOverlay').classList.add('open');
 };
 document.getElementById('permCloseTop').onclick = () => { document.getElementById('permMatrixCloseBtn').click(); };
+document.getElementById('usersCloseTop').onclick = () => { document.getElementById('usersCloseBtn').click(); };
+(function(){
+  const hrEl = document.getElementById('uEmployeeId');
+  if(!hrEl) return;
+  let auto = {name: '', username: ''};
+  const fill = () => {
+    const code = hrEl.value.trim();
+    const hint = document.getElementById('uHrHint');
+    const nameEl = document.getElementById('uName'), userEl = document.getElementById('uUsername');
+    const editing = !!document.getElementById('uEditId').value;
+    const tEl = document.getElementById('uTradeNow'), sEl = document.getElementById('uSiteNow');
+    if(!code){ if(hint) hint.textContent = ''; if(tEl) tEl.value = ''; if(sEl) sEl.value = ''; return; }
+    const rec = (typeof rosterRecordFor === 'function' && rosterRecordFor(code))
+      || (typeof laborIndexByCode === 'function' && laborIndexByCode()[code]) || null;
+    const taken = (typeof USERS !== 'undefined' ? USERS : []).find(u => String(u.hrCode || '') === code
+      && String(u.id) !== String(document.getElementById('uEditId').value));
+    if(tEl) tEl.value = rec ? (rec.trade || rec.designation || '') : '';
+    if(sEl) sEl.value = rec ? (rec.site || 'no site') : '';
+    if(taken){
+      hint.innerHTML = `<span style="color:#fca5a5">⚠ HR ${escapeHtml(code)} already has an account: <b>${escapeHtml(taken.username)}</b> — click that row in the list to edit it instead.</span>`;
+      return;
+    }
+    if(!rec){ hint.innerHTML = '<span style="color:#fcd34d">⚠ This HR number is not in the labor or staff list.</span>'; return; }
+    hint.textContent = '';
+    if(!editing){
+      if(!nameEl.value.trim() || nameEl.value === auto.name){ nameEl.value = rec.name || ''; auto.name = nameEl.value; }
+      const suggest = 'MEMCO' + code;
+      if(!userEl.value.trim() || userEl.value === auto.username){ userEl.value = suggest; auto.username = suggest; }
+      const siteSel = document.getElementById('uSite');
+      if(siteSel && rec.site && [...siteSel.options].some(o => o.value === rec.site) && !siteSel.value) siteSel.value = rec.site;
+    }
+  };
+  hrEl.addEventListener('input', fill);
+  hrEl.addEventListener('change', fill);
+  const list = document.getElementById('usersList');
+  if(list) list.addEventListener('click', () => setTimeout(fill, 60));
+  const clr = document.getElementById('uClearBtn');
+  if(clr) clr.addEventListener('click', () => {
+    auto = {name: '', username: ''};
+    const h = document.getElementById('uHrHint'); if(h) h.textContent = '';
+    ['uTradeNow', 'uSiteNow'].forEach(id => { const e = document.getElementById(id); if(e) e.value = ''; });
+  });
+})();
 document.getElementById('permMatrixCloseBtn').onclick = () => {
   document.getElementById('permMatrixOverlay').classList.remove('open');
 };
@@ -24248,6 +24284,40 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 (function(){
   'use strict';
   // the rules are added from here, so they can never be lost in the page's CSS
+  const umCss = document.createElement('style');
+  umCss.id = 'memcoUsersCss';
+  umCss.textContent = `
+    .um-wide .um-list{flex:1;min-height:0;overflow:auto;border:1px solid rgba(56,189,248,.18);border-radius:10px;margin:4px 0 8px}
+    .um-t{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+    .um-t th{position:sticky;top:0;z-index:2;background:#0d3358;color:#cfe3f5;text-align:left;padding:8px 10px;font-weight:700;font-size:12px}
+    .um-t td{padding:7px 10px;border-top:1px solid rgba(56,189,248,.10);vertical-align:middle}
+    .um-t tbody tr{cursor:pointer}
+    .um-t tbody tr:hover{background:rgba(56,189,248,.08)}
+    .um-name{font-weight:600;color:#eaf3fc}
+    .um-hr{font-weight:700;color:#7dd3fc;white-space:nowrap}
+    .um-role{font-weight:700;color:#fff}
+    .um-dim{color:#b6cce0}
+    .um-act{text-align:right;white-space:nowrap}
+    .um-t th.um-act{text-align:right}
+    .um-blocked{opacity:.6}
+    .um-tag{font-size:10.5px;background:#7f1d1d;color:#fecaca;border-radius:999px;padding:1px 7px;margin-left:4px;font-weight:600}
+    .um-form .um-title{font-size:12.5px;font-weight:700;color:#cfe3f5;margin-bottom:6px}
+    .um-top{display:flex;gap:8px;align-items:stretch;margin-bottom:6px;flex-wrap:wrap}
+    .um-top .um-sync{flex:1 1 280px;font-size:11.5px;line-height:1.4;padding:8px 10px;border-radius:8px;margin:0;display:flex;align-items:center}
+    .um-top .um-search{flex:1 1 280px;margin:0}
+    .um-top .um-search input{height:100%}
+    .um-ro{opacity:.85;background:rgba(56,189,248,.06) !important;cursor:default;font-weight:600}
+    .um-hint{font-size:11.5px;min-height:0;margin-top:4px}
+    .um-hint:empty{display:none}
+    .um-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+    .um-row .field{margin:0}
+    .um-row .field label{font-size:10.5px}
+    .um-f2{flex:2 1 190px;min-width:150px}
+    .um-f1{flex:1 1 120px;min-width:105px}
+    .um-btns{display:flex;gap:6px;align-items:flex-end}
+    @media (max-width:760px){.um-f2,.um-f1{flex:1 1 46%}.um-btns{flex:1 1 100%;justify-content:flex-end}
+      .um-t th:nth-child(3),.um-t td:nth-child(3){display:none}}`;
+  document.head.appendChild(umCss);
   const bsCss = document.createElement('style');
   bsCss.id = 'memcoBarCss';
   bsCss.textContent = `
@@ -24608,6 +24678,406 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 })();
 </script>
 <!-- ============ END SITE-WISE UPLOAD ============ -->
+
+
+<!-- ============ DISCIPLINES (Electrical · Mechanical · Plumbing · Fire · ELV · Civil) ============ -->
+<script id="disciplineJs">
+(function(){
+  'use strict';
+  const esc = s => (typeof escapeHtml === 'function') ? escapeHtml(s == null ? '' : String(s))
+    : String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const toast = m => { if(typeof showToast === 'function') showToast(m); };
+
+  const DISC = ['Electrical', 'Mechanical', 'Plumbing', 'Fire Fighting', 'Fire Alarm', 'ELV', 'Civil'];
+  const ICON = {'Electrical':'⚡', 'Mechanical':'❄️', 'Plumbing':'🚰', 'Fire Fighting':'🧯', 'Fire Alarm':'🚨', 'ELV':'📡', 'Civil':'🧱', 'General':'👥'};
+  // default: who looks after the fire / ELV people on a site
+  const DEFAULT_MERGE = {'Fire Fighting': 'Plumbing', 'Fire Alarm': 'Electrical', 'ELV': 'Electrical'};
+  const MERGE_KEY = 'discipline-merge-v1';
+  // roles that are limited to their own field
+  const FIELD_ROLES = ['Site Supervisor', 'Foreman', 'Site Engineer', 'Supervisor', 'Charge Hand', 'Chargehand'];
+
+  /* ---------- trade → discipline ---------- */
+  function disciplineOfTrade(trade){
+    const t = String(trade || '').toLowerCase();
+    if(!t) return 'General';
+    if(/fire\s*alarm/.test(t)) return 'Fire Alarm';
+    if(/fire\s*fight|sprinkler|\bfm\s*200|fire\s*pump/.test(t)) return 'Fire Fighting';
+    if(/\belv\b|low\s*current|cctv|access\s*control|data\s*cabl/.test(t)) return 'ELV';
+    if(/electric|\belec\b|cable\s*pull|lighting/.test(t)) return 'Electrical';
+    if(/plumb/.test(t)) return 'Plumbing';
+    if(/hvac|\bac\b|a\/c|air\s*cond|duct|chill|pipe\s*fitter|insulat|refriger|mechanic|mep\s*mech|welder/.test(t)) return 'Mechanical';
+    if(/mason|carpent|steel\s*fix|shutter|paint|plaster|tile|block|concrete|civil|scaffold|gypsum|chipping/.test(t)) return 'Civil';
+    return 'General';          // helper, driver, security, store, office…
+  }
+
+  /* ---------- per-site merges (Fire Fighting under Plumbing, etc.) ---------- */
+  let MERGE = {};
+  const PEOPLE_KEY = 'user-disciplines-v1';
+  let BYUSER = {};
+  const ukey = u => String((u && (u.username || u.hrCode)) || '').toLowerCase();
+  async function loadMerge(){
+    try{ const r = await window.storage.get(MERGE_KEY); MERGE = r ? (JSON.parse(r.value || r) || {}) : {}; }catch(e){ MERGE = {}; }
+    try{ const r = await window.storage.get(PEOPLE_KEY); BYUSER = r ? (JSON.parse(r.value || r) || {}) : {}; }catch(e){ BYUSER = {}; }
+  }
+  async function savePeople(){
+    try{ await window.storage.set(PEOPLE_KEY, JSON.stringify(BYUSER), true); }catch(e){}
+    try{ if(typeof supaSetSharedState === 'function') supaSetSharedState(PEOPLE_KEY, BYUSER); }catch(e){}
+  }
+  const setFor = u => (BYUSER[ukey(u)] || []);
+  async function saveMerge(){
+    try{ await window.storage.set(MERGE_KEY, JSON.stringify(MERGE), true); }catch(e){}
+    try{ if(typeof supaSetSharedState === 'function') supaSetSharedState(MERGE_KEY, MERGE); }catch(e){}
+  }
+  function ownerOn(site, disc){
+    const m = (MERGE[site] || {});
+    const v = (disc in m) ? m[disc] : DEFAULT_MERGE[disc];
+    return v || disc;                       // '' or undefined → its own field
+  }
+
+  /* ---------- who am I, which fields do I see ---------- */
+  function me(){ try{ return currentUser || {}; }catch(e){ return {}; } }
+  function myRecord(){
+    const code = String(me().hrCode || me().hr_code || '').trim();
+    if(!code) return null;
+    try{ return (typeof rosterRecordFor === 'function' && rosterRecordFor(code)) || null; }catch(e){ return null; }
+  }
+  function myDisciplines(){
+    const u = me();
+    const set = setFor(u);
+    if(set.length) return set.slice();
+    const rec = myRecord();
+    const d = disciplineOfTrade(rec ? (rec.designation || rec.trade) : '');
+    return d === 'General' ? [] : [d];
+  }
+  function isFieldLimited(){
+    const u = me();
+    if(!u || !u.role) return false;
+    if(!FIELD_ROLES.includes(u.role)) return false;
+    return myDisciplines().length > 0;       // no field known → sees everything, as before
+  }
+  // may I see this person (labor or staff record)?
+  function allows(rec){
+    if(!isFieldLimited()) return true;
+    const d = disciplineOfTrade(rec && (rec.trade || rec.designation));
+    if(d === 'General') return true;         // helpers, drivers, security on my site
+    const owner = ownerOn(rec && rec.site, d);
+    const mine = myDisciplines();
+    return mine.includes(d) || mine.includes(owner);
+  }
+  function filter(list){ return isFieldLimited() ? (list || []).filter(allows) : (list || []); }
+
+  /* ---------- the "Disciplines by site" window ---------- */
+  function sites(){
+    try{ return (typeof unifiedSites !== 'undefined' && unifiedSites.length) ? unifiedSites.slice()
+      : [...new Set((laborRecords || []).map(l => l.site).filter(Boolean))].sort(); }catch(e){ return []; }
+  }
+  function openMergeWindow(){
+    const w = document.createElement('div');
+    w.style.cssText = 'position:fixed;inset:0;z-index:9450;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:16px';
+    const opt = (site, disc) => {
+      const cur = ownerOn(site, disc);
+      const choices = [[disc, 'Its own engineer'], ['Electrical', '⚡ Electrical'], ['Plumbing', '🚰 Plumbing'], ['Mechanical', '❄️ Mechanical']];
+      return `<select data-site="${esc(site)}" data-disc="${esc(disc)}" style="width:100%;padding:6px;border-radius:8px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
+        ${choices.filter((c, i, a) => a.findIndex(x => x[0] === c[0]) === i)
+          .map(([v, t]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+    };
+    w.innerHTML = `<div style="background:#0b2137;border:1px solid rgba(56,189,248,.3);border-radius:14px;max-width:900px;width:100%;
+        height:min(84vh,720px);display:flex;flex-direction:column;padding:16px;color:#e6eef7;font-size:13px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div><h3 style="margin:0">🧭 Who looks after Fire &amp; ELV on each site</h3>
+          <div style="opacity:.8;font-size:12px">Default: Fire Fighting → Plumbing · Fire Alarm → Electrical · ELV → Electrical. Change it where a site has its own engineer.</div></div>
+        <button class="btn btn-ghost" data-x style="padding:4px 12px">✕ Close</button></div>
+      <div style="flex:1;min-height:0;overflow:auto;margin-top:10px;border:1px solid rgba(56,189,248,.15);border-radius:10px">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#0d3358;position:sticky;top:0">
+            <th style="padding:8px;text-align:left">Site</th><th style="padding:8px;text-align:left">🧯 Fire Fighting</th>
+            <th style="padding:8px;text-align:left">🚨 Fire Alarm</th><th style="padding:8px;text-align:left">📡 ELV</th></tr></thead>
+          <tbody>${sites().map(s => `<tr>
+            <td style="padding:6px 8px;font-weight:600">${esc(s)}</td>
+            <td style="padding:6px 8px">${opt(s, 'Fire Fighting')}</td>
+            <td style="padding:6px 8px">${opt(s, 'Fire Alarm')}</td>
+            <td style="padding:6px 8px">${opt(s, 'ELV')}</td></tr>`).join('')}</tbody></table></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-primary" data-save style="flex:1">💾 Save</button>
+        <button class="btn btn-ghost" data-x style="flex:1">Close</button></div></div>`;
+    document.body.appendChild(w);
+    w.addEventListener('click', async e => {
+      if(e.target === w || e.target.closest('[data-x]')){ w.remove(); return; }
+      if(e.target.closest('[data-save]')){
+        w.querySelectorAll('select[data-site]').forEach(sel => {
+          const site = sel.dataset.site, disc = sel.dataset.disc;
+          MERGE[site] = MERGE[site] || {};
+          MERGE[site][disc] = sel.value === disc ? '' : sel.value;
+        });
+        await saveMerge();
+        toast('Saved — each site now knows who looks after Fire & ELV');
+        w.remove();
+      }
+    });
+  }
+
+  /* ---------- Manage Users: show and set the field ---------- */
+  function fieldsHtml(list){
+    return (list || []).map(d => `${ICON[d] || ''} ${esc(d)}`).join(' · ');
+  }
+  function mountUsers(){
+    const row = document.querySelector('#usersOverlay .um-row:last-of-type');
+    if(!row || document.getElementById('uDiscBox')) return;
+    const holder = document.createElement('div');
+    holder.id = 'uDiscBox';
+    holder.className = 'um-disc';
+    holder.innerHTML = `<div class="um-disc-l">Field(s) he looks after</div>
+      <div id="uDiscChips">${['Auto'].concat(DISC).map(d => `<label class="um-chip"><input type="checkbox" value="${esc(d)}">
+        <span>${d === 'Auto' ? '🔄 From his trade' : (ICON[d] + ' ' + esc(d))}</span></label>`).join('')}</div>
+      <button type="button" class="btn btn-ghost" id="uDiscMerge" style="padding:4px 10px;font-size:11.5px">🧭 Fire &amp; ELV by site…</button>`;
+    row.parentNode.insertBefore(holder, row.nextSibling);
+    document.getElementById('uDiscMerge').onclick = openMergeWindow;
+    const box = document.getElementById('uDiscChips');
+    box.addEventListener('change', e => {
+      const t = e.target;
+      if(t.value === 'Auto' && t.checked) box.querySelectorAll('input').forEach(x => { if(x.value !== 'Auto') x.checked = false; });
+      if(t.value !== 'Auto' && t.checked) box.querySelector('input[value="Auto"]').checked = false;
+    });
+    setDiscUI(null);
+  }
+  function setDiscUI(user){
+    const box = document.getElementById('uDiscChips');
+    if(!box) return;
+    const list = user ? setFor(user) : [];
+    box.querySelectorAll('input').forEach(x => {
+      x.checked = x.value === 'Auto' ? !list.length : list.includes(x.value);
+    });
+  }
+  function readDiscUI(){
+    const box = document.getElementById('uDiscChips');
+    if(!box) return [];
+    if(box.querySelector('input[value="Auto"]').checked) return [];
+    return [...box.querySelectorAll('input:checked')].map(x => x.value).filter(v => v !== 'Auto');
+  }
+  // when a user row is opened, reflect his field; when saved, store it
+  document.addEventListener('click', e => {
+    const tr = e.target.closest('#usersList [data-edit-user]');
+    if(tr){
+      setTimeout(() => {
+        const u = (typeof USERS !== 'undefined' ? USERS : []).find(x => String(x.id) === String(tr.dataset.editUser));
+        setDiscUI(u);
+      }, 40);
+    }
+    if(e.target.closest('#uClearBtn')) setTimeout(() => setDiscUI(null), 20);
+  }, true);
+  document.addEventListener('click', e => {
+    if(!e.target.closest('#uSaveBtn')) return;
+    const picked = readDiscUI();
+    // read who it is NOW — the form is emptied once the app has saved
+    const hr = ((document.getElementById('uEmployeeId') || {}).value || '').trim();
+    const nm = ((document.getElementById('uUsername') || {}).value || '').trim();
+    // the field can be stored at once, keyed by username
+    if(nm){
+      const k = nm.toLowerCase();
+      if(picked.length) BYUSER[k] = picked; else delete BYUSER[k];
+      savePeople();
+    }
+    setTimeout(async () => {
+      try{
+        const u = (USERS || []).find(x => (hr && String(x.hrCode || '') === String(hr).trim())
+                                        || (nm && String(x.username || '').toLowerCase() === nm.trim().toLowerCase()));
+        if(u){
+          if(picked.length) BYUSER[ukey(u)] = picked; else delete BYUSER[ukey(u)];
+          await savePeople();
+          if(typeof renderUsersScreen === 'function') renderUsersScreen();
+        }
+      }catch(err){}
+    }, 900);
+  }, true);
+
+  // the list shows "Site Supervisor · ⚡ Electrical"
+  function decorateUserRows(){
+    document.querySelectorAll('#usersList tbody tr[data-edit-user]').forEach(tr => {
+      if(tr.dataset.discDone) return;
+      tr.dataset.discDone = '1';
+      const u = (USERS || []).find(x => String(x.id) === String(tr.dataset.editUser));
+      if(!u) return;
+      let list = setFor(u).length ? setFor(u) : null;
+      let auto = false;
+      if(!list){
+        const rec = (u.hrCode && typeof rosterRecordFor === 'function') ? rosterRecordFor(String(u.hrCode)) : null;
+        const d = disciplineOfTrade(rec ? (rec.designation || rec.trade) : '');
+        list = d === 'General' ? [] : [d];
+        auto = true;
+      }
+      const cell = tr.querySelector('.um-role');
+      if(cell && list.length){
+        cell.insertAdjacentHTML('beforeend',
+          ` <span class="um-disc-tag" title="${auto ? 'from his trade' : 'set by hand'}">${fieldsHtml(list)}</span>`);
+      }
+    });
+  }
+
+  /* ---------- wire the filter into attendance and the labor screen ---------- */
+  function wrap(name){
+    const fn = window[name];
+    if(typeof fn !== 'function' || fn.__disc) return;
+    const wrapped = function(){
+      const real = (typeof laborRecords !== 'undefined') ? laborRecords : null;
+      if(isFieldLimited() && Array.isArray(real)){
+        try{
+          laborRecords = filter(real);
+          return fn.apply(this, arguments);
+        }finally{ laborRecords = real; }
+      }
+      return fn.apply(this, arguments);
+    };
+    wrapped.__disc = true;
+    window[name] = wrapped;
+  }
+
+  function banner(){
+    const el = document.getElementById('discBanner');
+    const on = isFieldLimited();
+    if(!on){ if(el) el.remove(); return; }
+    if(el) return;
+    const b = document.createElement('div');
+    b.id = 'discBanner';
+    b.style.cssText = 'margin:8px 0;padding:8px 12px;border-radius:10px;font-size:12.5px;background:rgba(56,189,248,.10);border:1px solid rgba(56,189,248,.35);color:#cfe3f5';
+    b.innerHTML = `You see only your field: <b>${fieldsHtml(myDisciplines())}</b> — plus helpers, drivers and security on your site.`;
+    const host = document.querySelector('#attendanceView .hero') || document.querySelector('#laborView .hero');
+    if(host && host.parentNode) host.parentNode.insertBefore(b, host.nextSibling);
+  }
+
+  function tick(){
+    mountUsers();
+    decorateUserRows();
+    ['renderLaborAttChecklist', 'renderAttSnapshot', 'openDailySiteTimesheets', 'renderLaborView',
+     'renderLaborReconciliation'].forEach(wrap);
+    banner();
+  }
+  loadMerge();
+  setInterval(loadMerge, 30000);
+  setInterval(tick, 1500);
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick); else tick();
+
+  const css = document.createElement('style');
+  css.textContent = `
+    .um-disc{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;padding:6px 8px;border-radius:10px;
+      background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.18)}
+    .um-disc-l{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.8}
+    #uDiscChips{display:flex;gap:5px;flex-wrap:wrap;flex:1}
+    .um-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;font-size:11.5px;cursor:pointer;
+      border:1px solid rgba(56,189,248,.28);background:rgba(56,189,248,.06)}
+    .um-chip input{margin:0}
+    .um-disc-tag{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;
+      background:rgba(56,189,248,.14);color:#bae6fd}`;
+  document.head.appendChild(css);
+
+  window.MemcoDisc = {disciplineOfTrade, allows, filter, isFieldLimited, myDisciplines, ownerOn, openMergeWindow, DISC};
+})();
+</script>
+<!-- ============ END DISCIPLINES ============ -->
+
+
+<!-- ============ SITE ⇄ ACCOUNT SYNC ============ -->
+<script id="siteAccountSyncJs">
+(function(){
+  'use strict';
+  const toast = m => { if(typeof showToast === 'function') showToast(m); };
+  const LOCKED = () => (typeof SITE_LOCKED_ROLES !== 'undefined' ? SITE_LOCKED_ROLES : []);
+  const users = () => (typeof USERS !== 'undefined' ? USERS : []);
+  const people = () => ([]).concat(typeof laborRecords !== 'undefined' ? laborRecords : [],
+                                   typeof staffRecords !== 'undefined' ? staffRecords : []);
+
+  // a user whose one site should follow him around
+  function followsHisSite(u){
+    if(!u || !u.hrCode) return false;
+    if(!LOCKED().includes(u.role)) return false;                    // admin, HR, etc. — never touched
+    if(Array.isArray(u.sites) && u.sites.filter(Boolean).length > 1) return false;   // many projects — left alone
+    return true;
+  }
+
+  /* ---------- (A) person moved → his account follows ---------- */
+  let snap = null;
+  function takeSnap(){
+    const m = {};
+    people().forEach(p => { if(p && p.code != null) m[String(p.code)] = String(p.site || ''); });
+    return m;
+  }
+  async function syncAccounts(){
+    if(!snap){ snap = takeSnap(); return; }
+    const now = takeSnap();
+    const moved = [];
+    Object.keys(now).forEach(code => {
+      // moved since last time — or new to the list and not matching his account
+      if(snap[code] === undefined){
+        const u = users().find(x => String(x.hrCode || '') === code);
+        if(u && now[code] && String(u.site || '') !== now[code]) moved.push([code, now[code]]);
+      } else if(snap[code] !== now[code]) moved.push([code, now[code]]);
+    });
+    snap = now;
+    if(!moved.length) return;
+    let changed = 0, held = [];
+    moved.forEach(([code, site]) => {
+      const u = users().find(x => String(x.hrCode || '') === code);
+      if(!followsHisSite(u)) return;
+      if(!site){ held.push(u.name); return; }                        // waiting for a site: keep his old access
+      if(String(u.site || '') === site) return;
+      u.site = site;
+      if(Array.isArray(u.sites)) u.sites = [site];
+      changed++;
+    });
+    if(changed){
+      try{ if(typeof saveUsers === 'function') await saveUsers(); }catch(e){}
+      toast(`${changed} account(s) now see their new site`);
+    }
+    if(held.length) toast(`${held.length} account(s) kept their old site — they are waiting for a new one`);
+  }
+  // wrap the two save functions — every move (transfer, site sheet, waiting, Excel) passes through them
+  function wrap(name){
+    const fn = window[name];
+    if(typeof fn !== 'function' || fn.__acct) return;
+    const w = async function(){
+      const r = await fn.apply(this, arguments);
+      try{ await syncAccounts(); }catch(e){}
+      return r;
+    };
+    w.__acct = true;
+    window[name] = w;
+  }
+
+  /* ---------- (B) Manage Users: giving a different site asks to move him too ---------- */
+  document.addEventListener('click', async e => {
+    if(!e.target.closest('#uSaveBtn')) return;
+    const hr = ((document.getElementById('uEmployeeId') || {}).value || '').trim();
+    const role = (document.getElementById('uRole') || {}).value || '';
+    const site = (document.getElementById('uSite') || {}).value || '';
+    if(!hr || !site || !LOCKED().includes(role)) return;
+    const rec = people().find(p => String(p.code) === hr);
+    if(!rec || String(rec.site || '') === site) return;
+    const from = rec.site || 'no site';
+    const move = confirm(`${rec.name} is listed on ${from}.\n\nYou are giving his account ${site}.\n\n` +
+                         `OK — move him to ${site} in the list too (his attendance goes there)\n` +
+                         `Cancel — change only what he can see`);
+    if(!move) return;
+    rec.site = site;
+    try{
+      if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
+      snap = takeSnap();                           // already in step — nothing to re-sync
+      const isLabor = (typeof laborRecords !== 'undefined') && laborRecords.includes(rec);
+      if(isLabor) await saveLaborRecords(); else await saveStaffRecords();
+      if(typeof logChange === 'function') logChange('Users', `${rec.name} (HR ${hr}) moved from ${from} with his account`, {site});
+      toast(`${rec.name} moved to ${site} — list and account`);
+    }catch(err){ toast('Could not move him in the list — try again'); }
+  }, true);
+
+  function tick(){
+    wrap('saveLaborRecords');
+    wrap('saveStaffRecords');
+    if(!snap && people().length) snap = takeSnap();
+  }
+  setInterval(tick, 1500);
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick); else tick();
+  window.MemcoSiteAccount = {syncAccounts, followsHisSite};
+})();
+</script>
+<!-- ============ END SITE ⇄ ACCOUNT SYNC ============ -->
 
 </body>
 </html>
