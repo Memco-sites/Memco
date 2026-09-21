@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v49</title>
+<title>MEMCO Portal v50</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -6064,7 +6064,21 @@ const ACTION_PERMISSIONS = [
   { key: 'issuePpe', label: 'Issue PPE to workers & correct PPE sizes (deducts camp stock)', group: 'PPE & Safety Gear' },
   { key: 'managePpeStock', label: 'Log incoming PPE stock, correct counts & reverse issues', group: 'PPE & Safety Gear' },
   { key: 'managePpeSettings', label: 'Change PPE lifecycle limits (re-issue durations)', group: 'PPE & Safety Gear' },
+  { key: 'manageUsers',       label: 'Manage Users — add, edit and block users (never a Super Admin)', group: 'Administration' },
+  { key: 'managePermissions', label: 'Permission Matrix — add roles and change what each role can do', group: 'Administration' },
+  { key: 'openAdminHub',      label: 'Admin Command Hub — overtime rules, acting roles, approvals', group: 'Administration' },
+  { key: 'siteAccess',        label: 'Site Access — who may log in / mark attendance / use the store', group: 'Administration' },
+  { key: 'bulkPeopleExcel',   label: 'Load labor / staff / site lists from Excel', group: 'Administration' },
+  { key: 'approveTransfer',   label: 'Approve labor transfers (as the PM of a site)', group: 'Administration' },
+  { key: 'siteLocked',        label: '📍 This role sees only its own site(s) — set the site in Manage Users', group: 'Administration' },
 ];
+// a role is limited to its own site when it is one of the built-in field roles,
+// or when the "siteLocked" tick is on for it in the Permission Matrix
+function isSiteLockedRole(role){
+  if(!role || role === 'Super Admin') return false;
+  if(SITE_LOCKED_ROLES.includes(role)) return true;
+  try{ return !!((ROLE_PERM_MATRIX[role] || {}).siteLocked); }catch(e){ return false; }
+}
 // Auto-discovers every dashboard card straight from the Home screen's own
 // HTML (any element with class "home-card" and an id, label read from its
 // ".hc-title"). Add a brand-new card to the Home screen following that same
@@ -6442,9 +6456,9 @@ function applyRoleUI(){
     if(el) el.style.display = can(p.key) ? '' : 'none';
   });
   const manageBtn = document.getElementById('manageUsersBtn');
-  if(manageBtn) manageBtn.style.display = (currentUser && currentUser.role === 'Super Admin') ? 'inline-block' : 'none';
+  if(manageBtn) manageBtn.style.display = (currentUser && can('manageUsers')) ? 'inline-block' : 'none';
   const permBtn = document.getElementById('permMatrixBtn');
-  if(permBtn) permBtn.style.display = (currentUser && currentUser.role === 'Super Admin') ? 'inline-block' : 'none';
+  if(permBtn) permBtn.style.display = (currentUser && can('managePermissions')) ? 'inline-block' : 'none';
   // Admin / PM / HR Hub: Super Admin, HR, and Project Manager always, plus
   // any account with the Super-User Admin Bypass master toggle on --
   // deliberately NOT routed through the Permission Matrix (see the card's
@@ -6514,7 +6528,7 @@ async function finishLogin(match){
   try{ await window.storage.set(SESSION_KEY, JSON.stringify({ username: match.username }), false); }catch(e){}
   currentUserName = match.name;
   try{ await window.storage.set(USER_NAME_KEY, match.name, false); }catch(e){}
-  if(SITE_LOCKED_ROLES.includes(match.role) && match.site){
+  if(isSiteLockedRole(match.role) && match.site){
     lockedSite = match.site;
     activeSite = match.site;
   }
@@ -6820,7 +6834,10 @@ function siteOptionsHtml(selected){
     MASTER_SITE_ORDER.map(s => `<option value="${escapeAttr(s)}"${s===selected?' selected':''}>${escapeHtml(s)}</option>`).join('');
 }
 function renderUsersScreen(){
-  document.getElementById('uRole').innerHTML = ROLE_LIST.map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join('');
+  // only a Super Admin can hand out Super Admin
+  const iAmSuper = currentUser && currentUser.role === 'Super Admin';
+  document.getElementById('uRole').innerHTML = ROLE_LIST.filter(r => iAmSuper || r !== 'Super Admin')
+    .map(r => `<option value="${escapeAttr(r)}">${escapeHtml(r)}</option>`).join('');
   document.getElementById('uSite').innerHTML = siteOptionsHtml('');
   const listEl = document.getElementById('usersList');
   const searchEl = document.getElementById('usersSearchInput');
@@ -6833,18 +6850,19 @@ function renderUsersScreen(){
   } else {
     listEl.innerHTML = `<table class="um-t"><thead><tr>
         <th>HR</th><th>Name</th><th>Username</th><th>Role</th><th>Site</th><th class="um-act">Actions</th></tr></thead><tbody>
-      ${visible.map(u => `
-        <tr data-edit-user="${u.id}" class="${u.blocked ? 'um-blocked' : ''}" title="Click to edit">
+      ${visible.map(u => { const locked = u.role === 'Super Admin' && !(currentUser && currentUser.role === 'Super Admin');
+        return `
+        <tr ${locked ? '' : `data-edit-user="${u.id}"`} class="${u.blocked ? 'um-blocked' : ''}" title="${locked ? 'Only a Super Admin can change this account' : 'Click to edit'}">
           <td class="um-hr">${u.hrCode ? escapeHtml(String(u.hrCode)) : '—'}</td>
           <td class="um-name">${escapeHtml(u.name)}${u.blocked ? ' <span class="um-tag">blocked</span>' : ''}</td>
           <td class="um-dim">${escapeHtml(u.username)}</td>
           <td class="um-role">${escapeHtml(u.role)}</td>
           <td class="um-dim">${u.site ? escapeHtml(u.site) : '<span style="opacity:.6">all sites</span>'}</td>
-          <td class="um-act">
+          <td class="um-act">${locked ? '<span class="um-tag" style="background:#1e3a5f;color:#bae6fd">🔒 protected</span>' : `
             <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 9px;" data-reset-user="${u.id}">Reset</button>
-            <button type="button" class="btn ${u.blocked ? 'btn-primary' : 'btn-ghost btn-danger'}" style="font-size:11px;padding:3px 9px;" data-toggle-block-user="${u.id}">${u.blocked ? 'Unblock' : 'Block'}</button>
+            <button type="button" class="btn ${u.blocked ? 'btn-primary' : 'btn-ghost btn-danger'}" style="font-size:11px;padding:3px 9px;" data-toggle-block-user="${u.id}">${u.blocked ? 'Unblock' : 'Block'}</button>`}
           </td>
-        </tr>`).join('')}
+        </tr>`; }).join('')}
       </tbody></table>`;
   }
   const cnt = document.getElementById('umCount');
@@ -6889,7 +6907,7 @@ function renderUsersScreen(){
 }
 function toggleUSiteFieldVisibility(){
   const role = document.getElementById('uRole').value;
-  document.getElementById('uSiteField').style.display = SITE_LOCKED_ROLES.includes(role) ? '' : 'none';
+  document.getElementById('uSiteField').style.display = isSiteLockedRole(role) ? '' : 'none';
 }
 function clearUserForm(){
   document.getElementById('uEditId').value = '';
@@ -6945,7 +6963,7 @@ document.getElementById('uSaveBtn').onclick = async () => {
   const password = document.getElementById('uPassword').value.trim();
   const hrCode = document.getElementById('uEmployeeId').value.trim();
   const role = document.getElementById('uRole').value;
-  const site = SITE_LOCKED_ROLES.includes(role) ? document.getElementById('uSite').value : '';
+  const site = isSiteLockedRole(role) ? document.getElementById('uSite').value : '';
   if(!name || !username || (!id && !password)){ showToast(id ? 'Name and username are required' : 'Name, username and password are required'); return; }
   if(password && password.length < 6){ showToast('Password must be at least 6 characters'); return; }
   const dupe = USERS.find(x => x.username.toLowerCase() === username.toLowerCase() && String(x.id) !== String(id));
@@ -7453,7 +7471,7 @@ function initLock(){
   // Super-User Admin Bypass: this user has the master toggle on, so skip
   // site-locking entirely regardless of role -- falls through to the
   // unrestricted (hash-based / null) branch below.
-  if(currentUser && !currentUser.superUserBypass && SITE_LOCKED_ROLES.includes(currentUser.role)){
+  if(currentUser && !currentUser.superUserBypass && isSiteLockedRole(currentUser.role)){
     const multiSites = Array.isArray(currentUser.sites) ? currentUser.sites.filter(Boolean) : [];
     if(multiSites.length){
       // Multi-Project Assignment: one or more sites via the Admin Control
@@ -8830,7 +8848,7 @@ const DATE_LOCK_RESTRICTED_ROLES = ["Foreman", "Site Supervisor"];
 // approving a past-date edit request is one of that hub's own actions.
 const ADMIN_HUB_ROLES = ["Super Admin", "HR", "Project Manager"];
 function canOpenAdminHub(){
-  return !!(currentUser && (ADMIN_HUB_ROLES.includes(currentUser.role) || currentUser.superUserBypass));
+  return !!(currentUser && (ADMIN_HUB_ROLES.includes(currentUser.role) || currentUser.superUserBypass || can('openAdminHub')));
 }
 function canApproveDateEdits(){
   return canOpenAdminHub();
@@ -23172,7 +23190,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     try{
       if(!signedIn()) return false;
       const r = (currentUser && currentUser.role) || '';
-      return ['Super Admin','HR','Project Manager','Project Engineer','Site Engineer'].includes(r);
+      return ['Super Admin','HR','Project Manager','Project Engineer','Site Engineer'].includes(r)
+        || (typeof can === 'function' && can('siteAccess'));
     }catch(e){ return false; }
   }
 
@@ -23479,7 +23498,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   }
   function iAmPmOf(site){
     if(isAdmin()) return true;
-    if(myRole() !== 'Project Manager') return false;
+    if(myRole() !== 'Project Manager' && !(typeof can === 'function' && can('approveTransfer'))) return false;
     const mine = mySites();
     return mine.length === 0 || mine.some(x => x.toUpperCase() === String(site || '').toUpperCase());
   }
@@ -24523,7 +24542,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   }
 
   function canBulk(){
-    try{ return currentUser && ['Super Admin', 'HR'].includes(currentUser.role); }catch(e){ return false; }
+    try{ return currentUser && (['Super Admin', 'HR'].includes(currentUser.role) || can('bulkPeopleExcel')); }catch(e){ return false; }
   }
 
   function mount(){
@@ -24701,7 +24720,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   const toast = m => { if(typeof showToast === 'function') showToast(m); };
   const txt = v => String(v == null ? '' : v).trim();
   const WAITING = '';                       // empty site = waiting for a site
-  const canDo = () => { try{ return currentUser && ['Super Admin', 'HR'].includes(currentUser.role); }catch(e){ return false; } };
+  const canDo = () => { try{ return currentUser && (['Super Admin', 'HR'].includes(currentUser.role) || can('bulkPeopleExcel')); }catch(e){ return false; } };
 
   function sites(){
     try{
@@ -25285,7 +25304,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   // a user whose one site should follow him around
   function followsHisSite(u){
     if(!u || !u.hrCode) return false;
-    if(!LOCKED().includes(u.role)) return false;                    // admin, HR, etc. — never touched
+    if(!(typeof isSiteLockedRole === 'function' ? isSiteLockedRole(u.role) : LOCKED().includes(u.role))) return false;
     if(Array.isArray(u.sites) && u.sites.filter(Boolean).length > 1) return false;   // many projects — left alone
     return true;
   }
@@ -25345,7 +25364,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     const hr = ((document.getElementById('uEmployeeId') || {}).value || '').trim();
     const role = (document.getElementById('uRole') || {}).value || '';
     const site = (document.getElementById('uSite') || {}).value || '';
-    if(!hr || !site || !LOCKED().includes(role)) return;
+    if(!hr || !site || !(typeof isSiteLockedRole === 'function' ? isSiteLockedRole(role) : LOCKED().includes(role))) return;
     const rec = people().find(p => String(p.code) === hr);
     if(!rec || String(rec.site || '') === site) return;
     const from = rec.site || 'no site';
