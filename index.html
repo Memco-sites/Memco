@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v51</title>
+<title>MEMCO Portal v55</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -5998,7 +5998,7 @@ const USERS_KEY = "users-v1";
 const SESSION_KEY = "session-v1";
 const CUSTOM_ROLES_KEY = "custom-roles-v1";
 const ROLE_PERMS_KEY = "role-perms-matrix-v2";
-const BASE_ROLE_LIST = ["Super Admin","Site Engineer","Camp Boss","Transport Manager","Project Manager","Project Engineer","Site Supervisor","Foreman","Document Controller","HR","Timekeeper","Storekeeper","Worker","Driver"];
+const BASE_ROLE_LIST = ["Super Admin","Site Engineer","Camp Manager","Camp Incharge","Camp Boss","Transport Manager","Transport Incharge","Project Manager","Project Engineer","Site Supervisor","Foreman","Document Controller","HR","Timekeeper","Store Manager","Store Incharge","Storekeeper","Worker","Driver"];
 let CUSTOM_ROLES = [];
 let ROLE_LIST = BASE_ROLE_LIST.slice();
 // Roles whose data is restricted to a single assigned site. Camp Boss is
@@ -6018,10 +6018,19 @@ const LEGACY_ROLE_CARDS = {
   "Super Admin": ALL_HOME_CARDS.slice(),
   "Site Engineer": ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeStaffCard","homeStoresCard"],
   "Camp Boss": ["homeCampsCard","homePpeCard","homeStoresCard"],
+  // Camp Manager (all camps) and Camp Incharge (all camps, covers a Camp Boss on leave)
+  "Camp Manager": ["homeCampsCard","homePpeCard","homeStoresCard","homeTransferCard","homeLaborCard"],
+  "Camp Incharge": ["homeCampsCard","homePpeCard","homeStoresCard","homeTransferCard","homeLaborCard"],
+  // Store Manager (all stores) and Store Incharge (a branch store and the stores under it)
+  "Store Manager": ["homeStoresCard","homePpeCard"],
+  "Store Incharge": ["homeStoresCard","homePpeCard"],
   // Storekeeper: seeded with the PPE module only (issue PPE + manage PPE
   // stock). Everything else for this role still starts unticked.
   "Storekeeper": ["homePpeCard"],
   "Transport Manager": ["homeVehiclesCard","homeStoresCard"],
+  // Transport Incharge: works under the Transport Manager, sees every vehicle and
+  // covers for the manager (drivers only ever see their own vehicle)
+  "Transport Incharge": ["homeVehiclesCard","homeStoresCard"],
   // Site Supervisor: "view site progress and log attendance/labor requests".
   "Site Supervisor": ["homeAttendanceCard","homeLaborCard","homeVillasCard"],
   // Foreman: "restricted strictly to basic daily attendance marking and
@@ -6035,8 +6044,13 @@ const LEGACY_ROLE_CARDS = {
 const LEGACY_ROLE_PERMISSIONS = {
   "Site Engineer": { markAttendance:true, updateVillaProgress:true, manageOtSettings:true },
   "Camp Boss": { manageCamp:true, issuePpe:true, managePpeStock:true },
+  "Camp Manager": { manageCamp:true, issuePpe:true, managePpeStock:true, managePpeSettings:true },
+  "Camp Incharge": { manageCamp:true, issuePpe:true, managePpeStock:true },
+  "Store Manager": { issuePpe:true, managePpeStock:true },
+  "Store Incharge": { issuePpe:true, managePpeStock:true },
   "Storekeeper": { issuePpe:true, managePpeStock:true },
   "Transport Manager": { assignDriver:true, updateVehicleStatus:true, editDriverLicense:true },
+  "Transport Incharge": { assignDriver:true, updateVehicleStatus:true, editDriverLicense:true, uploadVehicleMulkiya:true },
   // Both can mark attendance; neither can edit project progress, view
   // agreement links, or touch camps/vehicles.
   "Site Supervisor": { markAttendance:true },
@@ -12953,6 +12967,30 @@ function campBossLabel(c){
   return c.boss_name + (c.boss_hr ? ' (HR ' + c.boss_hr + ')' : '');
 }
 function mainCamps(){ return campRecords.filter(isMainCamp); }
+/* Camp scope: Camp Manager / Camp Incharge (and Admin) see and act on every camp;
+   a Camp Boss sees and acts only on the camp(s) where his HR number is the camp boss.
+   An acting role given in the Admin Command Hub (e.g. Camp Incharge while the boss is on leave) counts too. */
+const CAMP_ALL_ROLES = ['Super Admin', 'Camp Manager', 'Camp Incharge'];
+function myEffectiveRoles(){
+  const u = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+  if(!u) return [];
+  const r = [String(u.role || '')];
+  const a = u.actingRole;
+  if(a && a.role && (!a.expiresAt || new Date(a.expiresAt) > new Date())) r.push(String(a.role));
+  return r;
+}
+function campSeesAll(){
+  const r = myEffectiveRoles();
+  if(r.some(x => CAMP_ALL_ROLES.includes(x))) return true;
+  return !r.includes('Camp Boss');           // other roles with camp access keep seeing all camps
+}
+function myCampHr(){
+  const u = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : {};
+  return String(u.hrCode || u.hr_code || '').trim();
+}
+function isMyCamp(c){ return !!(c && myCampHr() && String(c.boss_hr || '').trim() === myCampHr()); }
+function visibleCamps(){ return campSeesAll() ? campRecords : campRecords.filter(isMyCamp); }
+function canEditCampSettings(){ return campSeesAll() && (typeof can !== 'function' || can('manageCamp')); }
 function invalidateLaborIndex(){ window.__laborIdx = null; window.__laborIdxAt = 0; }
 function laborIndexByCode(){
   if(window.__laborIdx && window.__laborIdxAt && (Date.now() - window.__laborIdxAt) < 15000) return window.__laborIdx;
@@ -12989,7 +13027,7 @@ function campFreeBeds(c){
 }
 function cityGroups(){
   const g = {};
-  campRecords.forEach(c => {
+  visibleCamps().forEach(c => {
     const city = campCity(c) || 'No city set';
     if(!g[city]) g[city] = {camps: 0, cap: 0, occ: 0};
     const t = campTotals(c);
@@ -13000,6 +13038,7 @@ function cityGroups(){
 function openCampSettings(campId){
   const c = campRecords.find(x => x.id === campId);
   if(!c) return;
+  if(!canEditCampSettings()){ showToast('Only the Camp Manager / Camp Incharge can change camp settings'); return; }
   const wrap = document.createElement('div');
   wrap.id = 'campSetOverlay';
   wrap.style.cssText = 'position:fixed;inset:0;z-index:9300;background:rgba(2,10,20,.82);display:flex;align-items:center;justify-content:center;padding:18px;';
@@ -13100,11 +13139,12 @@ setInterval(() => {
 }, 10000);
 function renderCampsList(){
   renderCampNotify();
+  const camps = visibleCamps();
   let totalCap=0, totalOcc=0;
-  campRecords.forEach(c => { const t = campTotals(c); totalCap += t.cap; totalOcc += t.occ; });
+  camps.forEach(c => { const t = campTotals(c); totalCap += t.cap; totalOcc += t.occ; });
   const free = Math.max(totalCap - totalOcc, 0);
   document.getElementById('campsTotalLabel').textContent =
-    `${campRecords.length} camp${campRecords.length===1?'':'s'} · ${totalOcc}/${totalCap} beds occupied · ${free} free`;
+    `${camps.length} camp${camps.length===1?'':'s'}${campSeesAll() ? '' : ' (my camp)'} · ${totalOcc}/${totalCap} beds occupied · ${free} free`;
   const sumEl = document.getElementById('campCitySummary');
   if(sumEl){
     const g = cityGroups();
@@ -13117,11 +13157,12 @@ function renderCampsList(){
   }
 
   const listEl = document.getElementById('campsList');
-  if(campRecords.length === 0){
-    listEl.innerHTML = '<div class="log-empty">No camps added yet.</div>';
+  if(camps.length === 0){
+    listEl.innerHTML = campSeesAll() || !campRecords.length ? '<div class="log-empty">No camps added yet.</div>'
+      : `<div class="log-empty">No camp is linked to you yet. Ask the Camp Manager to write your HR number${myCampHr() ? ' (' + escapeHtml(myCampHr()) + ')' : ''} as Camp Boss in that camp's ⚙ Settings.</div>`;
     return;
   }
-  listEl.innerHTML = campRecords.map(c => {
+  listEl.innerHTML = camps.map(c => {
     const t = campTotals(c);
     return `
       <div class="villa-card" data-camp-id="${escapeAttr(c.id)}">
@@ -13134,7 +13175,7 @@ function renderCampsList(){
             <div class="vc-meta">${campBossLabel(c) ? 'Camp boss: ' + escapeHtml(campBossLabel(c)) : '<span style="color:#fcd34d">no camp boss set</span>'}</div>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button class="btn btn-ghost" data-camp-set="${escapeAttr(c.id)}" style="padding:4px 10px;font-size:12px">⚙ Settings</button>
+            ${canEditCampSettings() ? `<button class="btn btn-ghost" data-camp-set="${escapeAttr(c.id)}" style="padding:4px 10px;font-size:12px">⚙ Settings</button>` : ''}
             <span class="villa-status-badge ${t.occ >= t.cap && t.cap>0 ? 'completed' : 'notstarted'}">Open →</span>
           </div>
         </div>
@@ -13219,7 +13260,7 @@ document.getElementById('shiftSearchInput').addEventListener('input', (e) => {
   const resultsEl = document.getElementById('shiftSearchResults');
   if(!q){ resultsEl.innerHTML = ''; return; }
   const matches = [];
-  campRecords.forEach(camp => {
+  visibleCamps().forEach(camp => {
     (camp.rooms||[]).forEach(room => {
       (room.occupants||[]).forEach((o, idx) => {
         if((o.name && o.name.toLowerCase().includes(q)) || (o.code && String(o.code).toLowerCase().includes(q))){
@@ -13314,6 +13355,7 @@ document.getElementById('addCampBtn').onclick = () => ensureName(async () => {
 });
 
 function openCamp(campId){
+  if(!campSeesAll() && !isMyCamp(campRecords.find(c => c.id === campId))){ showToast('You can open only your own camp'); return; }
   if(!window.__navSilent){
     navRemember({id: 'campsView', sub: window.__curSub === 'camp' ? 'camp' : '', arg: window.__curArg || ''});
     window.__curSub = 'camp'; window.__curArg = campId;
@@ -14862,7 +14904,7 @@ function ppeInitControls(){
   let st = '<option value="NONE">Don\'t subtract stock</option><option value="ALL" selected>All locations</option>';
   PPE_LOCATIONS.forEach(l => { st += `<option value="${escapeAttr(l)}">${escapeHtml(l)}</option>`; });
   document.getElementById('ppeFcStock').innerHTML = st;
-  if(currentUser && currentUser.role === 'Camp Boss') ppeActiveTab = 'inventory';
+  if(currentUser && ['Camp Boss','Camp Manager','Camp Incharge'].includes(currentUser.role)) ppeActiveTab = 'inventory';
 
   document.querySelectorAll('#ppeView [data-ppetab]').forEach(b => { b.onclick = () => ppeSwitchTab(b.dataset.ppetab); });
   let searchTimer = null;
@@ -18714,7 +18756,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .p-opening{background:#78350f;color:#fcd34d}
 #stApp .p-not_started{background:#334155;color:#cbd5e1}
 #stApp .p-level{background:#1e3a8a;color:#bfdbfe}
-#stApp .p-in_transit,#stApp .p-pending{background:#78350f;color:#fcd34d}
+#stApp .p-in_transit,#stApp .p-pending,#stApp .p-site_approved,#stApp .p-active{background:#78350f;color:#fcd34d}
 #stApp .p-received,#stApp .p-accepted,#stApp .p-issued,#stApp .p-posted{background:#064e3b;color:#6ee7b7}
 #stApp .p-partly_accepted{background:#1e3a8a;color:#bfdbfe}
 #stApp .p-rejected,#stApp .p-cancelled{background:#7f1d1d;color:#fecaca}
@@ -18798,6 +18840,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   #stApp .st-lines td.c-brand::before{content:'Brand'} #stApp .st-lines td.c-qty::before{content:'Quantity'}
   #stApp .st-lines td.c-rem::before{content:'Remarks'} #stApp .st-lines td.c-boq::before{content:'BOQ Ref'}
   #stApp .st-lines td.c-rate::before{content:'Rate'} #stApp .st-lines td.c-disc::before{content:'Disc %'} #stApp .st-lines td.c-avail::before{content:'Available'}
+  #stApp .st-lines td.c-kind::before{content:'Type';display:block;font-size:11px;color:#8fb3d1;text-transform:uppercase}
   #stApp .st-lines td.c-avail{text-align:left}
   #stApp .st-lines td.c-del{grid-column:1 / -1;text-align:right}
   #stApp .st-main{padding:10px}
@@ -18821,6 +18864,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['links',    '🔗 Store ⇄ Project'],
     ['manage',   '🏬 Manage Stores'],
     ['stock',    '📊 Company Stock'],
+    ['hold',     '🔒 Material Hold'],
     ['issue',    '📤 Issue Voucher'],
     ['transfer', '🚚 Transfers'],
     ['request',  '📨 Requests'],
@@ -18828,6 +18872,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['receive',  '📦 Receiving'],
     ['tools',    '🛠️ Tools'],
     ['opening',  '🗂️ Opening Stock'],
+    ['adjust',   '⚖️ Stock Adjustment'],
     ['ledger',   '📒 Stock Ledger'],
     ['reports',  '📈 Reports'],
     ['items',    '🏷️ Items'],
@@ -18840,10 +18885,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     cancelled:'Cancelled', pending:'Pending', accepted:'Accepted', partly_accepted:'Partly accepted', rejected:'Rejected', issued:'Issued', posted:'Posted',
     store_check:'Site store check', pm_approval:'PM approval', main_store:'Main store', procurement:'Procurement', ordered:'Ordered (LPO)',
     fulfilling:'Being delivered', completed:'Completed', returned:'Returned for correction', closed:'Closed',
-    open:'Open', partly_received:'Partly received', out:'With holder'};
+    open:'Open', partly_received:'Partly received', out:'With holder', site_approved:'Waiting for Admin', active:'On hold'};
   const MOVE_LABEL = {opening:'Opening', issue:'Issue', transfer_out:'Transfer out', transfer_in:'Transfer in', transfer_cancel:'Transfer cancelled',
-    receipt:'Received (GRN)', tool_out:'Tool issued', tool_in:'Tool returned'};
+    receipt:'Received (GRN)', tool_out:'Tool issued', tool_in:'Tool returned', return:'Returned from site', return_damaged:'Returned damaged',
+    write_off:'Damaged write-off', adj_in:'Adjustment (+)', adj_out:'Adjustment (−)', adj_to_damaged:'Adjustment → damaged'};
+  const ADJ_KIND = {count:'🔢 Physical count', plus:'➕ Extra found', minus:'➖ Short / lost', damage:'🔴 Found damaged'};
+  const ADJ_REASON = {count:'Physical stock count', lost:'Lost / missing', found:'Found / not recorded', damaged:'Damaged in store',
+    expired:'Expired / unusable', entry_error:'Wrong entry correction', other:'Other'};
   const ROLE_LABEL = {engineer:'Engineer (raise MR)', pm:'Project Manager (approve MR)', procurement:'Procurement (LPO)'};
+  const POSITION_LABEL = {store_manager:'Store Manager', store_incharge:'Store Incharge', store_keeper:'Store Keeper'};
+  // position → access level + reach
+  const POSITION_PRESET = {store_manager:{access:'main', scope:'tree'}, store_incharge:{access:'keeper', scope:'tree'}, store_keeper:{access:'keeper', scope:'own'}};
   const COMPANY_LPO = {name:'AL MUHANAD MECHANICAL CONTRACTING L L C', addr:'3001 BUSINESS TOWER, 3001, AL MAJAZ-2', tel:'+971 6 573 4646', fax:'+971 6 573 4664', trn:'100575983000003'};
   const LPO_TERMS = ['Kindly acknowledge the receipt of LPO and confirm the same within 48 hrs. of receiving. Non receipt LPO acknowledgment within 48 hrs. will lead to the acceptance of LPO.',
     'Any Non compliant materials rejected by the Consultant / Client / Contractor will be replaced within 48 hrs.',
@@ -19108,8 +19160,31 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       if(!q) return;
       (map[r.code] = map[r.code] || {})[r.brand || ''] = q;
     });
-    S.availCache[store] = {at: Date.now(), map};
+    // material on hold (PM / Engineer) is shown but is not free to go out
+    const raw = JSON.parse(JSON.stringify(map));
+    const holds = {};
+    const hl = await rpcOptional('st_hold_list', {p_store: store, p_status: 'active'});
+    (Array.isArray(hl) ? hl : []).forEach(h => {
+      const b = h.brand || '';
+      ((holds[h.item_code] = holds[h.item_code] || {})[b] = holds[h.item_code][b] || []).push(h);
+      if(map[h.item_code] && map[h.item_code][b] != null) map[h.item_code][b] = Math.max(0, num(map[h.item_code][b]) - num(h.qty));
+    });
+    S.holdInfo = S.holdInfo || {};
+    S.holdInfo[store] = holds;
+    S.availCache[store] = {at: Date.now(), map, raw};
     return map;
+  }
+  // usable stock including held quantity (for stock counts / adjustments)
+  async function availRaw(store, force){
+    if(!store) return {};
+    await availFor(store, force);
+    return (S.availCache[store] || {}).raw || {};
+  }
+  function holdNote(store, code, brand){
+    const list = ((S.holdInfo || {})[store] || {})[code];
+    const hs = list ? (list[brand || ''] || []) : [];
+    if(!hs.length) return '';
+    return hs.map(h => `🔒 <b>${fmt(h.qty)}</b> on hold for ${esc(h.project_code)} by ${esc(h.held_name)}${h.held_role ? ' (' + esc(h.held_role) + ')' : ''}${h.hold_until ? ' till ' + esc(dmy(h.hold_until)) : ''}`).join('<br>');
   }
   const normBrand = b => String(b || '').trim().toUpperCase();
   function refreshBrandUnitLists(){
@@ -19135,6 +19210,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <div class="st-tw"><table class="st-t st-lines"><thead><tr>
         <th style="width:34px">#</th><th>Item (code or name)</th><th style="width:150px">Brand</th><th>Unit</th>
         ${opts.availStore ? '<th class="n">Available</th>' : ''}
+        ${opts.withKind ? '<th style="width:170px">Type</th>' : ''}
         <th class="n" style="width:110px">${esc(opts.qtyLabel || 'Quantity')}</th>
         ${opts.withRate ? '<th class="n" style="width:100px">Rate</th><th class="n" style="width:70px">Disc %</th><th class="n">Amount</th>' : ''}
         ${opts.withRemarks ? '<th>Remarks</th>' : ''}${opts.withBoq ? '<th style="width:90px">BOQ Ref</th>' : ''}<th></th>
@@ -19176,7 +19252,20 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const a = num(byBrand[brand]);
       const q = num(tr.querySelector('.qty').value);
       av.textContent = it ? fmt(a) : '';
-      av.classList.toggle('bad', !!it && q > a);
+      const hn = tr.querySelector('.st-hold');
+      if(hn){ const st0 = opts.availStore && opts.availStore(); const h = it && st0 ? holdNote(st0, code, brand) : ''; if(hn.dataset.h !== h){ hn.dataset.h = h; hn.innerHTML = h; } }
+      const kindSel = tr.querySelector('.kind');
+      const kind = kindSel ? kindSel.value : 'out';
+      av.classList.toggle('bad', !!it && ['out','minus','damage'].includes(kind) && q > a);
+      if(kindSel){
+        const kd = tr.querySelector('.kdiff');
+        const qRaw = tr.querySelector('.qty').value;
+        if(kind === 'count' && it && qRaw !== ''){
+          const df = q - a;
+          kd.innerHTML = df === 0 ? 'No difference' : `<b style="color:${df > 0 ? '#34d399' : '#fca5a5'}">${df > 0 ? '+' : '−'}${fmt(Math.abs(df))}</b> vs system ${fmt(a)}`;
+        } else kd.textContent = '';
+        tr.querySelector('.qty').placeholder = kind === 'count' ? 'Counted' : 'Qty';
+      }
       const list = Object.keys(byBrand);
       const html = it && list.length ? 'In stock: ' + list.map(b =>
         `<button type="button" class="st-btn st-ghost st-sm" data-brand="${esc(b)}" style="padding:1px 6px;margin:2px 2px 0 0">${esc(b || 'No brand')}: ${fmt(byBrand[b])}</button>`).join('')
@@ -19196,10 +19285,11 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const it = line.code ? S.itemMap[line.code] : null;
       tr.innerHTML = `<td class="idx"></td>
         <td class="desc"><input class="it" list="stItemsList" autocomplete="off" value="${esc(it ? it.code + ' — ' + it.description : (line.code || ''))}">
-          <div class="st-muted dsc"></div>${opts.availStore ? '<div class="st-muted chips" style="margin-top:2px"></div>' : ''}${opts.companyHint ? '<div class="st-muted hint" style="margin-top:2px"></div>' : ''}</td>
+          <div class="st-muted dsc"></div>${opts.availStore ? '<div class="st-muted chips" style="margin-top:2px"></div><div class="st-hold" style="margin-top:2px;font-size:12px;color:#fcd34d"></div>' : ''}${opts.companyHint ? '<div class="st-muted hint" style="margin-top:2px"></div>' : ''}</td>
         <td class="c-brand"><input class="brand" list="stBrandList" autocomplete="off" value="${esc(line.brand != null ? line.brand : (it ? it.brand : ''))}" placeholder="—"></td>
         <td class="unit"></td>
         ${opts.availStore ? '<td class="n c-avail"><span class="st-avail"></span></td>' : ''}
+        ${opts.withKind ? `<td class="c-kind"><select class="kind">${Object.entries(ADJ_KIND).map(([v, t]) => `<option value="${v}" ${(line.kind || opts.defaultKind || 'count') === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select><div class="st-muted kdiff" style="margin-top:2px"></div></td>` : ''}
         <td class="c-qty"><input class="qty" type="number" min="0" step="any" inputmode="decimal" value="${line.qty != null ? esc(line.qty) : ''}" style="text-align:right"></td>
         ${opts.withRate ? `<td class="c-rate"><input class="rate" type="number" min="0" step="any" value="${line.rate != null ? esc(line.rate) : ''}" style="text-align:right"></td>
           <td class="c-disc"><input class="disc" type="number" min="0" max="100" step="any" value="${line.disc != null ? esc(line.disc) : ''}" style="text-align:right"></td>
@@ -19220,6 +19310,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       });
       tr.querySelector('.brand').addEventListener('input', () => refreshRow(tr));
       tr.querySelector('.qty').addEventListener('input', () => refreshRow(tr));
+      if(opts.withKind) tr.querySelector('.kind').addEventListener('change', () => refreshRow(tr));
       if(opts.withRate){ tr.querySelector('.rate').addEventListener('input', () => refreshRow(tr)); tr.querySelector('.disc').addEventListener('input', () => refreshRow(tr)); }
       tr.querySelector('[data-del]').addEventListener('click', () => { tr.remove(); if(!tbody.children.length) addRow(); renumber(); if(opts.onChange) opts.onChange(); });
       tbody.appendChild(tr); renumber(); refreshRow(tr);
@@ -19230,7 +19321,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       async reloadAvail(){
         if(!opts.availStore) return;
         const st = opts.availStore();
-        try{ avail = st ? await availFor(st, true) : {}; }catch(e){ avail = {}; toast(e.message, true); }
+        try{ avail = st ? await (opts.rawAvail ? availRaw(st, true) : availFor(st, true)) : {}; }catch(e){ avail = {}; toast(e.message, true); }
         tbody.querySelectorAll('tr').forEach(refreshRow);
       },
       getLines(){
@@ -19242,12 +19333,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           if(!raw && !q) continue;
           const code = parseCode(raw);
           if(!S.itemMap[code]) throw new Error(`Unknown item code on line ${tr.querySelector('.idx').textContent}: ${raw || '(empty)'}`);
-          if(!(num(q) > 0)) throw new Error(`Enter a quantity for ${code}`);
+          const kind = opts.withKind ? tr.querySelector('.kind').value : '';
+          if(kind === 'count'){ if(String(q).trim() === '' || num(q) < 0) throw new Error(`Enter the counted quantity for ${code} (0 if none found)`); }
+          else if(!(num(q) > 0)) throw new Error(`Enter a quantity for ${code}`);
           const brand = normBrand(tr.querySelector('.brand').value);
-          const key = code + '|' + brand;
+          const key = code + '|' + brand + (kind ? '|' + kind : '');
           if(seen[key]) throw new Error(`${code} ${brand || ''} is listed twice — please merge the lines.`);
           seen[key] = 1;
           const l = {code, qty: num(q), brand};
+          if(opts.withKind) l.kind = kind;
           if(opts.withRemarks) l.remarks = tr.querySelector('.rem').value.trim();
           if(opts.withBoq) l.boq = tr.querySelector('.boq').value.trim();
           if(opts.withRate){ l.rate = num(tr.querySelector('.rate').value); l.disc = num(tr.querySelector('.disc').value); }
@@ -19274,9 +19368,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function logoSrc(){ const img = document.querySelector('img.m'); return img ? img.src : ''; }
   function printDoc(d){
     const titles = {SIV:'STOCK ISSUE VOUCHER', STV:'STOCK TRANSFER VOUCHER', SRQ:'STOCK REQUEST', OPN:'OPENING STOCK',
-      GRN:'GOODS RECEIVED NOTE', TIS:'TOOLS ISSUE SLIP', TRT:'TOOLS RETURN NOTE'};
+      GRN:'GOODS RECEIVED NOTE', TIS:'TOOLS ISSUE SLIP', TRT:'TOOLS RETURN NOTE', ADJ:'STOCK ADJUSTMENT'};
     const lines = d.lines || [];
-    const rows = lines.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.code)}</td><td>${esc(l.description)}</td><td>${esc(l.brand || '')}</td><td>${esc(l.unit)}</td><td class="r">${num(l.qty).toFixed(2)}</td><td>${esc(l.remarks || '')}</td></tr>`).join('');
+    const isAdj = d.doc_type === 'ADJ';
+    const adjQty = l => (l.kind === 'plus' ? '+' : '−') + num(l.qty).toFixed(2);
+    const adjRem = l => [ADJ_KIND[l.kind] ? ADJ_KIND[l.kind].replace(/^\S+\s/, '') : l.kind,
+      'System ' + fmt(l.system_qty) + (l.counted != null ? ' · Counted ' + fmt(l.counted) : ''), l.remarks].filter(Boolean).join(' · ');
+    const rows = lines.map((l, i) => `<tr><td>${i + 1}</td><td>${esc(l.code)}</td><td>${esc(l.description)}</td><td>${esc(l.brand || '')}</td><td>${esc(l.unit)}</td><td class="r">${isAdj ? adjQty(l) : num(l.qty).toFixed(2)}</td><td>${esc(isAdj ? adjRem(l) : (l.remarks || ''))}</td></tr>`).join('');
     const blanks = Array.from({length: Math.max(0, 18 - lines.length)}, () => '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
     const proj = S.projects.find(p => p.code === d.project_code);
     let infoLeft = '', infoRight = '';
@@ -19305,10 +19403,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <tr><td class="k">Name</td><td>${esc(d.party || '')}</td></tr>
         <tr><td class="k">HR No</td><td>${esc(d.ext_ref || '')}</td></tr>
         <tr><td class="k">Project</td><td>${esc(d.project_code ? projectLabel(d.project_code) : '')}</td></tr></table>`;
+    } else if(isAdj){
+      const val = lines.reduce((a, l) => a + num(l.value), 0);
+      infoLeft = `<div>Store : <b>${esc(storeName(d.store_id))}</b></div><div>Reason : <b>${esc(ADJ_REASON[d.reason] || d.reason || '')}</b></div>
+        <div>Status : <b>${esc(STATUS_LABEL[d.status] || d.status)}</b></div><div>Value effect : <b>${val < 0 ? '−' : '+'}${money(Math.abs(val))}</b></div>`;
     } else {
       infoLeft = `<div>Store : <b>${esc(storeName(d.store_id))}</b></div>`;
     }
-    const sign = ['GRN','TIS','TRT'].includes(d.doc_type)
+    const sign = isAdj
+      ? `<div class="sg"><div><b>Raised By:</b> ${esc(d.created_name || '')}<div class="ln">Name, signature &amp; date</div><b>Store Keeper</b></div>
+         <div><b>${d.status === 'rejected' ? 'Rejected By' : 'Approved By'}:</b> ${esc(d.acted_name || '')}<div class="ln">Name, signature &amp; date</div><b>Main Store / Admin</b></div></div>`
+      : ['GRN','TIS','TRT'].includes(d.doc_type)
       ? `<div class="sg"><div><b>${d.doc_type === 'GRN' ? 'Received By' : 'Store Keeper'}:</b> ${esc(d.created_name || '')}<div class="ln">Name, signature &amp; date</div><b>Store Keeper</b></div>
          <div><b>${d.doc_type === 'GRN' ? 'Checked By' : (d.doc_type === 'TIS' ? 'Received By' : 'Returned By')}:</b> ${d.doc_type === 'GRN' ? '' : esc(d.party || '')}<div class="ln">Name, signature &amp; date</div><b>${d.doc_type === 'GRN' ? 'Site Engineer / QC' : 'Tool Holder'}</b></div></div>`
       : d.doc_type === 'SIV'
@@ -19373,9 +19478,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function tabAllowedFor(k){
     const staffOnly = S.access === 'staff';
     if(k === 'admin') return isAdmin();
-    if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm'))
+    if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer')))
       || (k === 'lpo' && hasRole('procurement')) || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
-    if(S.access === 'viewer') return !['issue','opening','receive','tools'].includes(k);
+    if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
     if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
     if(k === 'manage') return ['admin','main'].includes(S.access);
     return true;
@@ -19384,15 +19489,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const staffOnly = S.access === 'staff';
     const tabs = TABS.filter(([k]) => {
       if(k === 'admin') return isAdmin();
-      if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (k === 'lpo' && hasRole('procurement'))
+      if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'lpo' && hasRole('procurement'))
         || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
-      if(S.access === 'viewer') return !['issue','opening','receive','tools'].includes(k);
+      if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
       if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
       if(k === 'manage') return ['admin','main'].includes(S.access);
       return true;
     });
     const ib = S.inbox || {};
-    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due'].reduce((a, k) => a + num(ib[k]), 0);
+    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due','adj_approve','holds_due'].reduce((a, k) => a + num(ib[k]), 0);
     $('stTabs').innerHTML = tabs.map(([k, label]) => {
       let badge = '';
       const b = n => n ? `<span class="st-badge">${n}</span>` : '';
@@ -19401,6 +19506,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       if(k === 'lpo') badge = b(num(ib.mr_proc));
       if(k === 'receive') badge = b(num(ib.lpo_receive));
       if(k === 'tools') badge = b(num(ib.tools_due));
+      if(k === 'adjust') badge = b(num(ib.adj_approve));
+      if(k === 'hold') badge = b(num(ib.holds_due));
       if(k === 'req' && (S.inbox || {}).site_req) badge = `<span class="st-badge">${S.inbox.site_req}</span>`;
       if(k === 'transfer' && S.pending.incoming) badge = `<span class="st-badge">${S.pending.incoming}</span>`;
       if(k === 'request' && S.pending.requests) badge = `<span class="st-badge">${S.pending.requests}</span>`;
@@ -19408,7 +19515,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }).join('');
     $('stTabs').querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
     const u = me();
-    $('stWho').textContent = u ? `${u.name} · ${({admin:'Admin', main:'Main Store', keeper:'Store Keeper', viewer:'Viewer', staff:'Staff'})[S.access] || ''}${S.roles.length ? ' · ' + S.roles.map(r => r === 'pm' ? 'PM' : r[0].toUpperCase() + r.slice(1)).join(', ') : ''}` : '';
+    $('stWho').textContent = u ? `${u.name} · ${POSITION_LABEL[S.position] || ({admin:'Admin', main:'Main Store', keeper:'Store Keeper', viewer:'Viewer', staff:'Staff'})[S.access] || ''}${S.roles.length ? ' · ' + S.roles.map(r => r === 'pm' ? 'PM' : r[0].toUpperCase() + r.slice(1)).join(', ') : ''}` : '';
   }
   async function go(tab, arg, viaBack){
     const mainEl = $('stMain');
@@ -19646,6 +19753,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         ${act('receive', '📦', 'Receive from supplier')}
         ${act('tools', '🛠️', 'Tools')}
         ${act('ledger', '📒', 'Stock ledger')}
+        ${st.status === 'live' && (mine || isMain()) ? act('adjust', '⚖️', 'Stock adjustment') : ''}
+        ${st.status === 'live' ? act('hold', '🔒', 'Material hold') : ''}
         ${act('req', '🧾', 'Site requisitions')}
       </div>
       <div class="st-cols">
@@ -20482,6 +20591,294 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     await load();
   };
 
+  /* ---------- Stock Adjustment (after Live) ---------- */
+  VIEWS.adjust = async function(main, argStore){
+    if(typeof argStore === 'string' && storeById(argStore)) S.storeFocus = argStore;
+    const mine = enterStores(true);
+    const approverish = isMain() || hasRole('pm') || hasRole('engineer') || S.scope === 'tree';
+    const seeAll = ['admin','main','viewer'].includes(S.access);
+    let limit = 1000;
+    try{ const st = await rpcOptional('st_settings_get', {}); if(st && st.adj_limit != null) limit = num(st.adj_limit); }catch(e){}
+    const listStores = seeAll ? viewStores().filter(x => x.status === 'live')
+      : S.stores.filter(x => canEnter(x.id) || (x.project_codes || []).some(c => (S.myProjects || []).includes(c)));
+    const focus = (mine.some(x => x.id === S.storeFocus) ? S.storeFocus : (mine[0] || {}).id) || '';
+    main.innerHTML = `
+      <h2>Stock Adjustment</h2>
+      <div class="st-note">For a <b>Live</b> store whose physical stock does not match the system. Stock does <b>not</b> change when it is raised.
+        <br>• Up to <b>AED ${money(limit)}</b>: one approval — the <b>Engineer / PM</b> of a project linked to that store, or Main Store / Admin.
+        <br>• Above <b>AED ${money(limit)}</b> (costly): Engineer / PM first, then <b>Admin</b>.
+        <br>The person who raised it can never approve it. Material found damaged goes to <b>Damaged stock</b>, not deleted.
+        ${isAdmin() ? `<div class="st-row" style="margin-top:8px;align-items:center;gap:6px"><span>Admin approval needed above AED</span>
+          <input id="stAdjLimit" type="number" min="0" step="any" value="${esc(limit)}" style="width:120px">
+          <button type="button" class="st-btn st-ghost st-sm" id="stAdjLimitSave">Save</button></div>` : ''}</div>
+      ${approverish ? `<h3>Waiting for my approval</h3><div id="stAdjPend"><div class="st-empty">Loading…</div></div>` : ''}
+      ${mine.length ? `
+      <h3>New adjustment</h3>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-field"><label class="st-l">Store</label><select id="stAdjStore">${storeOptions(mine, focus)}</select></div>
+          <div class="st-field s"><label class="st-l">Count / event date</label><input type="date" id="stAdjDate" value="${todayIso()}" max="${todayIso()}"></div>
+          <div class="st-field"><label class="st-l">Reason</label><select id="stAdjReason"><option value="">— choose —</option>
+            ${Object.entries(ADJ_REASON).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>
+        </div>
+        <div class="st-row" style="margin-top:8px"><div class="st-field" style="flex:1 1 100%"><label class="st-l">Explanation (required — who counted, what happened)</label>
+          <input id="stAdjNote" placeholder="e.g. Monthly count 21/09 by Rahim & Salman, witnessed by site engineer"></div></div>
+        <h3>Items</h3>
+        <div class="st-muted" style="margin-bottom:6px"><b>🔢 Physical count</b>: type what you counted (0 if nothing found) — the difference is worked out for you.
+          <b>➕ / ➖</b>: type only the difference. <b>🔴 Found damaged</b>: quantity to move from usable to damaged stock.</div>
+        <div id="stAdjLines"></div>
+        <div class="st-row" style="margin-top:12px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="stAdjSave">📤 Send for approval</button></div>
+      </div>` : (approverish ? '' : `<div class="st-note warn">You have no <b>live</b> store to adjust.</div>`)}
+      <h3>Adjustments</h3>
+      <div class="st-row" style="margin-bottom:8px">
+        <div class="st-field"><select id="stAdjListStore">${storeOptions(listStores, seeAll ? '' : focus, 'All my stores')}</select></div>
+        <div class="st-field s"><select id="stAdjListSt"><option value="">All statuses</option><option value="pending">Pending</option><option value="site_approved">Waiting for Admin</option><option value="posted">Posted</option><option value="rejected">Rejected</option><option value="cancelled">Cancelled</option></select></div>
+      </div>
+      <div id="stAdjList"><div class="st-empty">Loading…</div></div>`;
+
+    const kindPill = k => `<span class="st-pill ${k === 'plus' ? 'p-live' : (k === 'damage' ? 'p-rejected' : 'p-pending')}">${esc(ADJ_KIND[k] || k)}</span>`;
+    const valueOf = d => (d.lines || []).reduce((a, l) => a + num(l.value), 0);
+    const signQty = l => `<b style="color:${l.kind === 'plus' ? '#34d399' : '#fca5a5'}">${l.kind === 'plus' ? '+' : '−'}${fmt(l.qty)}</b>`;
+    const signMoney = v => `${v < 0 ? '−' : '+'}${money(Math.abs(v))}`;
+    function linesTable(d, now){
+      return `<div class="st-tw"><table class="st-t st-compact"><thead><tr><th>Item</th><th>Brand</th><th>Type</th>
+        <th class="n">System (when raised)</th>${now ? '<th class="n">Usable now</th>' : ''}<th class="n">Counted</th><th class="n">Change</th><th class="n">Value</th><th>Remarks</th></tr></thead><tbody>
+        ${(d.lines || []).map(l => {
+          const cur = now ? num((now[l.code] || {})[l.brand || '']) : null;
+          const moved = now && cur !== num(l.system_qty);
+          return `<tr><td><b>${esc(l.code)}</b><div class="st-muted">${esc(l.description || '')}</div></td><td>${esc(l.brand || '')}</td><td>${kindPill(l.kind)}</td>
+            <td class="n">${fmt(l.system_qty)} ${esc(l.unit || '')}</td>
+            ${now ? `<td class="n" ${moved ? 'style="color:#fcd34d" title="Stock moved since this was raised"' : ''}>${fmt(cur)}${moved ? ' ⚠' : ''}</td>` : ''}
+            <td class="n">${l.counted != null ? fmt(l.counted) : '—'}</td><td class="n">${signQty(l)}</td>
+            <td class="n">${signMoney(num(l.value))}</td><td>${esc(l.remarks || '')}</td></tr>`;
+        }).join('')}</tbody></table></div>`;
+    }
+    function head(d){
+      const v = valueOf(d);
+      const trail = (d.approvals || []).map(a => `${a.action === 'rejected' ? '✕ Rejected' : (a.level === 'site' ? '✔ Site approved' : '✔ Approved')} by ${esc(a.by)}${a.role ? ' (' + esc(a.role) + ')' : ''} ${esc(dmyt(a.at))}${a.note ? ` — “${esc(a.note)}”` : ''}`).join('<br>');
+      return `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+        <div><b>${esc(d.doc_no)}</b> · ${esc(storeName(d.store_id))} · ${esc(dmy(d.doc_date))} ${pill(d.status)}${d.costly ? ' <span class="st-pill p-rejected">Costly — needs Admin</span>' : ''}
+          <div class="st-muted">${esc(ADJ_REASON[d.reason] || d.reason || '')} — “${esc(d.note)}” · raised by ${esc(d.created_name)} ${esc(dmyt(d.created_at))}
+          ${trail ? '<br>' + trail : (d.acted_name ? `<br>Closed by ${esc(d.acted_name)} ${esc(dmyt(d.acted_at))}` : '')}</div></div>
+        <div style="text-align:right"><div class="st-muted">Value effect</div><b style="color:${v < 0 ? '#fca5a5' : '#34d399'}">${signMoney(v)}</b></div></div>`;
+    }
+    const list = args => rpc('st_adjust_list', args).then(r => r || []);
+
+    async function loadWaiting(){
+      const host = $('stAdjPend'); if(!host) return;
+      const docs = await list({p_store: null, p_status: null, p_only_mine_to_act: true, p_limit: 100});
+      if(!docs.length){ host.innerHTML = '<div class="st-empty">Nothing waiting for you.</div>'; return; }
+      const nowBy = {};
+      for(const sid of [...new Set(docs.map(d => d.store_id))]){ try{ nowBy[sid] = await availRaw(sid, true); }catch(e){ nowBy[sid] = {}; } }
+      host.innerHTML = docs.map(d => `<div class="st-card" style="border-color:#f59e0b">${head(d)}<div style="margin-top:8px">${linesTable(d, nowBy[d.store_id])}</div>
+          <div class="st-row" style="margin-top:8px;justify-content:flex-end;gap:6px">
+            <button type="button" class="st-btn st-danger st-sm" data-adj-rej="${esc(d.id)}">✕ Reject</button>
+            <button type="button" class="st-btn st-ok st-sm" data-adj-ok="${esc(d.id)}">${d.can === 'site' ? '✔ Approve → send to Admin' : '✔ Approve &amp; post'}</button>
+            <button type="button" class="st-btn st-ghost st-sm" data-adj-print="${esc(d.id)}">🖨 Print</button>
+          </div></div>`).join('');
+      host.querySelectorAll('[data-adj-print]').forEach(b => b.addEventListener('click', () => printDoc(docs.find(x => x.id === b.dataset.adjPrint))));
+      host.querySelectorAll('[data-adj-ok]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+        const d = docs.find(x => x.id === b.dataset.adjOk);
+        const msg = d.can === 'site'
+          ? `Approve ${d.doc_no}? It is costly (over AED ${money(limit)}), so it goes to Admin next. Stock does not change yet.`
+          : `Approve ${d.doc_no} for ${storeName(d.store_id)}?\nStock will change now. Value effect: ${signMoney(valueOf(d))}`;
+        if(!confirm(msg)) return;
+        const note = prompt('Approval note (optional):', '');
+        if(note === null) return;
+        const r = await rpc('st_adjust_decide', {p_doc: d.id, p_approve: true, p_note: note.trim()});
+        toast(r.status === 'posted' ? `${r.doc_no} approved — stock updated` : `${r.doc_no} approved — now with Admin`);
+        clearStockCache(); await refresh();
+      })));
+      host.querySelectorAll('[data-adj-rej]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+        const d = docs.find(x => x.id === b.dataset.adjRej);
+        const note = prompt(`Why is ${d.doc_no} rejected?`, '');
+        if(note === null) return;
+        if(note.trim().length < 3) throw new Error('Write the reason for rejecting.');
+        await rpc('st_adjust_decide', {p_doc: d.id, p_approve: false, p_note: note.trim()});
+        toast(`${d.doc_no} rejected`);
+        await refresh();
+      })));
+    }
+
+    async function loadList(){
+      const host = $('stAdjList');
+      const docs = await list({p_store: $('stAdjListStore').value || null, p_status: $('stAdjListSt').value || null, p_only_mine_to_act: false, p_limit: 80});
+      if(!docs.length){ host.innerHTML = '<div class="st-empty">No adjustments yet.</div>'; return; }
+      const u = me() || {};
+      host.innerHTML = `<div class="st-tw"><table class="st-t"><thead><tr><th>Doc No</th><th>Date</th><th>Store</th><th>Reason</th><th>Status</th><th class="n">Lines</th><th class="n">Value</th><th>By</th><th></th></tr></thead><tbody>
+        ${docs.map(d => { const v = valueOf(d); return `<tr>
+          <td><b>${esc(d.doc_no)}</b></td><td>${esc(dmy(d.doc_date))}</td><td>${esc(storeName(d.store_id))}</td><td>${esc(ADJ_REASON[d.reason] || d.reason || '')}</td>
+          <td>${pill(d.status)}</td><td class="n">${(d.lines || []).length}</td>
+          <td class="n" style="color:${v < 0 ? '#fca5a5' : '#34d399'}">${signMoney(v)}</td>
+          <td>${esc(d.created_name)}${d.acted_name ? `<div class="st-muted">→ ${esc(d.acted_name)}</div>` : ''}</td>
+          <td><div class="st-actions">
+            <button type="button" class="st-btn st-ghost st-sm" data-adj-view="${esc(d.id)}">👁 View</button>
+            ${['pending','site_approved'].includes(d.status) && (d.created_by === u.authId || isAdmin()) ? `<button type="button" class="st-btn st-ghost st-sm" data-adj-cancel="${esc(d.id)}">Cancel</button>` : ''}
+            <button type="button" class="st-btn st-ghost st-sm" data-adj-print="${esc(d.id)}">🖨 Print</button></div></td></tr>
+          <tr data-adj-body="${esc(d.id)}" style="display:none"><td colspan="9">${head(d)}<div style="margin-top:6px">${linesTable(d, null)}</div></td></tr>`; }).join('')}
+        </tbody></table></div>`;
+      host.querySelectorAll('[data-adj-view]').forEach(b => b.addEventListener('click', () => {
+        const tr = host.querySelector(`[data-adj-body="${b.dataset.adjView}"]`); if(tr) tr.style.display = tr.style.display === 'none' ? '' : 'none';
+      }));
+      host.querySelectorAll('[data-adj-print]').forEach(b => b.addEventListener('click', () => printDoc(docs.find(x => x.id === b.dataset.adjPrint))));
+      host.querySelectorAll('[data-adj-cancel]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+        if(!confirm('Cancel this adjustment? Stock will not change.')) return;
+        await rpc('st_adjust_cancel', {p_doc: b.dataset.adjCancel});
+        toast('Cancelled'); await refresh();
+      })));
+    }
+    async function refresh(){
+      try{ await loadWaiting(); }catch(e){ const h = $('stAdjPend'); if(h) h.innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; }
+      try{ await loadList(); }catch(e){ $('stAdjList').innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; }
+      try{ await loadPending(); renderTabs(); }catch(e){}
+    }
+
+    if($('stAdjLimitSave')) $('stAdjLimitSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+      const v = num($('stAdjLimit').value);
+      if(v < 0) throw new Error('Enter 0 or more.');
+      await rpc('st_setting_set', {p_key: 'adj_limit', p_value: v});
+      toast(`Saved — Admin approval above AED ${money(v)}`);
+      go('adjust', null, true);
+    }));
+    if(mine.length){
+      const ed = linesEditor($('stAdjLines'), {availStore: () => $('stAdjStore').value, rawAvail: true, withKind: true, withRemarks: true, qtyLabel: 'Qty / Counted', defaultKind: 'count'});
+      ed.reloadAvail();
+      $('stAdjStore').addEventListener('change', () => { S.storeFocus = $('stAdjStore').value; ed.reloadAvail(); });
+      $('stAdjReason').addEventListener('change', () => {
+        const map = {lost:'minus', found:'plus', damaged:'damage', expired:'minus', count:'count'};
+        const k = map[$('stAdjReason').value];
+        if(k) $('stAdjLines').querySelectorAll('tr').forEach(tr => {
+          const sel = tr.querySelector('.kind'), q = tr.querySelector('.qty');
+          if(sel && q && q.value === ''){ sel.value = k; sel.dispatchEvent(new Event('change')); }
+        });
+      });
+      $('stAdjSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+        const reason = $('stAdjReason').value;
+        if(!reason) throw new Error('Choose the reason.');
+        const note = $('stAdjNote').value.trim();
+        if(note.length < 5) throw new Error('Write a clear explanation (who counted, what happened).');
+        const lines = ed.getLines();
+        const store = $('stAdjStore').value;
+        if(!confirm(`Send ${lines.length} line(s) for ${storeName(store)} for approval?\nStock will change only after approval.`)) return;
+        const d = await rpc('st_adjust_create', {p_store: store, p_reason: reason, p_lines: lines, p_note: note, p_date: $('stAdjDate').value || todayIso()});
+        toast(`${d.doc_no} sent for approval`);
+        ed.clear(); $('stAdjNote').value = ''; $('stAdjReason').value = '';
+        await refresh();
+      }));
+    }
+    $('stAdjListStore').addEventListener('change', () => loadList().catch(e => toast(e.message, true)));
+    $('stAdjListSt').addEventListener('change', () => loadList().catch(e => toast(e.message, true)));
+    await refresh();
+  };
+
+  /* ---------- Material Hold (PM / Engineer) ---------- */
+  VIEWS.hold = async function(main, argStore){
+    if(typeof argStore === 'string' && storeById(argStore)) S.storeFocus = argStore;
+    const siteRole = hasRole('pm') || hasRole('engineer');
+    const myPrj = S.myProjects || [];
+    const liveStores = S.stores.filter(x => x.status === 'live');
+    // stores where I may hold: Admin / Main — every live store; PM / Engineer — stores linked to my projects
+    const holdStores = isMain() ? liveStores : (siteRole ? liveStores.filter(x => (x.project_codes || []).some(c => myPrj.includes(c))) : []);
+    const focus = (holdStores.some(x => x.id === S.storeFocus) ? S.storeFocus : (holdStores[0] || {}).id) || '';
+    const prjFor = sid => {
+      const st = storeById(sid) || {};
+      let codes = st.project_codes || [];
+      if(!isMain()) codes = codes.filter(c => myPrj.includes(c));
+      else if(!codes.length) codes = S.projects.map(p => p.code);
+      return codes;
+    };
+    main.innerHTML = `
+      <h2>Material Hold</h2>
+      <div class="st-note">A <b>Project Manager or Engineer</b> can hold material in a store for his project — for example material needed at the end of the job.
+        Held quantity stays visible in stock, marked <b>🔒 on hold</b>, but <b>cannot be issued, transferred or sent</b> to anyone until it is released.
+        When the time comes, release it here and the store issues it normally.</div>
+      ${holdStores.length ? `
+      <h3>Hold material</h3>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-field"><label class="st-l">Store</label><select id="stHdStore">${storeOptions(holdStores, focus)}</select></div>
+          <div class="st-field"><label class="st-l">For project</label><select id="stHdProj"></select></div>
+          <div class="st-field s"><label class="st-l">Hold until (optional)</label><input type="date" id="stHdUntil" min="${todayIso()}"></div>
+        </div>
+        <div class="st-row" style="margin-top:8px"><div class="st-field" style="flex:1 1 100%"><label class="st-l">Why is it held? (required)</label>
+          <input id="stHdReason" placeholder="e.g. For final T&C / handover stage — do not issue before"></div></div>
+        <h3>Items</h3><div id="stHdLines"></div>
+        <div class="st-row" style="margin-top:12px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="stHdSave">🔒 Hold material</button></div>
+      </div>` : (siteRole ? `<div class="st-note warn">None of your projects is linked to a live store yet. Ask Admin to link it in <b>Store ⇄ Project</b>.</div>` : '')}
+      <h3>Material on hold</h3>
+      <div class="st-row" style="margin-bottom:8px">
+        <div class="st-field"><select id="stHdFStore">${storeOptions(liveStores, '', 'All stores')}</select></div>
+        <div class="st-field"><select id="stHdFProj"><option value="">All projects</option>${S.projects.map(p => `<option value="${esc(p.code)}">${esc(projectLabel(p.code))}</option>`).join('')}</select></div>
+        <div class="st-field s"><select id="stHdFSt"><option value="active">On hold</option><option value="released">Released</option><option value="">All</option></select></div>
+        ${siteRole && !isMain() ? `<label class="st-chk" style="align-items:center"><input type="checkbox" id="stHdMine" checked> My projects only</label>` : ''}
+      </div>
+      <div id="stHdList"><div class="st-empty">Loading…</div></div>`;
+
+    let ed = null;
+    if(holdStores.length){
+      const setProj = () => {
+        const codes = prjFor($('stHdStore').value);
+        $('stHdProj').innerHTML = codes.length ? codes.map(c => `<option value="${esc(c)}">${esc(projectLabel(c))}</option>`).join('')
+          : '<option value="">— no project linked —</option>';
+      };
+      ed = linesEditor($('stHdLines'), {availStore: () => $('stHdStore').value, qtyLabel: 'Hold qty'});
+      setProj(); ed.reloadAvail();
+      $('stHdStore').addEventListener('change', () => { S.storeFocus = $('stHdStore').value; setProj(); ed.reloadAvail(); });
+      $('stHdSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+        const store = $('stHdStore').value, project = $('stHdProj').value;
+        if(!project) throw new Error('Choose the project.');
+        const reason = $('stHdReason').value.trim();
+        if(reason.length < 3) throw new Error('Write why the material is held.');
+        const lines = ed.getLines();
+        if(!confirm(`Hold ${lines.length} item(s) in ${storeName(store)} for ${projectLabel(project)}?\nThe store will not be able to issue this quantity until it is released.`)) return;
+        const r = await rpc('st_hold_create', {p_store: store, p_project: project, p_lines: lines, p_reason: reason, p_until: $('stHdUntil').value || null});
+        toast(`${r.hold_no} — ${r.lines} item(s) on hold`);
+        ed.clear(); $('stHdReason').value = ''; $('stHdUntil').value = '';
+        clearStockCache(); ed.reloadAvail(); loadList();
+      }));
+    }
+
+    async function loadList(){
+      const host = $('stHdList');
+      try{
+        let rows = await rpc('st_hold_list', {p_store: $('stHdFStore').value || null, p_project: $('stHdFProj').value || null, p_status: $('stHdFSt').value}) || [];
+        if($('stHdMine') && $('stHdMine').checked) rows = rows.filter(h => myPrj.includes(h.project_code));
+        if(!rows.length){ host.innerHTML = '<div class="st-empty">Nothing on hold.</div>'; return; }
+        const today = todayIso();
+        host.innerHTML = `<div class="st-tw"><table class="st-t"><thead><tr><th>Hold No</th><th>Store</th><th>Project</th><th>Item</th><th>Brand</th>
+          <th class="n">On hold</th><th class="n">In stock</th><th>Held by</th><th>Until</th><th>Reason</th><th>Status</th><th></th></tr></thead><tbody>
+          ${rows.map(h => {
+            const late = h.status === 'active' && h.hold_until && String(h.hold_until).slice(0,10) < today;
+            const short = h.status === 'active' && num(h.in_stock) < num(h.qty);
+            return `<tr>
+            <td><b>${esc(h.hold_no)}</b><div class="st-muted">${esc(dmy(h.created_at))}</div></td><td>${esc(storeName(h.store_id))}</td>
+            <td>${esc(projectLabel(h.project_code))}</td>
+            <td><b>${esc(h.item_code)}</b><div class="st-muted">${esc(h.description || '')}</div></td><td>${esc(h.brand || '')}</td>
+            <td class="n"><b>${fmt(h.qty)}</b> ${esc(h.unit || '')}${num(h.original_qty) !== num(h.qty) ? `<div class="st-muted">of ${fmt(h.original_qty)}</div>` : ''}</td>
+            <td class="n" ${short ? 'style="color:#fca5a5" title="Less in stock than held"' : ''}>${fmt(h.in_stock)}${short ? ' ⚠' : ''}</td>
+            <td>${esc(h.held_name)}${h.held_role ? `<div class="st-muted">${esc(h.held_role)}</div>` : ''}</td>
+            <td ${late ? 'style="color:#fca5a5"' : ''}>${h.hold_until ? esc(dmy(h.hold_until)) + (late ? ' ⏰' : '') : '—'}</td>
+            <td>${esc(h.reason)}</td><td>${pill(h.status, h.status === 'active' ? 'On hold' : 'Released')}</td>
+            <td>${h.status === 'active' && h.can_release ? `<button type="button" class="st-btn st-ghost st-sm" data-hd-rel="${esc(h.id)}">🔓 Release</button>` : ''}</td></tr>`;
+          }).join('')}</tbody></table></div>`;
+        host.querySelectorAll('[data-hd-rel]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+          const h = rows.find(x => x.id === b.dataset.hdRel);
+          const q = prompt(`Release how much of ${h.item_code} (on hold ${fmt(h.qty)})?\nLeave as is to release all.`, String(h.qty));
+          if(q === null) return;
+          const qn = num(q);
+          if(!(qn > 0) || qn > num(h.qty)) throw new Error(`Enter a quantity between 0 and ${fmt(h.qty)}.`);
+          const note = prompt('Note (optional) — e.g. issuing for final stage now:', '');
+          if(note === null) return;
+          await rpc('st_hold_release', {p_id: h.id, p_qty: qn, p_note: note.trim()});
+          toast(`Released ${fmt(qn)} ${h.item_code} — the store can issue it now`);
+          clearStockCache(); if(ed) ed.reloadAvail(); loadList(); loadPending().then(renderTabs).catch(() => {});
+        })));
+      }catch(e){ host.innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; }
+    }
+    ['stHdFStore','stHdFProj','stHdFSt','stHdMine'].forEach(id => { const el = $(id); if(el) el.addEventListener('change', loadList); });
+    await loadList();
+  };
+
   VIEWS.ledger = async function(main, argStore){
     if(typeof argStore === 'string' && storeById(argStore)) S.storeFocus = argStore;
     const stores = viewStores();
@@ -20504,13 +20901,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       let qb = client().from('st_moves').select('*').eq('item_code', code).eq('store_id', store);
       if(brandF) qb = qb.eq('brand', brandF);
       const rows = await query(qb.order('id').limit(5000));
-      let bal = 0;
-      const out = rows.map(m => { bal += num(m.qty); return {...m, bal}; }).reverse();
+      let bal = 0, dmg = 0;
+      const out = rows.map(m => { const d = (m.condition || 'good') === 'damaged'; if(d) dmg += num(m.qty); else bal += num(m.qty); return {...m, bal, dmgRow: d}; }).reverse();
       $('stLgOut').innerHTML = !rows.length ? '<div class="st-empty">No movements for this item in this store.</div>' : `
-        <div class="st-note"><b>${esc(it.code)}</b> ${esc(it.description)} · ${esc(storeName(store))} · ${brandF ? 'Brand ' + esc(brandF) : 'All brands'} · Balance <b>${fmt(bal)} ${esc(it.unit)}</b></div>
+        <div class="st-note"><b>${esc(it.code)}</b> ${esc(it.description)} · ${esc(storeName(store))} · ${brandF ? 'Brand ' + esc(brandF) : 'All brands'} · Usable balance <b>${fmt(bal)} ${esc(it.unit)}</b>${dmg ? ` · <span style="color:#fca5a5">Damaged (kept apart) <b>${fmt(dmg)}</b></span>` : ''}</div>
         <div class="st-tw" style="--tw-max:65vh;"><table class="st-t"><thead><tr><th>Date / time</th><th>Type</th><th>Doc No</th><th>Brand</th><th>Project</th><th class="n">In</th><th class="n">Out</th><th class="n">Balance</th></tr></thead><tbody>
-        ${out.map(m => `<tr><td>${esc(dmyt(m.created_at))}</td><td>${esc(MOVE_LABEL[m.move_type] || m.move_type)}</td><td>${esc(m.doc_no)}</td><td>${esc(m.brand || '')}</td><td>${esc(m.project_code ? projectLabel(m.project_code) : '')}</td>
-          <td class="n">${num(m.qty) > 0 ? fmt(m.qty) : ''}</td><td class="n">${num(m.qty) < 0 ? fmt(-num(m.qty)) : ''}</td><td class="n"><b>${fmt(m.bal)}</b></td></tr>`).join('')}
+        ${out.map(m => `<tr${m.dmgRow ? ' style="opacity:.75"' : ''}><td>${esc(dmyt(m.created_at))}</td><td>${esc(MOVE_LABEL[m.move_type] || m.move_type)}${m.dmgRow ? ' <span class="st-pill p-rejected">damaged</span>' : ''}</td><td>${esc(m.doc_no)}</td><td>${esc(m.brand || '')}</td><td>${esc(m.project_code ? projectLabel(m.project_code) : '')}</td>
+          <td class="n">${num(m.qty) > 0 ? fmt(m.qty) : ''}</td><td class="n">${num(m.qty) < 0 ? fmt(-num(m.qty)) : ''}</td><td class="n">${m.dmgRow ? '<span class="st-muted">—</span>' : `<b>${fmt(m.bal)}</b>`}</td></tr>`).join('')}
         </tbody></table></div>`;
     }));
     $('stLgItem').addEventListener('keydown', e => { if(e.key === 'Enter') $('stLgGo').click(); });
@@ -21843,6 +22240,11 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="st-field"><label class="st-l">User</label><select id="stAdUser"><option value="">— choose —</option>
             ${users.filter(u => u.role !== 'Super Admin').sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${esc(u.authId)}">${esc(u.name)} (${esc(u.username)})${u.hrCode ? ' · HR ' + esc(u.hrCode) : ''}${suggest(u).length ? ' ★' : ''}</option>`).join('')}
           </select></div>
+          <div class="st-field s"><label class="st-l">Position</label><select id="stAdPos">
+            <option value="">— other (set access below) —</option>
+            <option value="store_manager">Store Manager — all stores under his store</option>
+            <option value="store_incharge">Store Incharge — his store + stores under it</option>
+            <option value="store_keeper">Store Keeper — only ticked store(s)</option></select></div>
           <div class="st-field s"><label class="st-l">Access</label><select id="stAdAcc">
             <option value="keeper">Store Keeper</option><option value="main">Main Store (sees all)</option>
             <option value="staff">Staff — MR / approvals / LPO only</option>
@@ -21854,13 +22256,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <div class="st-chk" id="stAdProjects" style="max-height:170px;overflow:auto">${S.projects.map(p => `<label><input type="checkbox" value="${esc(p.code)}"> ${esc(p.code)} ${esc(p.app_site || p.name)}</label>`).join('')}</div>
         <div id="stAdHint" class="st-muted" style="margin:6px 0"></div>
         <label class="st-l" style="margin-top:8px;display:block">Stores this user works in</label>
-        <div class="st-chk" id="stAdStores">${S.stores.map(s => `<label><input type="checkbox" value="${esc(s.id)}"> ${esc(s.name)}</label>`).join('')}</div>
+        <label class="st-chk" style="margin:4px 0 6px"><input type="checkbox" id="stAdTree"> Also every store <b>under</b> the ticked store(s) (Manage Stores → “Under”)</label>
+        <div class="st-chk" id="stAdStores">${S.stores.map(s => `<label><input type="checkbox" value="${esc(s.id)}"> ${esc(s.name)}${s.parent_id ? ` <span class="st-muted">(under ${esc(shortStore(s.parent_id))})</span>` : ''}</label>`).join('')}</div>
+        <div id="stAdReach" class="st-muted" style="margin-top:4px"></div>
         <div class="st-row" style="margin-top:10px"><button type="button" class="st-btn st-ok" id="stAdSave">Save access</button></div>
         <div class="st-muted" style="margin-top:6px">★ = this person's HR number is listed as keeper of a store. Super Admins always have full access. Users are created in the main app under <b>Users</b>.</div>
       </div>
       <h3>People with store access</h3>
-      ${withAccess.length ? `<div class="st-tw"><table class="st-t"><thead><tr><th>Name</th><th>Username</th><th>Access</th><th>Roles</th><th>Stores</th><th>Projects</th></tr></thead><tbody>
-        ${withAccess.map(u => { const a = accMap[u.authId]; return `<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(a.access)}</td>
+      ${withAccess.length ? `<div class="st-tw"><table class="st-t"><thead><tr><th>Name</th><th>Username</th><th>Position / Access</th><th>Roles</th><th>Stores</th><th>Projects</th></tr></thead><tbody>
+        ${withAccess.map(u => { const a = accMap[u.authId]; return `<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(POSITION_LABEL[a.position] || a.access)}${a.scope === 'tree' ? '<div class="st-muted">+ stores under</div>' : ''}</td>
           <td>${(a.roles || []).map(r => esc(r === 'pm' ? 'PM' : r)).join(', ') || '<span class="st-muted">—</span>'}</td>
           <td>${(a.store_ids || []).map(id => esc(storeName(id))).join(', ') || '<span class="st-muted">—</span>'}</td>
           <td>${(a.projects || []).join(', ') || '<span class="st-muted">—</span>'}</td></tr>`; }).join('')}
@@ -21898,6 +22302,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const id = userSel.value; const a = accMap[id];
       const u = users.find(x => x.authId === id);
       $('stAdAcc').value = a ? a.access : 'keeper';
+      $('stAdPos').value = a ? (a.position || '') : (u && u.role === 'Store Manager' ? 'store_manager' : u && u.role === 'Store Incharge' ? 'store_incharge' : u && u.role === 'Storekeeper' ? 'store_keeper' : '');
+      $('stAdTree').checked = a ? a.scope === 'tree' : ['store_manager','store_incharge'].includes($('stAdPos').value);
+      if(!a && $('stAdPos').value) $('stAdAcc').value = POSITION_PRESET[$('stAdPos').value].access;
+      setTimeout(showReach, 0);
       const sug = u ? S.stores.filter(s => u.hrCode && (s.keeper_hr || []).includes(String(u.hrCode))).map(s => s.id) : [];
       const chosen = a ? (a.store_ids || []) : sug;
       $('stAdStores').querySelectorAll('input').forEach(i => { i.checked = chosen.includes(i.value); });
@@ -21909,6 +22317,24 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       $('stAdRoles').querySelectorAll('input').forEach(i => { i.checked = guessRoles.includes(i.value); });
       $('stAdHint').textContent = u ? `${u.role}${u.site ? ' · ' + u.site : ''}${sug.length ? ' · Suggested: ' + suggest(u).join(', ') : ''}${a ? '' : ' · (no store access yet)'}` : '';
     });
+    // which stores this person will really work in
+    function treeOf(ids){
+      const out = new Set(ids); let grew = true;
+      while(grew){ grew = false; S.stores.forEach(x => { if(x.parent_id && out.has(x.parent_id) && !out.has(x.id)){ out.add(x.id); grew = true; } }); }
+      return [...out];
+    }
+    function showReach(){
+      const ids = [...$('stAdStores').querySelectorAll('input:checked')].map(i => i.value);
+      const all = $('stAdTree').checked ? treeOf(ids) : ids;
+      $('stAdReach').innerHTML = all.length ? `Works in <b>${all.length}</b> store(s): ${all.map(id => esc(shortStore(id))).join(', ')}` : '';
+    }
+    $('stAdPos').addEventListener('change', () => {
+      const pz = POSITION_PRESET[$('stAdPos').value];
+      if(pz){ $('stAdAcc').value = pz.access; $('stAdTree').checked = pz.scope === 'tree'; }
+      showReach();
+    });
+    $('stAdTree').addEventListener('change', showReach);
+    $('stAdStores').addEventListener('change', showReach);
     $('stAdSave').addEventListener('click', e => busy(e.currentTarget, async () => {
       if(!userSel.value) throw new Error('Choose a user.');
       const acc = $('stAdAcc').value;
@@ -21917,7 +22343,16 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const roles = [...$('stAdRoles').querySelectorAll('input:checked')].map(i => i.value);
       const projects = [...$('stAdProjects').querySelectorAll('input:checked')].map(i => i.value);
       if((roles.includes('pm') || (roles.includes('engineer') && acc === 'staff')) && !projects.length) throw new Error('Tick the projects this person works on.');
-      await rpc('st_user_set', {p_profile: userSel.value, p_access: acc || null, p_stores: stores, p_roles: roles, p_projects: projects});
+      const scope = $('stAdTree').checked ? 'tree' : 'own';
+      const position = $('stAdPos').value;
+      if(scope === 'tree' && !['keeper','main','admin'].includes(acc)) throw new Error('“Stores under” works only with Store Keeper / Main Store access.');
+      try{
+        await rpc('st_user_set', {p_profile: userSel.value, p_access: acc || null, p_stores: stores, p_roles: roles, p_projects: projects, p_scope: scope, p_position: position});
+      }catch(err){
+        if(!/newer database update|st_user_set/i.test(err.message)) throw err;
+        if(scope === 'tree' || position) throw new Error('Run 20_memco_store_positions.sql in Supabase first, then save again.');
+        await rpc('st_user_set', {p_profile: userSel.value, p_access: acc || null, p_stores: stores, p_roles: roles, p_projects: projects});
+      }
       toast('Access saved.'); go('admin');
     }));
     const fillStore = () => {
@@ -22072,6 +22507,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       cards.push(card(ib.requests, '📨 Stock requests to answer', 'Another store asked for your material', 'request', ''));
       cards.push(card(ib.tools_due, '🛠️ Tools overdue', 'Tools not returned by the due date', 'tools', ''));
     }
+    if(isMain() || hasRole('pm') || hasRole('engineer') || S.scope === 'tree') cards.push(card(ib.adj_approve, '⚖️ Stock adjustments to approve', 'Count differences raised by store keepers', 'adjust', ''));
+    if(isMain() || hasRole('pm') || hasRole('engineer')) cards.push(card(ib.holds_due, '🔒 Holds past their date', 'Release the material or extend the hold', 'hold', ''));
     main.innerHTML = `<h2>My Tasks</h2>
       ${canRaiseMR() ? `<div class="st-row" style="margin-bottom:12px"><button type="button" class="st-btn st-ok" id="stTkNew">➕ New Material Request</button></div>` : ''}
       <div class="st-grid">${cards.join('')}</div>
@@ -22792,7 +23229,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const uid = u && u.authId ? u.authId : null;
     if(uid === lastUid) return;
     lastUid = uid;
-    S.access = null; S.myStores = []; S.roles = []; S.myProjects = []; S.loaded = false; S.setupMissing = false; S.tab = 'tasks';
+    S.access = null; S.myStores = []; S.roles = []; S.myProjects = []; S.scope = 'own'; S.position = ''; S.loaded = false; S.setupMissing = false; S.tab = 'tasks';
     setNav(false);
     if(!uid) return;
     try{
@@ -22801,6 +23238,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       S.myStores = (w && w.stores) || [];
       S.roles = (w && w.roles) || [];
       S.myProjects = (w && w.projects) || [];
+      S.scope = (w && w.scope) || 'own';
+      S.position = (w && w.position) || '';
     }catch(e){
       if(S.setupMissing && u.role === 'Super Admin') S.access = 'admin';
     }
@@ -23597,14 +24036,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   /* ---------- who must act ---------- */
   function mainCampRec(){ return (typeof campRecords !== 'undefined' ? campRecords : []).find(c => c && c.is_main) || null; }
   function campById(id){ return (typeof campRecords !== 'undefined' ? campRecords : []).find(c => c && c.id === id) || null; }
+  const campAll = () => (typeof campSeesAll === 'function') && campSeesAll() && myEffectiveRoles().some(r => ['Camp Manager','Camp Incharge'].includes(r));
   function iAmMainBoss(){
     const c = mainCampRec();
     if(isAdmin()) return true;                 // admin can always act
+    if(campAll()) return true;                 // Camp Manager / Camp Incharge
     if(!c) return false;
     return !!(myHr() && String(c.boss_hr || '').trim() === myHr());
   }
   function iAmBossOf(campId){
     if(isAdmin()) return true;
+    if(campAll()) return true;
     const c = campById(campId);
     if(!c) return false;
     return !!(myHr() && String(c.boss_hr || '').trim() === myHr());
@@ -23631,7 +24073,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(t.status === 'returned') return iAmPmOf(t.from_site) || iAmPmOf(t.to_site) || iAmMainBoss();
     return false;
   }
-  function canRaise(){ return isAdmin() || iAmMainBoss() || myRole() === 'Project Manager'; }
+  function canRaise(){ return isAdmin() || iAmMainBoss() || campAll() || myRole() === 'Project Manager'; }
   const mineList = () => LIST.filter(myTurn);
 
   /* ---------- create (called by the Transfer Labor screen) ---------- */
