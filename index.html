@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v55</title>
+<title>MEMCO Portal v56</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -18757,7 +18757,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .p-not_started{background:#334155;color:#cbd5e1}
 #stApp .p-level{background:#1e3a8a;color:#bfdbfe}
 #stApp .p-in_transit,#stApp .p-pending,#stApp .p-site_approved,#stApp .p-active{background:#78350f;color:#fcd34d}
-#stApp .p-received,#stApp .p-accepted,#stApp .p-issued,#stApp .p-posted{background:#064e3b;color:#6ee7b7}
+#stApp .p-received,#stApp .p-accepted,#stApp .p-issued,#stApp .p-posted,#stApp .p-delivered,#stApp .p-qc_passed{background:#064e3b;color:#6ee7b7}
+#stApp .p-submitted,#stApp .p-tagged,#stApp .p-dispatched{background:#1e3a8a;color:#bfdbfe}
+#stApp .p-fabricated,#stApp .p-partly_delivered{background:#78350f;color:#fcd34d}
+#stApp .dw-sub{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}#stApp .dw-sub .st-btn.on{background:#0369a1;border-color:#38bdf8}
+#stApp .dw-row{cursor:pointer}#stApp .dw-row:hover td{background:rgba(56,189,248,.06)}
+#stApp .dw-log{font-size:12px;color:#9fc0da;border-left:2px solid #1e4b6e;padding-left:10px}#stApp .dw-log div{margin-bottom:3px}
 #stApp .p-partly_accepted{background:#1e3a8a;color:#bfdbfe}
 #stApp .p-rejected,#stApp .p-cancelled{background:#7f1d1d;color:#fecaca}
 #stApp .p-completed,#stApp .p-closed{background:#064e3b;color:#6ee7b7}
@@ -18864,6 +18869,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['links',    '🔗 Store ⇄ Project'],
     ['manage',   '🏬 Manage Stores'],
     ['stock',    '📊 Company Stock'],
+    ['workshop', '🏭 Duct Workshop'],
     ['hold',     '🔒 Material Hold'],
     ['issue',    '📤 Issue Voucher'],
     ['transfer', '🚚 Transfers'],
@@ -18885,14 +18891,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     cancelled:'Cancelled', pending:'Pending', accepted:'Accepted', partly_accepted:'Partly accepted', rejected:'Rejected', issued:'Issued', posted:'Posted',
     store_check:'Site store check', pm_approval:'PM approval', main_store:'Main store', procurement:'Procurement', ordered:'Ordered (LPO)',
     fulfilling:'Being delivered', completed:'Completed', returned:'Returned for correction', closed:'Closed',
-    open:'Open', partly_received:'Partly received', out:'With holder', site_approved:'Waiting for Admin', active:'On hold'};
+    open:'Open', partly_received:'Partly received', out:'With holder', site_approved:'Waiting for Admin', active:'On hold',
+    submitted:'New order', tagged:'Tags printed', fabricated:'Fabricated', qc_passed:'QC passed', partly_delivered:'Partly delivered', delivered:'Delivered', dispatched:'On the way'};
   const MOVE_LABEL = {opening:'Opening', issue:'Issue', transfer_out:'Transfer out', transfer_in:'Transfer in', transfer_cancel:'Transfer cancelled',
     receipt:'Received (GRN)', tool_out:'Tool issued', tool_in:'Tool returned', return:'Returned from site', return_damaged:'Returned damaged',
     write_off:'Damaged write-off', adj_in:'Adjustment (+)', adj_out:'Adjustment (−)', adj_to_damaged:'Adjustment → damaged'};
   const ADJ_KIND = {count:'🔢 Physical count', plus:'➕ Extra found', minus:'➖ Short / lost', damage:'🔴 Found damaged'};
   const ADJ_REASON = {count:'Physical stock count', lost:'Lost / missing', found:'Found / not recorded', damaged:'Damaged in store',
     expired:'Expired / unusable', entry_error:'Wrong entry correction', other:'Other'};
-  const ROLE_LABEL = {engineer:'Engineer (raise MR)', pm:'Project Manager (approve MR)', procurement:'Procurement (LPO)'};
+  const ROLE_LABEL = {engineer:'Engineer (raise MR)', pm:'Project Manager (approve MR)', procurement:'Procurement (LPO)', workshop:'Duct Workshop (tags, fabrication, DO)', qc:'Duct QC inspector'};
   const POSITION_LABEL = {store_manager:'Store Manager', store_incharge:'Store Incharge', store_keeper:'Store Keeper'};
   // position → access level + reach
   const POSITION_PRESET = {store_manager:{access:'main', scope:'tree'}, store_incharge:{access:'keeper', scope:'tree'}, store_keeper:{access:'keeper', scope:'own'}};
@@ -19478,7 +19485,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function tabAllowedFor(k){
     const staffOnly = S.access === 'staff';
     if(k === 'admin') return isAdmin();
-    if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer')))
+    if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r)))
       || (k === 'lpo' && hasRole('procurement')) || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
     if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
     if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -19489,7 +19496,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const staffOnly = S.access === 'staff';
     const tabs = TABS.filter(([k]) => {
       if(k === 'admin') return isAdmin();
-      if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'lpo' && hasRole('procurement'))
+      if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
         || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
       if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
       if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -19497,7 +19504,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       return true;
     });
     const ib = S.inbox || {};
-    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due','adj_approve','holds_due'].reduce((a, k) => a + num(ib[k]), 0);
+    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due','adj_approve','holds_due','dw_work','dw_qc','dw_receive'].reduce((a, k) => a + num(ib[k]), 0);
     $('stTabs').innerHTML = tabs.map(([k, label]) => {
       let badge = '';
       const b = n => n ? `<span class="st-badge">${n}</span>` : '';
@@ -19508,6 +19515,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       if(k === 'tools') badge = b(num(ib.tools_due));
       if(k === 'adjust') badge = b(num(ib.adj_approve));
       if(k === 'hold') badge = b(num(ib.holds_due));
+      if(k === 'workshop') badge = b(num(ib.dw_work) + num(ib.dw_qc) + num(ib.dw_receive));
       if(k === 'req' && (S.inbox || {}).site_req) badge = `<span class="st-badge">${S.inbox.site_req}</span>`;
       if(k === 'transfer' && S.pending.incoming) badge = `<span class="st-badge">${S.pending.incoming}</span>`;
       if(k === 'request' && S.pending.requests) badge = `<span class="st-badge">${S.pending.requests}</span>`;
@@ -20589,6 +20597,445 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       go('store', id);
     }));
     await load();
+  };
+
+  /* ---------- 🏭 Duct Workshop ---------- */
+  const DW = {masters: null, filter: {status: 'open', project: '', search: ''}};
+  const DW_STEPS = ['submitted', 'tagged', 'fabricated', 'qc_passed', 'delivered'];
+  async function dwMasters(force){
+    if(!DW.masters || force) DW.masters = await rpc('dw_masters', {}) || {};
+    return DW.masters;
+  }
+  // CAMduct export (.TXT, tab separated; one old file used commas)
+  function dwParseCamduct(text){
+    const lines = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim() !== '');
+    if(!lines.length) throw new Error('The file is empty.');
+    const sep = lines[0].includes('\t') ? '\t' : ',';
+    const split = line => {
+      if(sep === '\t') return line.split('\t').map(c => c.trim().replace(/^"(.*)"$/, '$1').replace(/""/g, '"'));
+      const out = []; let cur = '', q = false;
+      for(let i = 0; i < line.length; i++){
+        const ch = line[i];
+        if(q){ if(ch === '"' && line[i + 1] === '"'){ cur += '"'; i++; } else if(ch === '"') q = false; else cur += ch; }
+        else if(ch === '"') q = true; else if(ch === ','){ out.push(cur.trim()); cur = ''; } else cur += ch;
+      }
+      out.push(cur.trim()); return out;
+    };
+    const head = split(lines[0]).map(h => h.toLowerCase());
+    if(!head.includes('qty') || !head.includes('name')) throw new Error('This does not look like a CAMduct export (no "Qty" and "Name" columns).');
+    const col = (...names) => { for(const n of names){ const i = head.findIndex(h => h === n || h.startsWith(n)); if(i >= 0) return i; } return -1; };
+    const C = {qty: col('qty'), name: col('name'), r: col('r'), e1: col('end 1'), e2: col('end 2'), e3: col('end 3'), e4: col('end 4'),
+      gauge: col('gauge'), l: col('l'), area: col('area'), notes: col('notes'), guid: col('item globally unique id'),
+      c1: col('connector #1'), c2: col('connector #2'), c3: col('connector #3'), c4: col('connector #4'), no: col('item no'), stiff: col('stiffener')};
+    const g = (r, k) => C[k] >= 0 ? (r[C[k]] || '') : '';
+    const dims = v => { v = String(v || '').trim(); if(!v) return [0, 0]; const m = v.toLowerCase().split('x'); return [num(m[0]), num(m[1] || 0)]; };
+    const items = [];
+    lines.slice(1).forEach(line => {
+      const r = split(line);
+      const name = g(r, 'name'), qty = num(g(r, 'qty'));
+      if(!name || !(qty > 0)) return;
+      const e = [g(r, 'e1'), g(r, 'e2'), g(r, 'e3'), g(r, 'e4')];
+      items.push({item_no: g(r, 'no'), name, r: num(g(r, 'r')), end1: e[0], end2: e[1], end3: e[2], end4: e[3],
+        sizes: [...dims(e[0]), ...dims(e[1]), ...dims(e[2]), ...dims(e[3])],
+        gauge: num(g(r, 'gauge')), length: num(g(r, 'l')), qty, area: num(g(r, 'area')), notes: g(r, 'notes'), guid: g(r, 'guid'),
+        conn1: g(r, 'c1'), conn2: g(r, 'c2'), conn3: g(r, 'c3'), conn4: g(r, 'c4'), stiffener: g(r, 'stiff')});
+    });
+    if(!items.length) throw new Error('No items with a quantity were found in the file.');
+    return items;
+  }
+  // phpMyAdmin dump → {table: [rows]} for the tables asked for
+  function dwParseDump(text, tables){
+    const out = {};
+    tables.forEach(t => {
+      out[t] = [];
+      const key = 'INSERT INTO `' + t + '` (';
+      let pos = 0;
+      while((pos = text.indexOf(key, pos)) >= 0){
+        let i = pos + key.length;
+        const ce = text.indexOf(')', i);
+        const cols = text.slice(i, ce).split(',').map(c => c.trim().replace(/`/g, ''));
+        i = text.indexOf('VALUES', ce) + 6;
+        let row = null, val = '', inQ = false, quoted = false, depth = 0;
+        for(; i < text.length; i++){
+          const ch = text[i];
+          if(inQ){
+            if(ch === '\\'){ const n = text[++i]; val += n === 'n' ? '\n' : n === 'r' ? '\r' : n === 't' ? '\t' : n === '0' ? '' : n; }
+            else if(ch === "'" && text[i + 1] === "'"){ val += "'"; i++; }
+            else if(ch === "'") inQ = false;
+            else val += ch;
+            continue;
+          }
+          if(ch === "'"){ inQ = true; quoted = true; continue; }
+          if(ch === '('){ if(depth === 0){ row = []; val = ''; quoted = false; } depth++; continue; }
+          if(ch === ',' && depth === 1){ row.push(quoted ? val : (val.trim().toUpperCase() === 'NULL' ? null : val.trim())); val = ''; quoted = false; continue; }
+          if(ch === ')' && depth === 1){
+            row.push(quoted ? val : (val.trim().toUpperCase() === 'NULL' ? null : val.trim()));
+            const o = {}; cols.forEach((c, k) => { o[c] = row[k]; }); out[t].push(o);
+            depth = 0; val = ''; continue;
+          }
+          if(ch === ';' && depth === 0) break;
+          if(depth >= 1) val += ch;
+        }
+        pos = i;
+      }
+    });
+    return out;
+  }
+  function dwVehicles(){
+    try{ return (typeof vehiclesRecords !== 'undefined' && Array.isArray(vehiclesRecords)) ? vehiclesRecords : []; }catch(e){ return []; }
+  }
+  function dwSize(i){ return [i.end1, i.end2].filter(Boolean).join(' → ') || ''; }
+  function dwPrintTags(o){
+    const tags = (o.items || []).map(i => `<div class="tag">
+        <div class="t1"><b>${esc(o.order_no)}</b><span>MR ${esc(o.mr_no)}</span></div>
+        <div class="t2">${esc(o.project_code)} · ${esc(o.building)}${o.floor ? ' · ' + esc(o.floor) : ''}</div>
+        <div class="t3">#${esc(i.item_no || '')} ${esc(i.name)}</div>
+        <div class="t4">${esc(dwSize(i))}${i.length ? ' · L ' + fmt(i.length) : ''}${i.gauge ? ' · G ' + fmt(i.gauge) : ''}</div>
+        <div class="t5"><b>Qty ${fmt(i.qty)}</b><span>${esc(i.notes || '')}</span></div></div>`).join('');
+    const css = `<style>.tags{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.tag{border:1.5px solid #111;border-radius:4px;padding:6px;page-break-inside:avoid;font-size:11px}
+      .tag .t1{display:flex;justify-content:space-between;font-size:12px}.tag .t3{font-size:13px;font-weight:700;margin:3px 0}.tag .t5{display:flex;justify-content:space-between;margin-top:3px}
+      .tag .t5 span{font-size:10px;color:#333}</style>`;
+    openPrint(o.order_no + ' tags', `${css}<div style="margin-bottom:6px"><b>${esc(o.order_no)}</b> — ${esc(o.project_name)} · MR ${esc(o.mr_no)} · ${esc(o.metal)} · ${(o.items || []).length} tags</div><div class="tags">${tags}</div>`);
+  }
+  function dwPrintDO(o, d){
+    const rows = (d.lines || []).map((l, k) => `<tr><td>${k + 1}</td><td>${esc(l.item_no || '')}</td><td>${esc(l.name)}</td><td>${esc(l.size || '')}</td>
+      <td class="r">${esc(l.gauge != null ? String(l.gauge) : '')}</td><td class="r">${fmt(l.qty)}</td><td class="r">${fmt(l.area)}</td><td>${esc(l.notes || '')}</td></tr>`).join('');
+    const tq = (d.lines || []).reduce((a, l) => a + num(l.qty), 0), ta = (d.lines || []).reduce((a, l) => a + num(l.area), 0);
+    openPrint(d.do_no, `${companyHeader('DUCT DELIVERY ORDER')}
+      <div class="grid"><div><table class="bx">
+        <tr><td class="k">Project</td><td>${esc(o.project_code)} — ${esc(o.project_name)}</td></tr>
+        <tr><td class="k">Order / MR</td><td>${esc(o.order_no)} / MR ${esc(o.mr_no)}</td></tr>
+        <tr><td class="k">Building / Floor</td><td>${esc(o.building)} ${esc(o.floor)}</td></tr>
+        <tr><td class="k">Material</td><td>${esc(o.metal)}${o.insulation ? ' · ' + esc(o.insulation) : ''}</td></tr></table></div>
+      <div style="max-width:330px"><table class="bx"><tr class="hd"><td colspan="2">DO NUMBER</td></tr><tr><td colspan="2"><b>${esc(d.do_no)}</b></td></tr>
+        <tr><td class="k">Date</td><td>${esc(dmy(d.do_date))}</td></tr><tr><td class="k">Vehicle</td><td>${esc(d.vehicle)}</td></tr>
+        <tr><td class="k">Driver</td><td>${esc(d.driver)} ${esc(d.driver_mobile)}</td></tr></table></div></div>
+      <table class="ln-t"><thead><tr><th>#</th><th>Item</th><th>Description</th><th>Size</th><th class="r">Gauge</th><th class="r">Qty</th><th class="r">Area (sq ft)</th><th>Notes</th></tr></thead>
+        <tbody>${rows}<tr><td colspan="5" class="r"><b>Total</b></td><td class="r"><b>${fmt(tq)}</b></td><td class="r"><b>${fmt(ta)}</b></td><td></td></tr></tbody></table>
+      ${d.note ? `<div style="margin-top:6px">Note: ${esc(d.note)}</div>` : ''}
+      <div class="sg" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:40px">
+        <div><b>Checked by:</b> ${esc(d.checked_by)}<div style="border-top:1px solid #111;margin-top:36px">Workshop</div></div>
+        <div><b>Driver:</b> ${esc(d.driver)}<div style="border-top:1px solid #111;margin-top:36px">Signature</div></div>
+        <div><b>Received by:</b> ${esc(d.received_by || '')}<div style="border-top:1px solid #111;margin-top:36px">Site — name, signature &amp; date</div></div></div>`);
+  }
+
+  VIEWS.workshop = async function(main, arg){
+    const sub = (arg && arg.sub) || (arg && arg.order ? 'order' : 'list');
+    const m = await dwMasters().catch(e => { main.innerHTML = `<h2>Duct Workshop</h2><div class="st-note warn">${esc(e.message)}<br>Run <b>21_memco_duct_workshop.sql</b> in Supabase first.</div>`; return null; });
+    if(!m) return;
+    const me_ = m.me || {};
+    const canRaise = me_.boss || me_.workshop || hasRole('engineer') || hasRole('pm');
+    const nav = `<div class="dw-sub">
+      <button type="button" class="st-btn st-ghost st-sm ${sub === 'list' ? 'on' : ''}" data-dw="list">📋 Orders</button>
+      ${canRaise ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'new' ? 'on' : ''}" data-dw="new">➕ New duct order</button>` : ''}
+      ${me_.boss ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'admin' ? 'on' : ''}" data-dw="admin">⚙ Masters &amp; old data</button>` : ''}</div>`;
+    const wireNav = () => main.querySelectorAll('[data-dw]').forEach(b => b.addEventListener('click', () => go('workshop', {sub: b.dataset.dw})));
+
+    /* ----- list ----- */
+    if(sub === 'list'){
+      const prjs = [...new Set(S.projects.map(p => p.code))];
+      main.innerHTML = `<h2>🏭 Duct Workshop</h2>${nav}
+        <div class="st-row" style="margin-bottom:8px">
+          <div class="st-field s"><select id="dwFSt">
+            ${[['open','Open (not delivered)'],['','All'],['submitted','New'],['tagged','Tags printed'],['fabricated','Fabricated — waiting QC'],['qc_passed','QC passed — ready for DO'],['partly_delivered','Partly delivered'],['delivered','Delivered'],['cancelled','Cancelled']]
+              .map(([v, t]) => `<option value="${v}" ${DW.filter.status === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+          <div class="st-field"><select id="dwFPrj"><option value="">All projects</option>${prjs.map(c => `<option value="${esc(c)}" ${DW.filter.project === c ? 'selected' : ''}>${esc(projectLabel(c))}</option>`).join('')}</select></div>
+          <div class="st-field"><input id="dwFQ" placeholder="Search order, MR, building…" value="${esc(DW.filter.search)}"></div>
+        </div><div id="dwList"><div class="st-empty">Loading…</div></div>`;
+      wireNav();
+      const load = async () => {
+        DW.filter = {status: $('dwFSt').value, project: $('dwFPrj').value, search: $('dwFQ').value.trim()};
+        const host = $('dwList');
+        try{
+          const rows = await rpc('dw_order_list', {p_status: DW.filter.status || null, p_project: DW.filter.project || null, p_search: DW.filter.search || null, p_limit: 300}) || [];
+          if(!rows.length){ host.innerHTML = '<div class="st-empty">No duct orders.</div>'; return; }
+          const tA = rows.reduce((a, r) => a + num(r.area), 0);
+          host.innerHTML = `<div class="st-muted" style="margin-bottom:6px">${rows.length} order(s) · ${fmt(tA)} sq ft</div>
+            <div class="st-tw"><table class="st-t"><thead><tr><th>Order</th><th>Date</th><th>Project</th><th>Building / Floor</th><th>Material</th>
+              <th class="n">Items</th><th class="n">Pieces</th><th class="n">Area sq ft</th><th class="n">Delivered</th><th>Status</th></tr></thead><tbody>
+            ${rows.map(r => { const pc = num(r.pieces) ? Math.round(100 * num(r.delivered_pieces) / num(r.pieces)) : 0; return `<tr class="dw-row" data-id="${esc(r.id)}">
+              <td><b>${esc(r.order_no)}</b>${r.urgent ? ' <span class="st-pill p-rejected">URGENT</span>' : ''}<div class="st-muted">MR ${esc(r.mr_no)}</div></td>
+              <td>${esc(dmy(r.order_date))}</td><td>${esc(r.project_code)}<div class="st-muted">${esc((r.project_name || '').slice(0, 40))}</div></td>
+              <td>${esc(r.building)}<div class="st-muted">${esc(r.floor)}</div></td><td>${esc(r.metal)}</td>
+              <td class="n">${fmt(r.lines)}</td><td class="n">${fmt(r.pieces)}</td><td class="n">${fmt(r.area)}</td><td class="n">${pc}%</td><td>${pill(r.status)}</td></tr>`; }).join('')}
+            </tbody></table></div>`;
+          host.querySelectorAll('[data-id]').forEach(tr => tr.addEventListener('click', () => go('workshop', {order: tr.dataset.id})));
+        }catch(e){ host.innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; }
+      };
+      $('dwFSt').addEventListener('change', load); $('dwFPrj').addEventListener('change', load);
+      let t; $('dwFQ').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 350); });
+      await load();
+      return;
+    }
+
+    /* ----- new order ----- */
+    if(sub === 'new'){
+      const myPrj = (me_.boss || me_.workshop) ? S.projects.map(p => p.code) : (S.myProjects || []);
+      const u = me() || {};
+      main.innerHTML = `<h2>🏭 New duct order</h2>${nav}
+        ${myPrj.length ? '' : '<div class="st-note warn">No project is given to you. Ask Admin (Stores > Admin > Projects).</div>'}
+        <div class="st-card">
+          <div class="st-row">
+            <div class="st-field"><label class="st-l">Project</label><select id="dwPrj">${myPrj.map(c => `<option value="${esc(c)}">${esc(projectLabel(c))}</option>`).join('')}</select></div>
+            <div class="st-field s"><label class="st-l">MR number</label><input id="dwMr" placeholder="e.g. 243"></div>
+            <div class="st-field s"><label class="st-l">MR date</label><input type="date" id="dwMrDate" value="${todayIso()}"></div>
+            <div class="st-field"><label class="st-l">Material</label><select id="dwMetal"><option value="">— choose —</option>${(m.metals || []).filter(x => x.active).map(x => `<option>${esc(x.name)}</option>`).join('')}</select></div>
+          </div>
+          <div class="st-row" style="margin-top:8px">
+            <div class="st-field"><label class="st-l">Description</label><input id="dwDesc" placeholder="e.g. PI DUCT"></div>
+            <div class="st-field s"><label class="st-l">Insulation</label><input id="dwIns"></div>
+            <div class="st-field s"><label class="st-l">Insulation mm</label><input id="dwInsT" type="number" min="0" value="0"></div>
+            <div class="st-field s"><label class="st-l">Brand</label><input id="dwBrand"></div>
+          </div>
+          <div class="st-row" style="margin-top:8px">
+            <div class="st-field"><label class="st-l">Building</label><input id="dwBld" placeholder="e.g. V-155"></div>
+            <div class="st-field s"><label class="st-l">Floor</label><input id="dwFlr"></div>
+            <div class="st-field"><label class="st-l">Site engineer</label><input id="dwEng" value="${esc(u.name || '')}"></div>
+            <div class="st-field s"><label class="st-l">Mobile</label><input id="dwMob"></div>
+          </div>
+          <div class="st-row" style="margin-top:8px">
+            <div class="st-field" style="flex:1 1 60%"><label class="st-l">Remarks</label><input id="dwRem"></div>
+            <label class="st-chk" style="align-items:center"><input type="checkbox" id="dwUrg"> URGENT</label>
+          </div>
+          <h3>Items</h3>
+          <div class="st-row" style="align-items:center;gap:8px">
+            <label class="st-btn st-ghost st-sm" style="cursor:pointer">📥 Load CAMduct file (.TXT)<input type="file" id="dwFile" accept=".txt,.TXT,.csv,text/plain" style="display:none"></label>
+            <button type="button" class="st-btn st-ghost st-sm" id="dwAddRow">➕ Add item by hand</button>
+            <span class="st-muted" id="dwFileName"></span>
+          </div>
+          <div id="dwDup" style="margin-top:8px"></div>
+          <div id="dwItems" style="margin-top:8px"><div class="st-empty">Load the CAMduct export (the same .TXT file used in the old system), or add items by hand.</div></div>
+          <div class="st-row" style="margin-top:12px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="dwSave">📤 Send to workshop</button></div>
+        </div>`;
+      wireNav();
+      let items = [], fileName = '', dupCount = 0;
+      const draw = () => {
+        const host = $('dwItems');
+        if(!items.length){ host.innerHTML = '<div class="st-empty">No items yet.</div>'; return; }
+        const tq = items.reduce((a, i) => a + num(i.qty), 0), ta = items.reduce((a, i) => a + num(i.area), 0);
+        host.innerHTML = `<div class="st-muted" style="margin-bottom:4px">${items.length} item(s) · ${fmt(tq)} pieces · ${fmt(ta)} sq ft</div>
+          <div class="st-tw"><table class="st-t st-compact"><thead><tr><th>#</th><th>Name</th><th>End 1</th><th>End 2</th><th class="n">L</th><th class="n">Gauge</th><th class="n">Qty</th><th class="n">Area</th><th>Connectors</th><th>Notes</th><th></th></tr></thead><tbody>
+          ${items.map((i, k) => i._hand ? `<tr data-k="${k}">
+              <td><input class="f" data-f="item_no" value="${esc(i.item_no)}" style="width:50px"></td><td><input class="f" data-f="name" value="${esc(i.name)}"></td>
+              <td><input class="f" data-f="end1" value="${esc(i.end1)}" style="width:90px" placeholder="800x200"></td><td><input class="f" data-f="end2" value="${esc(i.end2)}" style="width:90px"></td>
+              <td><input class="f" data-f="length" type="number" value="${esc(i.length)}" style="width:70px"></td><td><input class="f" data-f="gauge" type="number" step="any" value="${esc(i.gauge)}" style="width:60px"></td>
+              <td><input class="f" data-f="qty" type="number" min="0" value="${esc(i.qty)}" style="width:60px"></td><td><input class="f" data-f="area" type="number" step="any" value="${esc(i.area)}" style="width:70px"></td>
+              <td><input class="f" data-f="conn1" value="${esc(i.conn1)}"></td><td><input class="f" data-f="notes" value="${esc(i.notes)}"></td>
+              <td><button type="button" class="st-btn st-ghost st-sm" data-del="${k}">✕</button></td></tr>`
+            : `<tr><td>${esc(i.item_no)}</td><td>${esc(i.name)}</td><td>${esc(i.end1)}</td><td>${esc(i.end2)}</td><td class="n">${fmt(i.length)}</td><td class="n">${fmt(i.gauge)}</td>
+              <td class="n"><input class="f" data-k="${k}" data-f="qty" type="number" min="0" value="${esc(i.qty)}" style="width:60px"></td><td class="n">${fmt(i.area)}</td>
+              <td class="st-muted">${esc([i.conn1, i.conn2].filter(Boolean).join(' / '))}</td><td class="st-muted">${esc(i.notes)}</td>
+              <td><button type="button" class="st-btn st-ghost st-sm" data-del="${k}">✕</button></td></tr>`).join('')}</tbody></table></div>`;
+        host.querySelectorAll('input.f').forEach(inp => inp.addEventListener('change', () => {
+          const k = +(inp.dataset.k || inp.closest('tr').dataset.k), f = inp.dataset.f;
+          items[k][f] = ['length','gauge','qty','area'].includes(f) ? num(inp.value) : inp.value.trim();
+          if(f === 'end1' || f === 'end2'){ const d = v => { const a = String(v || '').toLowerCase().split('x'); return [num(a[0]), num(a[1] || 0)]; }; items[k].sizes = [...d(items[k].end1), ...d(items[k].end2)]; }
+          if(['qty','area'].includes(f)) draw();
+        }));
+        host.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { items.splice(+b.dataset.del, 1); draw(); }));
+      };
+      $('dwFile').addEventListener('change', async e => {
+        const f = e.target.files[0]; if(!f) return;
+        if(/\.xlsx?$/i.test(f.name)){ toast('Excel CAMduct files come in the next step — please export as .TXT from CAMduct for now.', true); e.target.value = ''; return; }
+        try{
+          const txt = await f.text();
+          const got = dwParseCamduct(txt);
+          items = items.filter(i => i._hand).concat(got); fileName = f.name;
+          $('dwFileName').textContent = `${f.name} — ${got.length} item(s)`;
+          const guids = got.map(i => i.guid).filter(Boolean);
+          const dups = guids.length ? (await rpcOptional('dw_guid_check', {p_guids: guids}) || []) : [];
+          dupCount = dups.length;
+          $('dwDup').innerHTML = dupCount ? `<div class="st-note warn">⚠ ${dupCount} item(s) of this file were already ordered in: ${esc([...new Set(dups.map(d => d.order_no + ' (MR ' + d.mr_no + ')'))].join(', '))}.
+              <label class="st-chk" style="margin-top:6px"><input type="checkbox" id="dwDupOk"> I know — order them again</label></div>` : '';
+          const mr = (f.name.match(/MR[#.\s-]*0*([0-9][0-9-]*)/i) || [])[1];
+          if(mr && !$('dwMr').value) $('dwMr').value = mr;
+          if(/urgent/i.test(f.name)) $('dwUrg').checked = true;
+          draw();
+        }catch(err){ toast(err.message, true); }
+        e.target.value = '';
+      });
+      $('dwAddRow').addEventListener('click', () => { items.push({_hand: true, item_no: String(items.length + 1), name: '', end1: '', end2: '', end3: '', end4: '', sizes: [], length: 0, gauge: 0, qty: 1, area: 0, conn1: '', notes: '', guid: ''}); draw(); });
+      $('dwSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+        const head = {project_code: $('dwPrj').value, mr_no: $('dwMr').value.trim(), mr_date: $('dwMrDate').value, metal: $('dwMetal').value,
+          description: $('dwDesc').value.trim(), insulation: $('dwIns').value.trim(), insulation_thk: num($('dwInsT').value), brand: $('dwBrand').value.trim(),
+          building: $('dwBld').value.trim(), floor: $('dwFlr').value.trim(), engineer: $('dwEng').value.trim(), eng_mobile: $('dwMob').value.trim(),
+          remarks: $('dwRem').value.trim(), urgent: $('dwUrg').checked, camduct_file: fileName, allow_duplicates: !!($('dwDupOk') && $('dwDupOk').checked)};
+        if(!head.project_code) throw new Error('Choose the project.');
+        if(!head.mr_no) throw new Error('Enter the MR number.');
+        if(!head.metal) throw new Error('Choose the material.');
+        if(!head.building) throw new Error('Enter the building.');
+        const send = items.filter(i => num(i.qty) > 0).map(({_hand, ...i}) => i);
+        if(!send.length) throw new Error('No items with a quantity.');
+        if(send.some(i => !i.name)) throw new Error('Every item needs a name.');
+        if(dupCount && !head.allow_duplicates) throw new Error('Some items were already ordered — tick "order them again" if that is right.');
+        if(!confirm(`Send ${send.length} item(s) for ${projectLabel(head.project_code)} to the workshop?`)) return;
+        const r = await rpc('dw_order_create', {p_head: head, p_items: send});
+        toast(`${r.order_no} sent to the workshop — ${r.items} item(s)`);
+        go('workshop', {order: r.id});
+      }));
+      draw();
+      return;
+    }
+
+    /* ----- masters & old data ----- */
+    if(sub === 'admin'){
+      main.innerHTML = `<h2>🏭 Masters &amp; old data</h2>${nav}
+        ${isAdmin() ? `<div class="st-card"><h3 style="margin-top:0">Bring in data from the old Factory system</h3>
+          <div class="st-muted">Choose the <b>company_db.sql</b> export from phpMyAdmin. Orders, duct items, DOs, duct types, materials and connectors are copied.
+            Run it again any time before switching over — old records are updated, not doubled. Users, passwords and HR data are <b>not</b> copied.</div>
+          <div class="st-row" style="margin-top:8px;align-items:center;gap:8px">
+            <label class="st-btn st-ghost st-sm" style="cursor:pointer">📂 Choose company_db.sql<input type="file" id="dwDump" accept=".sql" style="display:none"></label>
+            <span id="dwDumpInfo" class="st-muted"></span></div>
+          <div id="dwDumpGo" style="margin-top:8px"></div></div>` : ''}
+        ${[['duct_type','Duct types','duct_types'],['metal','Materials','metals'],['connection','Connectors','connections']].map(([k, t, key]) => `
+          <h3>${t} <button type="button" class="st-btn st-ghost st-sm" data-add="${k}">➕ Add</button></h3>
+          <div class="st-tw"><table class="st-t st-compact"><thead><tr><th>ID</th><th>Name</th>${k === 'duct_type' ? '<th class="n">Sale %</th>' : ''}<th>Active</th><th></th></tr></thead><tbody>
+          ${(m[key] || []).map(x => `<tr><td>${esc(x.id)}</td><td>${esc(x.name)}</td>${k === 'duct_type' ? `<td class="n">${fmt(x.sale_pct)}</td>` : ''}<td>${x.active ? '✔' : '—'}</td>
+            <td><button type="button" class="st-btn st-ghost st-sm" data-edit="${k}" data-id="${esc(x.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="5" class="st-muted">None yet — import the old data or add.</td></tr>'}
+          </tbody></table></div>`).join('')}`;
+      wireNav();
+      const listFor = k => ({duct_type: m.duct_types, metal: m.metals, connection: m.connections})[k] || [];
+      main.querySelectorAll('[data-add],[data-edit]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+        const k = b.dataset.add || b.dataset.edit;
+        const x = b.dataset.edit ? listFor(k).find(y => String(y.id) === b.dataset.id) : null;
+        const name = prompt('Name:', x ? x.name : ''); if(name === null || !name.trim()) return;
+        let pct = 0;
+        if(k === 'duct_type'){ const p = prompt('Sale %:', x ? String(x.sale_pct) : '0'); if(p === null) return; pct = num(p); }
+        const active = x ? confirm('Keep it active? (Cancel = inactive)') : true;
+        await rpc('dw_master_save', {p_kind: k, p_id: x ? x.id : null, p_name: name.trim(), p_active: active, p_sale_pct: pct});
+        await dwMasters(true); go('workshop', {sub: 'admin'}, true);
+      })));
+      if($('dwDump')) $('dwDump').addEventListener('change', async e => {
+        const f = e.target.files[0]; if(!f) return;
+        $('dwDumpInfo').textContent = 'Reading ' + f.name + '…';
+        try{
+          const text = await f.text();
+          const T = ['f_duct_type','f_matel','f_connection','f_orders','f_duct_details','f_donumbers','f_do_datailss'];
+          const d = dwParseDump(text, T);
+          const plan = [['duct_types','f_duct_type','Duct types'],['metals','f_matel','Materials'],['connections','f_connection','Connectors'],
+            ['orders','f_orders','Orders'],['items','f_duct_details','Duct items'],['dos','f_donumbers','DOs'],['do_lines','f_do_datailss','DO lines']];
+          $('dwDumpInfo').textContent = f.name + ' — ' + plan.map(([, t, l]) => `${l} ${d[t].length}`).join(' · ');
+          if(!d.f_orders.length) throw new Error('No orders found — is this the company_db export?');
+          $('dwDumpGo').innerHTML = `<button type="button" class="st-btn st-ok" id="dwDumpRun">⬆ Import now</button> <span id="dwDumpProg" class="st-muted"></span>`;
+          $('dwDumpRun').addEventListener('click', ev => busy(ev.currentTarget, async () => {
+            if(!confirm('Copy the old workshop data into MEMCO now? This can take a few minutes — keep this page open.')) return;
+            for(const [kind, t, label] of plan){
+              const rows = d[t], size = kind === 'items' ? 250 : 500;
+              for(let k = 0; k < rows.length; k += size){
+                $('dwDumpProg').textContent = `${label}: ${Math.min(k + size, rows.length)} / ${rows.length}`;
+                await rpc('dw_import_legacy', {p_kind: kind, p_rows: rows.slice(k, k + size)});
+              }
+            }
+            $('dwDumpProg').textContent = 'Done ✔';
+            toast('Old workshop data imported');
+            await dwMasters(true);
+          }));
+        }catch(err){ $('dwDumpInfo').textContent = ''; toast(err.message, true); }
+        e.target.value = '';
+      });
+      return;
+    }
+
+    /* ----- one order ----- */
+    const o = await rpc('dw_order_get', {p_id: arg.order}).catch(e => { toast(e.message, true); return null; });
+    if(!o){ main.innerHTML = `<h2>Duct order</h2>${nav}<div class="st-empty">Order not found.</div>`; wireNav(); return; }
+    const can = o.can || {};
+    const items = o.items || [];
+    const left = i => Math.max(0, num(i.qty) - num(i.delivered_qty));
+    const totLeft = items.reduce((a, i) => a + left(i), 0);
+    const stepIdx = DW_STEPS.indexOf(o.status === 'partly_delivered' ? 'qc_passed' : o.status);
+    const vehs = dwVehicles();
+    main.innerHTML = `<h2>🏭 ${esc(o.order_no)} ${pill(o.status)}${o.urgent ? ' <span class="st-pill p-rejected">URGENT</span>' : ''}</h2>${nav}
+      <div class="st-card">
+        <div class="st-row" style="gap:18px">
+          <div><div class="st-muted">Project</div><b>${esc(o.project_code)}</b> ${esc(o.project_name)}</div>
+          <div><div class="st-muted">MR</div><b>${esc(o.mr_no)}</b> ${o.mr_date ? esc(dmy(o.mr_date)) : ''}</div>
+          <div><div class="st-muted">Building / Floor</div>${esc(o.building)} ${esc(o.floor)}</div>
+          <div><div class="st-muted">Material</div>${esc(o.metal)}${o.insulation ? ' · ' + esc(o.insulation) + (num(o.insulation_thk) ? ' ' + fmt(o.insulation_thk) + 'mm' : '') : ''}</div>
+          <div><div class="st-muted">Engineer</div>${esc(o.engineer)} ${esc(o.eng_mobile)}</div>
+          ${o.camduct_file ? `<div><div class="st-muted">CAMduct file</div>${esc(o.camduct_file)}</div>` : ''}
+        </div>
+        ${o.remarks ? `<div class="st-muted" style="margin-top:6px">Remarks: ${esc(o.remarks)}</div>` : ''}
+        <div style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap">${DW_STEPS.map((s2, k) => `<span class="st-pill ${o.status === 'cancelled' ? 'p-cancelled' : k <= stepIdx ? 'p-delivered' : ''}" style="${k > stepIdx ? 'opacity:.45' : ''}">${k + 1}. ${esc(STATUS_LABEL[s2])}</span>`).join('')}</div>
+        <div class="st-row" style="margin-top:10px;gap:6px">
+          <button type="button" class="st-btn st-ghost st-sm" id="dwTags">🏷 Print tags</button>
+          ${can.workshop && o.status === 'submitted' ? '<button type="button" class="st-btn st-sm" data-step="tagged">✔ Tags printed</button>' : ''}
+          ${can.workshop && ['submitted','tagged'].includes(o.status) ? '<button type="button" class="st-btn st-ok st-sm" data-step="fabricated">✔ Fabricated</button>' : ''}
+          ${can.qc && o.status === 'fabricated' ? '<button type="button" class="st-btn st-ok st-sm" data-step="qc_pass">✔ QC pass</button><button type="button" class="st-btn st-danger st-sm" data-step="qc_reject">✕ QC reject (rework)</button>' : ''}
+          ${(can.boss || (can.mine && o.status === 'submitted')) && !['delivered','partly_delivered','cancelled'].includes(o.status) ? '<button type="button" class="st-btn st-ghost st-sm" data-step="cancel">Cancel order</button>' : ''}
+        </div>
+      </div>
+      ${can.workshop && ['qc_passed','partly_delivered'].includes(o.status) && totLeft > 0 ? `
+      <h3>🚚 Make delivery order</h3>
+      <div class="st-card">
+        <div class="st-row">
+          <div class="st-field"><label class="st-l">Vehicle</label><input id="dwVeh" list="dwVehL" placeholder="Plate"><datalist id="dwVehL">${vehs.map(v => `<option value="${esc(v.plate)}">${esc((v.vehType || '') + (v.assignedTo ? ' — ' + v.assignedTo : ''))}</option>`).join('')}</datalist></div>
+          <div class="st-field"><label class="st-l">Driver</label><input id="dwDrv"></div>
+          <div class="st-field s"><label class="st-l">Driver mobile</label><input id="dwDrvM"></div>
+          <div class="st-field s"><label class="st-l">Date</label><input type="date" id="dwDoDate" value="${todayIso()}"></div>
+        </div>
+        <div class="st-row" style="margin-top:8px"><div class="st-field" style="flex:1 1 100%"><label class="st-l">Note</label><input id="dwDoNote"></div></div>
+        <div class="st-row" style="margin:8px 0;gap:6px"><button type="button" class="st-btn st-ghost st-sm" id="dwAll">All remaining</button><button type="button" class="st-btn st-ghost st-sm" id="dwNone">Clear</button></div>
+        <div class="st-tw"><table class="st-t st-compact"><thead><tr><th>#</th><th>Item</th><th>Size</th><th class="n">Ordered</th><th class="n">Sent</th><th class="n">This DO</th></tr></thead><tbody>
+          ${items.filter(i => left(i) > 0).map(i => `<tr><td>${esc(i.item_no)}</td><td>${esc(i.name)}<div class="st-muted">${esc(i.notes)}</div></td><td>${esc(dwSize(i))}</td>
+            <td class="n">${fmt(i.qty)}</td><td class="n">${fmt(i.delivered_qty)}</td>
+            <td class="n"><input type="number" class="dwq" data-id="${esc(i.id)}" min="0" max="${left(i)}" value="${left(i)}" style="width:70px"></td></tr>`).join('')}
+        </tbody></table></div>
+        <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="dwDoSave">🚚 Make DO</button></div>
+      </div>` : ''}
+      ${(o.dos || []).length ? `<h3>Delivery orders</h3><div class="st-tw"><table class="st-t"><thead><tr><th>DO</th><th>Date</th><th>Vehicle / Driver</th><th class="n">Pieces</th><th class="n">Area</th><th>Status</th><th></th></tr></thead><tbody>
+        ${o.dos.map(d => `<tr><td><b>${esc(d.do_no)}</b></td><td>${esc(dmy(d.do_date))}</td><td>${esc(d.vehicle)}<div class="st-muted">${esc(d.driver)}</div></td>
+          <td class="n">${fmt((d.lines || []).reduce((a, l) => a + num(l.qty), 0))}</td><td class="n">${fmt((d.lines || []).reduce((a, l) => a + num(l.area), 0))}</td>
+          <td>${pill(d.status)}${d.received_by ? `<div class="st-muted">${esc(d.received_by)}</div>` : ''}</td>
+          <td><div class="st-actions"><button type="button" class="st-btn st-ghost st-sm" data-doprint="${esc(d.id)}">🖨 Print</button>
+            ${d.status === 'dispatched' && can.site ? `<button type="button" class="st-btn st-ok st-sm" data-dorecv="${esc(d.id)}">✔ Received at site</button>` : ''}
+            ${d.status !== 'cancelled' && can.boss && d.created_by ? `<button type="button" class="st-btn st-ghost st-sm" data-docan="${esc(d.id)}">Cancel</button>` : ''}</div></td></tr>`).join('')}
+        </tbody></table></div>` : ''}
+      <h3>Items (${items.length})</h3>
+      <div class="st-tw"><table class="st-t st-compact"><thead><tr><th>#</th><th>Name</th><th>End 1</th><th>End 2</th><th class="n">L</th><th class="n">Gauge</th><th class="n">Qty</th><th class="n">Sent</th><th class="n">Area</th><th>Connectors</th><th>Notes</th></tr></thead><tbody>
+        ${items.map(i => `<tr><td>${esc(i.item_no)}</td><td>${esc(i.name)}${i.duct_type ? `<div class="st-muted">${esc(i.duct_type)}</div>` : ''}</td><td>${esc(i.end1)}</td><td>${esc(i.end2)}</td>
+          <td class="n">${fmt(i.length)}</td><td class="n">${fmt(i.gauge)}</td><td class="n">${fmt(i.qty)}</td><td class="n">${fmt(i.delivered_qty)}</td><td class="n">${fmt(i.area)}</td>
+          <td class="st-muted">${esc([i.conn1, i.conn2, i.conn3, i.conn4].filter(Boolean).join(' / '))}</td><td class="st-muted">${esc(i.notes)}</td></tr>`).join('')}
+        <tr><td colspan="6" class="n"><b>Total</b></td><td class="n"><b>${fmt(items.reduce((a, i) => a + num(i.qty), 0))}</b></td><td class="n"><b>${fmt(items.reduce((a, i) => a + num(i.delivered_qty), 0))}</b></td>
+          <td class="n"><b>${fmt(items.reduce((a, i) => a + num(i.area), 0))}</b></td><td colspan="2"></td></tr></tbody></table></div>
+      <h3>History</h3><div class="dw-log">${(o.log || []).map(l => `<div>${esc(dmyt(l.at))} — <b>${esc(STATUS_LABEL[l.action] || ({qc_pass:'QC passed', qc_reject:'QC rejected — back for rework', cancel:'Cancelled', do:'DO made', do_cancelled:'DO cancelled'})[l.action] || l.action)}</b> by ${esc(l.by)}${l.note ? ' — ' + esc(l.note) : ''}</div>`).join('') || '<div>—</div>'}</div>`;
+    wireNav();
+    const reload = () => go('workshop', {order: o.id}, true);
+    $('dwTags').addEventListener('click', () => dwPrintTags(o));
+    main.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+      const st = b.dataset.step;
+      let note = '';
+      if(['qc_reject','cancel'].includes(st)){ note = prompt(st === 'qc_reject' ? 'What must be corrected?' : 'Why is it cancelled?', ''); if(note === null) return; }
+      else if(!confirm(`${o.order_no}: ${b.textContent.trim()}?`)) return;
+      await rpc('dw_order_step', {p_id: o.id, p_step: st, p_note: note});
+      toast(`${o.order_no} updated`); loadPending().then(renderTabs).catch(() => {}); reload();
+    })));
+    if($('dwVeh')) $('dwVeh').addEventListener('change', () => {
+      const v = vehs.find(x => String(x.plate).toUpperCase() === $('dwVeh').value.trim().toUpperCase());
+      if(v && v.assignedTo && !$('dwDrv').value) $('dwDrv').value = v.assignedTo;
+    });
+    if($('dwAll')) $('dwAll').addEventListener('click', () => main.querySelectorAll('.dwq').forEach(i => { i.value = i.max; }));
+    if($('dwNone')) $('dwNone').addEventListener('click', () => main.querySelectorAll('.dwq').forEach(i => { i.value = 0; }));
+    if($('dwDoSave')) $('dwDoSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+      const lines = [...main.querySelectorAll('.dwq')].map(i => ({item_id: +i.dataset.id, qty: num(i.value)})).filter(l => l.qty > 0);
+      if(!lines.length) throw new Error('Enter a quantity for at least one item.');
+      if(!$('dwVeh').value.trim() || !$('dwDrv').value.trim()) throw new Error('Enter the vehicle and the driver.');
+      if(!confirm(`Make a DO with ${lines.length} item line(s)?`)) return;
+      const d = await rpc('dw_do_create', {p_order: o.id, p_lines: lines, p_vehicle: $('dwVeh').value.trim(), p_driver: $('dwDrv').value.trim(),
+        p_driver_mobile: $('dwDrvM').value.trim(), p_date: $('dwDoDate').value || todayIso(), p_note: $('dwDoNote').value.trim()});
+      toast(`${d.do_no} made`); dwPrintDO(o, d); reload();
+    }));
+    main.querySelectorAll('[data-doprint]').forEach(b => b.addEventListener('click', () => dwPrintDO(o, o.dos.find(d => d.id === b.dataset.doprint))));
+    main.querySelectorAll('[data-dorecv]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+      const by = prompt('Received by (name):', (me() || {}).name || ''); if(by === null) return;
+      await rpc('dw_do_receive', {p_do: b.dataset.dorecv, p_by: by.trim()});
+      toast('Delivery confirmed'); loadPending().then(renderTabs).catch(() => {}); reload();
+    })));
+    main.querySelectorAll('[data-docan]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+      const note = prompt('Why is this DO cancelled?', ''); if(note === null) return;
+      await rpc('dw_do_cancel', {p_do: b.dataset.docan, p_note: note.trim()});
+      toast('DO cancelled'); reload();
+    })));
   };
 
   /* ---------- Stock Adjustment (after Live) ---------- */
@@ -22508,6 +22955,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       cards.push(card(ib.tools_due, '🛠️ Tools overdue', 'Tools not returned by the due date', 'tools', ''));
     }
     if(isMain() || hasRole('pm') || hasRole('engineer') || S.scope === 'tree') cards.push(card(ib.adj_approve, '⚖️ Stock adjustments to approve', 'Count differences raised by store keepers', 'adjust', ''));
+    if(hasRole('workshop')) cards.push(card(ib.dw_work, '🏭 Duct orders in the workshop', 'Tags, fabrication and DO to do', 'workshop', ''));
+    if(hasRole('qc')) cards.push(card(ib.dw_qc, '🔍 Ducts waiting for QC', 'Fabricated orders to check', 'workshop', ''));
+    cards.push(card(ib.dw_receive, '🚚 Duct deliveries on the way', 'Confirm when the DO reaches site', 'workshop', ''));
     if(isMain() || hasRole('pm') || hasRole('engineer')) cards.push(card(ib.holds_due, '🔒 Holds past their date', 'Release the material or extend the hold', 'hold', ''));
     main.innerHTML = `<h2>My Tasks</h2>
       ${canRaiseMR() ? `<div class="st-row" style="margin-bottom:12px"><button type="button" class="st-btn st-ok" id="stTkNew">➕ New Material Request</button></div>` : ''}
