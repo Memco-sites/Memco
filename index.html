@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v50.6</title>
+<title>MEMCO Portal v50.7</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -6684,6 +6684,16 @@ function regShowStep(step){
   document.getElementById('regStepPassword').style.display = step === 'password' ? '' : 'none';
 }
 
+// the server's own reason (e.g. "not allowed yet") instead of a vague network message
+function regServerMessage(err){
+  const m = String((err && (err.message || err.details || err.hint)) || '').replace(/^.*?ERROR:\s*/, '').trim();
+  if(/not allowed to use the app/i.test(m)){
+    return '⛔ This HR number has not been given access to the app yet. Ask your Project Engineer / Project Manager to tick "Login" for you on the Site Access screen, then try again.';
+  }
+  if(/fetch|network|timeout|Failed to/i.test(m) || !m) return 'Could not reach the server. Check the internet connection and try again.';
+  return m;
+}
+
 function regResetAndClose(){
   document.getElementById('registerOverlay').classList.remove('open');
   document.getElementById('loginOverlay').classList.add('open');
@@ -6720,7 +6730,8 @@ document.getElementById('regHrContinueBtn').onclick = async () => {
   const client = getSupaClient();
   if(!client){ errEl.textContent = 'Connecting to the server — please try again in a moment.'; errEl.style.display = 'block'; return; }
   const r = await withTimeout(client.rpc('reg_lookup', { p_hr: code }), AUTH_TIMEOUT_MS, null);
-  if(!r || r.error){ errEl.textContent = 'Could not reach the server. Please try again.'; errEl.style.display = 'block'; return; }
+  if(!r){ errEl.textContent = 'Could not reach the server. Check the internet connection and try again.'; errEl.style.display = 'block'; return; }
+  if(r.error){ errEl.textContent = regServerMessage(r.error); errEl.style.display = 'block'; return; }
   const info = r.data || {};
   if(!info.found){
     errEl.textContent = 'HR Number not found in staff or labor records. Please check the number and try again.';
@@ -6755,7 +6766,8 @@ document.getElementById('regQuizVerifyBtn').onclick = async () => {
   const client = getSupaClient();
   const r = client ? await withTimeout(client.rpc('reg_check', { p_hr: regPendingHrCode, p_name: selected.dataset.quizName }), AUTH_TIMEOUT_MS, null) : null;
   verifyBtn.disabled = false;
-  if(!r || r.error){ errEl.textContent = 'Could not reach the server. Please try again.'; errEl.style.display = 'block'; return; }
+  if(!r){ errEl.textContent = 'Could not reach the server. Check the internet connection and try again.'; errEl.style.display = 'block'; return; }
+  if(r.error){ errEl.textContent = regServerMessage(r.error); errEl.style.display = 'block'; return; }
   if(!r.data || !r.data.ok){
     errEl.textContent = (r.data && r.data.locked)
       ? 'Too many wrong attempts for this HR Number. Please contact the admin.'
