@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v50.3</title>
+<title>MEMCO Portal v50.5</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -5056,7 +5056,7 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
     </div>
 
     <div id="vehiclesSubView">
-      <input type="text" id="vehicleSearch" placeholder="Search plate number or vehicle type…" style="width:50%;background:var(--navy-2);border:1px solid var(--line);color:var(--ink);padding:9px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;margin-bottom:10px;">
+      <input type="text" id="vehicleSearch" placeholder="Search plate, vehicle type, driver name or HR…" style="width:50%;background:var(--navy-2);border:1px solid var(--line);color:var(--ink);padding:9px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;margin-bottom:10px;">
       <div class="att-summary" id="vehiclesResultSummary" style="margin-bottom:10px;"></div>
       <div id="vehiclesList"></div>
       <div id="vehicleDetailInline"></div>
@@ -11119,6 +11119,23 @@ function generateHandoverPin(){
 // Vehicles list and the Drivers Roster so the two views never disagree.
 // Precedence: registration problems first (pre-existing feature), then
 // workshop/maintenance, then a pending handover, then active, then standby.
+// HR number of the person a vehicle is assigned to (older records only kept the name)
+function vehHr(v){
+  if(!v || !v.assignedTo) return '';
+  if(v.assignedCode) return String(v.assignedCode);
+  try{
+    const nm = String(v.assignedTo).trim().toLowerCase();
+    const all = [].concat(typeof laborRecords !== 'undefined' ? laborRecords : [], typeof staffRecords !== 'undefined' ? staffRecords : []);
+    const hits = all.filter(x => String(x.name || '').trim().toLowerCase() === nm);
+    return hits.length === 1 ? String(hits[0].code) : '';
+  }catch(e){ return ''; }
+}
+function vehWho(v){
+  if(!v || !v.assignedTo) return 'Not Set';
+  const hr = vehHr(v);
+  return escapeHtml(v.assignedTo) + (hr ? ` <span class="veh-hr">HR ${escapeHtml(hr)}</span>` : '');
+}
+
 function vehicleColorStatus(v){
   const days = vehicleDaysLeft(v.regExpiry);
   const isExpired = days !== null && days < 0;
@@ -11300,7 +11317,9 @@ function renderVehiclesList(){
   if(q){
     results = results.filter(v =>
       (v.plate && v.plate.toLowerCase().includes(q)) ||
-      (v.vehType && v.vehType.toLowerCase().includes(q))
+      (v.vehType && v.vehType.toLowerCase().includes(q)) ||
+      (v.assignedTo && v.assignedTo.toLowerCase().includes(q)) ||
+      (vehHr(v) && vehHr(v).toLowerCase() === q.replace(/^hr\s*/, ''))
     );
   }
   // sort by soonest registration expiry first
@@ -11319,8 +11338,8 @@ function renderVehiclesList(){
     const vs = vehicleColorStatus(v);
     const cls = 'vehicle-chip ' + vs.cls;
     const driverOrExpiryLine = vs.key === 'expired'
-      ? `<div class="vch-expiry-warn">${vs.label}</div>`
-      : `<div class="vch-driver-big">👤 ${v.assignedTo ? escapeHtml(v.assignedTo) : 'Not Set'}${vs.key === 'pending' ? ' ⏳' : ''}</div>`;
+      ? `<div class="vch-expiry-warn">${vs.label}</div>${v.assignedTo ? `<div class="vch-driver-big">👤 ${vehWho(v)}</div>` : ''}`
+      : `<div class="vch-driver-big">👤 ${v.assignedTo ? vehWho(v) : 'Not Set'}${vs.key === 'pending' ? ' ⏳' : ''}</div>`;
     return `
       <div class="${cls}" data-plate="${escapeAttr(v.plate)}">
         <div class="vch-type">${escapeHtml(v.vehType || 'Unknown')}</div>
@@ -11400,7 +11419,7 @@ function toggleVehicleInline(plate){
     <div class="hero" style="margin:14px 0 8px;padding-top:10px;">
       <h1 style="font-size:16px;">${escapeHtml(vehicleTitle(v))}</h1>
     </div>
-    <button class="btn btn-ghost" style="width:100%;margin-bottom:10px;pointer-events:none;">👤 Assigned to: ${v.assignedTo ? escapeHtml(v.assignedTo) : 'Not Set'}</button>
+    <button class="btn btn-ghost" style="width:100%;margin-bottom:10px;pointer-events:none;">👤 Assigned to: ${v.assignedTo ? vehWho(v) : 'Not Set'}</button>
     ${v.assignedTo && v.handoverStatus === 'pending' ? `<div class="log-empty" style="color:var(--orange);border:1px solid var(--orange);border-radius:var(--radius);padding:8px;margin-bottom:10px;text-align:center;">⏳ Pending Driver Approval — driver has not yet inspected &amp; accepted this vehicle.</div>` : ''}
     ${v.assignedTo && v.handoverStatus === 'pending' && canAssign ? `<button class="btn btn-ghost" id="vehiclePinBtn" style="width:100%;margin-bottom:10px;font-size:11.5px;padding:8px 6px;">🔑 Security PIN: ${escapeHtml(v.handoverPin || '----')} — tap to view/change</button>` : ''}
     ${isExpired ? `<div class="log-empty" style="color:var(--red);border:1px solid var(--red);border-radius:var(--radius);padding:8px;margin-bottom:10px;text-align:center;">⚠ Registration Expired — this vehicle cannot be allotted to a driver until renewed.</div>` : ''}
@@ -12065,7 +12084,7 @@ function renderHandoverChecklistBody(){
   if(!v) return;
   const mode = handoverChecklistMode;
   document.getElementById('handoverChecklistTitle').textContent = `${v.plate} · ${v.vehType || 'Vehicle'}`;
-  document.getElementById('handoverChecklistSub').textContent = `Assigned to: ${v.assignedTo || 'Not Set'}${v.assignedCode ? ' (' + v.assignedCode + ')' : ''}`;
+  document.getElementById('handoverChecklistSub').textContent = `Assigned to: ${v.assignedTo || 'Not Set'}${vehHr(v) ? ' (HR ' + vehHr(v) + ')' : ''}`;
 
   const bannerEl = document.getElementById('handoverChecklistBanner');
   if(v.handoverStatus === 'pending'){
@@ -21333,7 +21352,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     function renderSelected(){
       const rows = [...pickedReq.values()];
       $('rqSelCount').textContent = `(${rows.length})`;
-      $('rqLines').innerHTML = !rows.length ? '<div class="st-empty">Click material above to add it here.</div>' :
+      $('rqLines').innerHTML = !rows.length ? (rqMode === 'return'
+          ? '<div class="st-empty">Write the quantity he is bringing back in the list above — it appears here.</div>'
+          : '<div class="st-empty">Click material above to add it here.</div>') :
         `<div class="st-tw"><table class="st-t"><thead><tr><th>Code</th><th>Description</th><th>Brand</th><th>Unit</th><th class="n">Available</th><th class="n">Qty needed</th><th></th></tr></thead><tbody>
         ${rows.map(i => `<tr><td><b>${esc(i.code)}</b></td><td>${esc(i.description)}</td><td>${esc(i.brand||'')}</td><td>${esc(i.unit||'')}</td>
           <td class="n">${fmt(availableFor(i))}${(!availableFor(i) && elsewhereFor(i))?`<div class="st-muted" style="font-size:11px;color:#fcd34d">in ${esc(elsewhereFor(i))}</div>`:''}</td><td class="n"><input type="number" min="0" step="any" data-rqq="${esc(i.code)}" value="${esc(i.qty||'')}" style="width:100px;text-align:right"></td>
@@ -21417,6 +21438,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       $('rqModeTake').className = 'st-btn' + (back ? ' st-ghost' : '');
       $('rqModeBack').className = 'st-btn' + (back ? '' : ' st-ghost');
       $('rqFormTitle').textContent = back ? 'Return material to the store' : 'New requisition';
+      const selH = $('rqLines') && $('rqLines').previousElementSibling;
+      if(selH && /Selected material|Being returned/i.test(selH.textContent)) selH.firstChild.textContent = back ? 'Being returned ' : 'Selected material ';
+      if(back && $('rqHr') && !$('rqHr').value.trim()) setTimeout(() => $('rqHr').focus(), 50);
       $('rqSend').textContent = back ? '📥 Offer this return' : '🧾 Send requisition';
       // only the material picker makes way for "what he still holds" — the HR / store form stays
       const picker = $('rqMatGrid') ? $('rqMatGrid').closest('.rq-picker') : null;
@@ -21428,7 +21452,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     async function drawHolding(){
       const hr = $('rqHr').value.trim();
       const box = $('rqHoldBox');
-      if(!hr){ box.innerHTML = '<div class="st-empty">Enter the HR number first.</div>'; return; }
+      if(!hr){ box.innerHTML = `<div class="st-empty">⬆ Type the <b>HR number</b> of the person bringing the material back —
+          everything he still holds will be listed here.</div>`; return; }
       box.innerHTML = '<div class="st-empty">Loading what he still holds…</div>';
       let all = [];
       try{ all = await rpc('st_req_holding', {p_hr: hr, p_store: null}) || []; }
@@ -23874,6 +23899,7 @@ html.memco-locked{overflow:hidden !important;}
 body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width:100%;}
 .overlay, .modal, #stApp, #ltApp, #stApp .st-main, #stApp .st-tw, #ltApp .lt-body,
 #campSetOverlay, [id$="Overlay"]{overscroll-behavior:contain;}
+
 </style></head><body>
       <h1>AL MUHANAD ELECTRO-MECHANICAL CONT. L.L.C.</h1><h2>LABOR TRANSFER / CAMP ALLOCATION</h2>
       <table class="box" style="margin-bottom:12px">
@@ -24623,6 +24649,10 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 (function(){
   'use strict';
   // the rules are added from here, so they can never be lost in the page's CSS
+  const vehCss = document.createElement('style');
+  vehCss.textContent = `.veh-hr{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:.82em;
+    font-weight:700;background:rgba(56,189,248,.16);color:#7dd3fc;vertical-align:middle}`;
+  document.head.appendChild(vehCss);
   const umCss = document.createElement('style');
   umCss.id = 'memcoUsersCss';
   umCss.textContent = `
