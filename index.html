@@ -1,101 +1,74 @@
 -- =====================================================================
--- MEMCO — Administration powers through the Permission Matrix
+-- MEMCO — login with the HR number, and password reset by the site
 --
--- Roles you create (Assistant Admin, Store Manager, …) can now be given
--- admin powers by ticking them in the Permission Matrix:
---   manageUsers        Manage Users (add, edit, block users)
---   managePermissions  Permission Matrix and roles
---   siteAccess         Site Access screen
+-- 1) A person can sign in with his HR number instead of his username.
+-- 2) A PM / Project Engineer / Site Engineer (or HR, or anyone ticked
+--    "Site Access") can reset the password of the people on HIS site.
+--    The person gets a temporary password and must choose his own the
+--    first time he signs in.
 --
--- Guard rails, always on:
---   · only a Super Admin can make, change or delete a Super Admin
---   · a Super Admin row can never be edited by anyone else
+-- Also redeploy the Edge Function "memco-users" with the index.ts from
+-- this package (Verify JWT = OFF) — it carries the new "site_reset" action.
 --
--- Also redeploy the Edge Function "memco-users" with the new index.ts
--- from this package (Verify JWT = OFF), otherwise creating accounts
--- still needs a Super Admin.
---
--- Run AFTER 1_memco_security.sql and 9_memco_site_access.sql.  Safe to run again.
+-- Run AFTER 9_memco_site_access.sql and 16_memco_admin_perms.sql.  Safe to run again.
 -- =====================================================================
 
--- does my role have this tick in the Permission Matrix?
-create or replace function public.app_can(p_perm text) returns boolean
+-- HR number → username (usernames are not secret; the password still is)
+create or replace function public.login_username(p_hr text) returns text
 language sql stable security definer set search_path = public as $$
-  select public.is_admin() or exists (
-    select 1
-      from public.profiles p
-      join public.app_shared_state s on s.id = 'role-perms-matrix-v2'
-     where p.id = auth.uid()
-       and not p.blocked
-       and jsonb_typeof(s.data) = 'object'
-       and coalesce((s.data -> p.role ->> p_perm)::boolean, false)
-  );
+  select username from public.profiles
+   where hr_code = trim(coalesce(p_hr, '')) and trim(coalesce(p_hr, '')) <> ''
+   limit 1;
 $$;
-revoke all on function public.app_can(text) from public, anon;
-grant execute on function public.app_can(text) to authenticated;
+revoke all on function public.login_username(text) from public;
+grant execute on function public.login_username(text) to anon, authenticated;
 
--- ---------------------------------------------------------------------
--- profiles: people with "Manage Users" may edit accounts — never a Super Admin
--- ---------------------------------------------------------------------
-drop policy if exists profiles_admin_update on public.profiles;
-create policy profiles_admin_update on public.profiles
-  for update to authenticated
-  using (public.is_admin() or (public.app_can('manageUsers') and role <> 'Super Admin'))
-  with check (public.is_admin() or (public.app_can('manageUsers') and role <> 'Super Admin'));
-
--- ---------------------------------------------------------------------
--- shared lists: users list and the permission matrix follow the ticks
--- ---------------------------------------------------------------------
-drop policy if exists shared_insert on public.app_shared_state;
-drop policy if exists shared_update on public.app_shared_state;
-
-create policy shared_insert on public.app_shared_state
-  for insert to authenticated
-  with check (
-    public.is_active_user()
-    and (public.is_admin()
-         or (id = 'users-v1' and public.app_can('manageUsers'))
-         or (id in ('role-perms-matrix-v2', 'custom-roles-v1') and public.app_can('managePermissions'))
-         or id not in ('users-v1', 'role-perms-matrix-v2', 'custom-roles-v1'))
-  );
-
-create policy shared_update on public.app_shared_state
-  for update to authenticated
-  using (
-    public.is_active_user()
-    and (public.is_admin()
-         or (id = 'users-v1' and public.app_can('manageUsers'))
-         or (id in ('role-perms-matrix-v2', 'custom-roles-v1') and public.app_can('managePermissions'))
-         or id not in ('users-v1', 'role-perms-matrix-v2', 'custom-roles-v1'))
-  )
-  with check (
-    public.is_active_user()
-    and (public.is_admin()
-         or (id = 'users-v1' and public.app_can('manageUsers'))
-         or (id in ('role-perms-matrix-v2', 'custom-roles-v1') and public.app_can('managePermissions'))
-         or id not in ('users-v1', 'role-perms-matrix-v2', 'custom-roles-v1'))
-  );
-
--- ---------------------------------------------------------------------
--- Site Access: any role with the "siteAccess" tick may use it
--- (limited to his own site when his account has one)
--- ---------------------------------------------------------------------
-create or replace function public.sa_scope() returns jsonb
+-- may this caller reset that person's password?  (used by the Edge Function)
+create or replace function public.sa_can_reset(p_caller uuid, p_target uuid) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare
-  p public.profiles;
+  me     public.profiles;
+  him    public.profiles;
+  site_  text;
+  ok     boolean := false;
+  perms  jsonb;
 begin
-  select * into p from public.profiles where id = auth.uid() and not blocked;
-  if not found then return jsonb_build_object('can_grant', false); end if;
-  if p.role in ('Super Admin', 'HR') then
-    return jsonb_build_object('can_grant', true, 'all_sites', true, 'sites', '[]'::jsonb,
-                              'office', true, 'role', p.role);
+  select * into me  from public.profiles where id = p_caller and not blocked;
+  select * into him from public.profiles where id = p_target;
+  if me.id is null or him.id is null then return jsonb_build_object('ok', false, 'why', 'Unknown account.'); end if;
+  if him.role = 'Super Admin' then return jsonb_build_object('ok', false, 'why', 'A Super Admin password can only be reset by a Super Admin.'); end if;
+  if him.id = me.id then return jsonb_build_object('ok', false, 'why', 'Change your own password from your profile.'); end if;
+
+  -- the site he works on (labor / staff list), else the site on his account
+  select coalesce(nullif(r->>'site', ''), him.site) into site_
+    from public.app_shared_state d,
+         lateral jsonb_array_elements(case when jsonb_typeof(d.data) = 'array' then d.data else '[]'::jsonb end) r
+   where d.id in ('labor-v1', 'staff-v1') and trim(r->>'code') = coalesce(him.hr_code, '')
+   limit 1;
+  site_ := coalesce(site_, him.site, '');
+
+  select data -> me.role into perms from public.app_shared_state where id = 'role-perms-matrix-v2';
+
+  if me.role in ('Super Admin', 'HR') then ok := true;
+  elsif me.role in ('Project Manager', 'Project Engineer', 'Site Engineer')
+        or coalesce((perms ->> 'siteAccess')::boolean, false)
+        or coalesce((perms ->> 'manageUsers')::boolean, false) then
+    ok := coalesce(me.site, '') = '' or upper(me.site) = upper(site_);
   end if;
-  if p.role in ('Project Manager', 'Project Engineer', 'Site Engineer') or public.app_can('siteAccess') then
-    return jsonb_build_object('can_grant', true, 'all_sites', coalesce(p.site, '') = '',
-                              'sites', case when coalesce(p.site, '') = '' then '[]'::jsonb
-                                            else jsonb_build_array(p.site) end,
-                              'office', false, 'role', p.role);
+  if not ok then
+    return jsonb_build_object('ok', false, 'why', 'You can reset passwords only for people on your own site.');
   end if;
-  return jsonb_build_object('can_grant', false, 'role', p.role);
+  return jsonb_build_object('ok', true, 'site', site_, 'name', him.name, 'hr', him.hr_code);
 end $$;
+revoke all on function public.sa_can_reset(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.sa_can_reset(uuid, uuid) to service_role;
+
+-- the person has chosen his own password — clear the mark
+create or replace function public.me_password_changed() returns void
+language sql security definer set search_path = public as $$
+  update public.profiles
+     set extra = coalesce(extra, '{}'::jsonb) - 'mustChangePassword'
+   where id = auth.uid();
+$$;
+revoke all on function public.me_password_changed() from public, anon;
+grant execute on function public.me_password_changed() to authenticated;
