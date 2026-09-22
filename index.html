@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v56</title>
+<title>MEMCO Portal v58</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -4460,6 +4460,13 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
         <div class="hc-sub">Stock, issue vouchers, transfers, LPO &amp; receiving</div>
         <div class="hc-stat" id="homeStoresStat">Open stores</div>
       </div>
+      <div class="home-card" id="homeWorkshopCard">
+        <div class="hc-num">11</div>
+        <div class="hc-icon"><i data-lucide="factory"></i></div>
+        <div class="hc-title">Duct Workshop</div>
+        <div class="hc-sub">Duct orders, CAMduct, fabrication, QC &amp; delivery</div>
+        <div class="hc-stat" id="homeWorkshopStat">Open workshop</div>
+      </div>
       <div class="home-card" id="homeTransferCard">
         <div class="hc-num">7</div>
         <div class="hc-icon"><i data-lucide="arrow-left-right"></i></div>
@@ -6007,7 +6014,7 @@ let ROLE_LIST = BASE_ROLE_LIST.slice();
 // Supervisor and Foreman are field roles tied to one site, same as Site
 // Engineer.
 const SITE_LOCKED_ROLES = ["Site Engineer","Site Supervisor","Foreman","Worker","Project Engineer","Project Manager","Timekeeper"];
-const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeCampsCard","homeTransferCard","homeStaffCard","homeVehiclesCard","homePpeCard","homeStoresCard"];
+const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeCampsCard","homeTransferCard","homeStaffCard","homeVehiclesCard","homePpeCard","homeStoresCard","homeWorkshopCard"];
 // Legacy static defaults — used ONLY to seed the editable permission matrix
 // the very first time it's created, and to seed any brand-new role/card/
 // action key discovered later (e.g. a freshly-added dashboard card, or a
@@ -8547,6 +8554,10 @@ document.querySelectorAll('#vehiclesTopTabs [data-vtab]').forEach(btn => {
 document.getElementById('homeStoresCard').onclick = () => {
   if(window.MemcoStores && typeof MemcoStores.open === 'function') MemcoStores.open();
   else showToast('Stores is still loading — try again in a moment');
+};
+document.getElementById('homeWorkshopCard').onclick = () => {
+  if(window.MemcoStores && typeof MemcoStores.openWorkshop === 'function') MemcoStores.openWorkshop();
+  else showToast('Workshop is still loading — try again in a moment');
 };
 
 document.getElementById('homeBellBtn').onclick = openActivityModal;
@@ -15741,14 +15752,15 @@ window.addEventListener('load', safeCreateLucideIcons);
     ['ops','Projects','📐','homeVillasCard'],
     ['ops','Labor Camps','⛺','homeCampsCard'],
     ['ops','Transfer Labor','⇄','homeTransferCard'],
+    ['ops','Transfer Approvals','🔁','ltNavBtn'],
     ['ops','Stores','📦','storesNavBtn'],
+    ['ops','Duct Workshop','🏭','homeWorkshopCard'],
     ['people','Staff','👥','homeStaffCard'],
     ['fleet','Vehicles / Fleet','🚙','homeVehiclesCard'],
     ['hse','PPE & Safety','🦺','homePpeCard'],
     ['admin','Admin Hub','🛡️','adminHubNavBtn'],
     ['admin','Users','👤','manageUsersBtn'],
     ['admin','Permissions','⚙️','permMatrixBtn'],
-    ['operations','Transfer Approvals','🔁','ltNavBtn'],
     ['admin','Site Access','🪪','siteAccessNavBtn'],
     ['admin','Reset Trial Data','🧹','trialResetNavBtn']
   ];
@@ -19494,7 +19506,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   }
   function renderTabs(){
     const staffOnly = S.access === 'staff';
+    const wsMode = S.mode === 'workshop';
     const tabs = TABS.filter(([k]) => {
+      if(wsMode) return k === 'workshop';
+      if(k === 'workshop') return false;
       if(k === 'admin') return isAdmin();
       if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
         || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
@@ -19504,7 +19519,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       return true;
     });
     const ib = S.inbox || {};
-    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due','adj_approve','holds_due','dw_work','dw_qc','dw_receive'].reduce((a, k) => a + num(ib[k]), 0);
+    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due','adj_approve','holds_due'].reduce((a, k) => a + num(ib[k]), 0);
     $('stTabs').innerHTML = tabs.map(([k, label]) => {
       let badge = '';
       const b = n => n ? `<span class="st-badge">${n}</span>` : '';
@@ -19551,8 +19566,25 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       main.innerHTML = `<div class="st-note warn">${esc(e.message || e)}</div>`;
     }
   }
+  function setMode(mode){
+    S.mode = mode;
+    const t = document.querySelector('#stApp .st-title'), sb = document.querySelector('#stApp .st-sub'), lg = document.querySelector('#stApp .st-logo');
+    if(t) t.textContent = mode === 'workshop' ? 'MEMCO Duct Workshop' : 'MEMCO Stores';
+    if(sb) sb.textContent = mode === 'workshop' ? 'Duct orders · Fabrication · QC · Delivery' : 'Stock · Transfers · Issue Vouchers';
+    if(lg) lg.textContent = mode === 'workshop' ? '🏭' : '📦';
+  }
+  async function openWorkshop(){
+    const app = $('stApp'); if(!app) return;
+    setMode('workshop');
+    app.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    S.loaded = false;
+    S.nav = [];
+    await go('workshop', null, true);
+  }
   async function open(){
     const app = $('stApp'); if(!app) return;
+    setMode('stores');
     app.style.display = 'flex';
     document.body.style.overflow = 'hidden';
     S.loaded = false;
@@ -20728,13 +20760,22 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const nav = `<div class="dw-sub">
       <button type="button" class="st-btn st-ghost st-sm ${sub === 'list' ? 'on' : ''}" data-dw="list">📋 Orders</button>
       ${canRaise ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'new' ? 'on' : ''}" data-dw="new">➕ New duct order</button>` : ''}
-      ${me_.boss ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'admin' ? 'on' : ''}" data-dw="admin">⚙ Masters &amp; old data</button>` : ''}</div>`;
+      ${me_.boss ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'admin' ? 'on' : ''}" data-dw="admin">⚙ People, masters &amp; old data</button>` : ''}</div>`;
+    const noAccess = !S.access ? `<div class="st-note warn">You do not have workshop access yet. Ask Admin to add you in <b>Duct Workshop › ⚙ People</b>.</div>` : '';
     const wireNav = () => main.querySelectorAll('[data-dw]').forEach(b => b.addEventListener('click', () => go('workshop', {sub: b.dataset.dw})));
 
     /* ----- list ----- */
     if(sub === 'list'){
       const prjs = [...new Set(S.projects.map(p => p.code))];
-      main.innerHTML = `<h2>🏭 Duct Workshop</h2>${nav}
+      await loadPending().catch(() => {});
+      const ib = S.inbox || {};
+      const chip = (n, label, st) => `<button type="button" class="st-btn st-ghost st-sm" data-quick="${st}" ${n ? 'style="border-color:#f59e0b"' : ''}>${label} <b>${fmt(num(n))}</b></button>`;
+      main.innerHTML = `<h2>🏭 Duct Workshop</h2>${nav}${noAccess}
+        <div class="st-row" style="gap:6px;margin-bottom:10px">
+          ${me_.workshop ? chip(ib.dw_work, '🛠 Workshop to do', 'open') : ''}
+          ${me_.qc ? chip(ib.dw_qc, '🔍 Waiting for QC', 'fabricated') : ''}
+          ${chip(ib.dw_receive, '🚚 On the way to site', 'partly_delivered')}
+        </div>
         <div class="st-row" style="margin-bottom:8px">
           <div class="st-field s"><select id="dwFSt">
             ${[['open','Open (not delivered)'],['','All'],['submitted','New'],['tagged','Tags printed'],['fabricated','Fabricated — waiting QC'],['qc_passed','QC passed — ready for DO'],['partly_delivered','Partly delivered'],['delivered','Delivered'],['cancelled','Cancelled']]
@@ -20763,6 +20804,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         }catch(e){ host.innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; }
       };
       $('dwFSt').addEventListener('change', load); $('dwFPrj').addEventListener('change', load);
+      main.querySelectorAll('[data-quick]').forEach(b => b.addEventListener('click', () => { $('dwFSt').value = b.dataset.quick; load(); }));
       let t; $('dwFQ').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 350); });
       await load();
       return;
@@ -20879,7 +20921,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
     /* ----- masters & old data ----- */
     if(sub === 'admin'){
-      main.innerHTML = `<h2>🏭 Masters &amp; old data</h2>${nav}
+      main.innerHTML = `<h2>🏭 People, masters &amp; old data</h2>${nav}
+        ${isAdmin() ? `<div class="st-card"><h3 style="margin-top:0">👥 Workshop people</h3>
+          <div class="st-muted">Give someone entry to the Duct Workshop. <b>Workshop</b> = tags, fabrication and DO · <b>QC</b> = pass / reject.
+            Site engineers and PMs raise orders for their projects (set in Stores › Admin). Also tick the <b>Duct Workshop</b> dashboard card for their role in Permissions.</div>
+          <div class="st-row" style="margin-top:8px;align-items:flex-end;gap:8px">
+            <div class="st-field"><label class="st-l">User</label><select id="dwPU"><option value="">— choose —</option></select></div>
+            <label class="st-chk"><input type="checkbox" id="dwPW"> Workshop</label>
+            <label class="st-chk"><input type="checkbox" id="dwPQ"> QC</label>
+            <button type="button" class="st-btn st-ok st-sm" id="dwPSave">Save</button>
+          </div>
+          <div id="dwPList" style="margin-top:8px"><div class="st-empty">Loading…</div></div></div>` : ''}
         ${isAdmin() ? `<div class="st-card"><h3 style="margin-top:0">Bring in data from the old Factory system</h3>
           <div class="st-muted">Choose the <b>company_db.sql</b> export from phpMyAdmin. Orders, duct items, DOs, duct types, materials and connectors are copied.
             Run it again any time before switching over — old records are updated, not doubled. Users, passwords and HR data are <b>not</b> copied.</div>
@@ -20894,6 +20946,35 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             <td><button type="button" class="st-btn st-ghost st-sm" data-edit="${k}" data-id="${esc(x.id)}">Edit</button></td></tr>`).join('') || '<tr><td colspan="5" class="st-muted">None yet — import the old data or add.</td></tr>'}
           </tbody></table></div>`).join('')}`;
       wireNav();
+      if(isAdmin()){
+        const users = (typeof USERS !== 'undefined' && Array.isArray(USERS) ? USERS : []).filter(u => u.authId && !u.blocked);
+        let acc = {};
+        const loadPeople = async () => {
+          const rows = await query(client().from('st_users').select('*'));
+          acc = {}; rows.forEach(a => { acc[a.profile_id] = a; });
+          const ws = users.filter(u => acc[u.authId] && (acc[u.authId].roles || []).some(r => ['workshop','qc'].includes(r)));
+          $('dwPList').innerHTML = ws.length ? `<div class="st-tw"><table class="st-t st-compact"><thead><tr><th>Name</th><th>HR</th><th>Role</th><th>Workshop</th><th>QC</th></tr></thead><tbody>
+            ${ws.map(u => { const r = acc[u.authId].roles || []; return `<tr class="dw-row" data-pu="${esc(u.authId)}"><td>${esc(u.name)}</td><td>${esc(u.hrCode || '')}</td><td>${esc(u.role || '')}</td>
+              <td>${r.includes('workshop') ? '✔' : ''}</td><td>${r.includes('qc') ? '✔' : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="st-empty">Nobody has workshop access yet.</div>';
+          $('dwPList').querySelectorAll('[data-pu]').forEach(tr => tr.addEventListener('click', () => { $('dwPU').value = tr.dataset.pu; $('dwPU').dispatchEvent(new Event('change')); }));
+        };
+        $('dwPU').innerHTML += users.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))
+          .map(u => `<option value="${esc(u.authId)}">${esc(u.name)}${u.hrCode ? ' · HR ' + esc(u.hrCode) : ''} · ${esc(u.role || '')}</option>`).join('');
+        $('dwPU').addEventListener('change', () => { const r = (acc[$('dwPU').value] || {}).roles || []; $('dwPW').checked = r.includes('workshop'); $('dwPQ').checked = r.includes('qc'); });
+        $('dwPSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+          const id = $('dwPU').value; if(!id) throw new Error('Choose a user.');
+          const a = acc[id];
+          const roles = ((a && a.roles) || []).filter(r => !['workshop','qc'].includes(r))
+            .concat($('dwPW').checked ? ['workshop'] : [], $('dwPQ').checked ? ['qc'] : []);
+          const onlyWs = !a || (a.access === 'staff' && !(a.store_ids || []).length && !(a.projects || []).length);
+          const access = roles.length || !onlyWs ? ((a && a.access) || 'staff') : null;   // nothing left → remove the empty staff entry
+          await rpc('st_user_set', {p_profile: id, p_access: access, p_stores: (a && a.store_ids) || [], p_roles: roles,
+            p_projects: (a && a.projects) || [], p_scope: (a && a.scope) || 'own', p_position: (a && a.position) || ''});
+          toast('Saved — they see the workshop after their next login');
+          await loadPeople();
+        }));
+        loadPeople().catch(err => { $('dwPList').innerHTML = `<div class="st-note warn">${esc(err.message)}</div>`; });
+      }
       const listFor = k => ({duct_type: m.duct_types, metal: m.metals, connection: m.connections})[k] || [];
       main.querySelectorAll('[data-add],[data-edit]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
         const k = b.dataset.add || b.dataset.edit;
@@ -20926,9 +21007,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                 await rpc('dw_import_legacy', {p_kind: kind, p_rows: rows.slice(k, k + size)});
               }
             }
-            $('dwDumpProg').textContent = 'Done ✔';
-            toast('Old workshop data imported');
+            $('dwDumpProg').textContent = 'Checking delivery status…';
+            const fx = await rpcOptional('dw_legacy_fix', {});
             await dwMasters(true);
+            toast('Old workshop data imported');
+            go('workshop', {sub: 'admin'}, true);
+            setTimeout(() => {
+              const info = $('dwDumpInfo');
+              if(info) info.innerHTML = '✔ Imported — ' + (fx && fx.by_status ? Object.entries(fx.by_status).map(([k, v]) => `${esc(STATUS_LABEL[k] || k)} ${v}`).join(' · ') : 'done');
+            }, 600);
           }));
         }catch(err){ $('dwDumpInfo').textContent = ''; toast(err.message, true); }
         e.target.value = '';
@@ -22955,9 +23042,6 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       cards.push(card(ib.tools_due, '🛠️ Tools overdue', 'Tools not returned by the due date', 'tools', ''));
     }
     if(isMain() || hasRole('pm') || hasRole('engineer') || S.scope === 'tree') cards.push(card(ib.adj_approve, '⚖️ Stock adjustments to approve', 'Count differences raised by store keepers', 'adjust', ''));
-    if(hasRole('workshop')) cards.push(card(ib.dw_work, '🏭 Duct orders in the workshop', 'Tags, fabrication and DO to do', 'workshop', ''));
-    if(hasRole('qc')) cards.push(card(ib.dw_qc, '🔍 Ducts waiting for QC', 'Fabricated orders to check', 'workshop', ''));
-    cards.push(card(ib.dw_receive, '🚚 Duct deliveries on the way', 'Confirm when the DO reaches site', 'workshop', ''));
     if(isMain() || hasRole('pm') || hasRole('engineer')) cards.push(card(ib.holds_due, '🔒 Holds past their date', 'Release the material or extend the hold', 'hold', ''));
     main.innerHTML = `<h2>My Tasks</h2>
       ${canRaiseMR() ? `<div class="st-row" style="margin-bottom:12px"><button type="button" class="st-btn st-ok" id="stTkNew">➕ New Material Request</button></div>` : ''}
@@ -23700,15 +23784,25 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const card = document.getElementById('homeStoresCard');
       const stat = document.getElementById('homeStoresStat');
       if(card && stat){
-        const allowed = !!S.access;
+        const wsOnly = S.access === 'staff' && (S.roles || []).length > 0 && (S.roles || []).every(r => ['workshop','qc'].includes(r));
+        const allowed = !!S.access && !wsOnly;
         card.style.display = allowed ? '' : 'none';
         if(allowed){
           const own = enterStores(false).length, all = (S.stores || []).length;
-          const tasks = Object.values(S.inbox || {}).reduce((a, v) => a + (typeof v === 'number' ? v : 0), 0);
+          const tasks = Object.entries(S.inbox || {}).reduce((a, [k, v]) => a + (typeof v === 'number' && !/^dw_/.test(k) ? v : 0), 0);
           stat.textContent = tasks ? `${tasks} task(s) waiting`
             : (!all ? 'Open stores' : (own ? `${own} of ${all} store(s) — my stores` : `${all} store(s)`));
           stat.style.color = tasks ? '#fca5a5' : '';
         }
+      }
+    }catch(e){}
+    try{
+      const ws = document.getElementById('homeWorkshopStat');
+      if(ws){
+        const ib = S.inbox || {};
+        const n = num(ib.dw_work) + num(ib.dw_qc) + num(ib.dw_receive);
+        ws.textContent = !S.access ? 'Ask Admin for workshop access' : (n ? `${n} task(s) waiting` : 'Open workshop');
+        ws.style.color = n ? '#fca5a5' : '';
       }
     }catch(e){}
     const b = $('storesNavBtn');
@@ -23755,10 +23849,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(backBtn) backBtn.addEventListener('click', () => {
       S.nav = S.nav || [];
       const prev = S.nav.pop();
-      if(prev) go(prev.tab, prev.arg, true); else go('dash', null, true);
+      if(prev) go(prev.tab, prev.arg, true); else go(S.mode === 'workshop' ? 'workshop' : 'dash', null, true);
     });
     const homeBtn = $('stHomeBtn');
-    if(homeBtn) homeBtn.addEventListener('click', () => { S.nav = []; go('dash', null, true); });
+    if(homeBtn) homeBtn.addEventListener('click', () => { S.nav = []; go(S.mode === 'workshop' ? 'workshop' : 'dash', null, true); });
     const menuBtn = $('stMenuBtn');
     if(menuBtn) menuBtn.addEventListener('click', () => {
       const app = $('stApp');
@@ -23777,7 +23871,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }, 60000);
     checkAccess();
   }
-  window.MemcoStores = {open, close, state: S};
+  window.MemcoStores = {open, openWorkshop, close, state: S};
   window.MemcoSheet = {readSheet, readXlsx, readCsv, normBrand, num};
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
