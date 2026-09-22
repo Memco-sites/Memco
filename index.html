@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v50.5</title>
+<title>MEMCO Portal v50.6</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -11130,10 +11130,13 @@ function vehHr(v){
     return hits.length === 1 ? String(hits[0].code) : '';
   }catch(e){ return ''; }
 }
-function vehWho(v){
+function vehWho(v, hrFirst){
   if(!v || !v.assignedTo) return 'Not Set';
   const hr = vehHr(v);
-  return escapeHtml(v.assignedTo) + (hr ? ` <span class="veh-hr">HR ${escapeHtml(hr)}</span>` : '');
+  const chip = hr ? `<span class="veh-hr">HR ${escapeHtml(hr)}</span>` : '';
+  // on a card the name may be cut short — the HR number goes first so it always shows
+  return hrFirst ? `${chip}${chip ? ' ' : ''}<span title="${escapeAttr(v.assignedTo)}">${escapeHtml(v.assignedTo)}</span>`
+                 : escapeHtml(v.assignedTo) + (chip ? ' ' + chip : '');
 }
 
 function vehicleColorStatus(v){
@@ -11338,8 +11341,8 @@ function renderVehiclesList(){
     const vs = vehicleColorStatus(v);
     const cls = 'vehicle-chip ' + vs.cls;
     const driverOrExpiryLine = vs.key === 'expired'
-      ? `<div class="vch-expiry-warn">${vs.label}</div>${v.assignedTo ? `<div class="vch-driver-big">👤 ${vehWho(v)}</div>` : ''}`
-      : `<div class="vch-driver-big">👤 ${v.assignedTo ? vehWho(v) : 'Not Set'}${vs.key === 'pending' ? ' ⏳' : ''}</div>`;
+      ? `<div class="vch-expiry-warn">${vs.label}</div>${v.assignedTo ? `<div class="vch-driver-big">👤 ${vehWho(v, true)}</div>` : ''}`
+      : `<div class="vch-driver-big">👤 ${v.assignedTo ? vehWho(v, true) : 'Not Set'}${vs.key === 'pending' ? ' ⏳' : ''}</div>`;
     return `
       <div class="${cls}" data-plate="${escapeAttr(v.plate)}">
         <div class="vch-type">${escapeHtml(v.vehType || 'Unknown')}</div>
@@ -24651,7 +24654,8 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   // the rules are added from here, so they can never be lost in the page's CSS
   const vehCss = document.createElement('style');
   vehCss.textContent = `.veh-hr{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;font-size:.82em;
-    font-weight:700;background:rgba(56,189,248,.16);color:#7dd3fc;vertical-align:middle}`;
+    font-weight:700;background:rgba(56,189,248,.16);color:#7dd3fc;vertical-align:middle;white-space:nowrap}
+    .vch-driver-big .veh-hr{margin-left:0;margin-right:2px}`;
   document.head.appendChild(vehCss);
   const umCss = document.createElement('style');
   umCss.id = 'memcoUsersCss';
