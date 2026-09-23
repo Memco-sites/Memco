@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v60</title>
+<title>MEMCO Portal v61</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -18774,6 +18774,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .p-fabricated,#stApp .p-partly_delivered{background:#78350f;color:#fcd34d}
 #stApp .dw-sub{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}#stApp .dw-sub .st-btn.on{background:#0369a1;border-color:#38bdf8}
 #stApp .dw-row{cursor:pointer}#stApp .dw-row:hover td{background:rgba(56,189,248,.06)}
+#stApp .st-blink{animation:stBlink 1.1s ease-in-out infinite}@keyframes stBlink{0%,100%{opacity:1}50%{opacity:.25}}
 #stApp .dw-log{font-size:12px;color:#9fc0da;border-left:2px solid #1e4b6e;padding-left:10px}#stApp .dw-log div{margin-bottom:3px}
 #stApp .p-partly_accepted{background:#1e3a8a;color:#bfdbfe}
 #stApp .p-rejected,#stApp .p-cancelled{background:#7f1d1d;color:#fecaca}
@@ -18884,6 +18885,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['workshop', '🏭 Duct Workshop'],
     ['hold',     '🔒 Material Hold'],
     ['people',   '👷 With the men'],
+    ['mylpo',    '🧾 My LPOs'],
     ['issue',    '📤 Issue Voucher'],
     ['transfer', '🚚 Transfers'],
     ['request',  '📨 Requests'],
@@ -19504,7 +19506,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function tabAllowedFor(k){
     const staffOnly = S.access === 'staff';
     if(k === 'admin') return isAdmin();
-    if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r)))
+    if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r)))
       || (k === 'lpo' && hasRole('procurement')) || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
     if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
     if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -19518,7 +19520,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       if(wsMode) return k === 'workshop';
       if(k === 'workshop') return false;
       if(k === 'admin') return isAdmin();
-      if(staffOnly) return ['tasks','req','mr','items'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
+      if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
         || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
       if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
       if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -19526,18 +19528,20 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       return true;
     });
     const ib = S.inbox || {};
-    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due','adj_approve','holds_due'].reduce((a, k) => a + num(ib[k]), 0);
+    const taskCount = ['mr_store','mr_pm','mr_main','mr_proc','mr_issue','mr_returned','lpo_receive','transfers','requests','tools_due','adj_approve','holds_due','lpo_mine'].reduce((a, k) => a + num(ib[k]), 0);
     $('stTabs').innerHTML = tabs.map(([k, label]) => {
       let badge = '';
       const b = n => n ? `<span class="st-badge">${n}</span>` : '';
       if(k === 'tasks') badge = b(taskCount);
       if(k === 'mr') badge = b(num(ib.mr_store) + num(ib.mr_pm) + num(ib.mr_main) + num(ib.mr_issue) + num(ib.mr_returned));
-      if(k === 'lpo') badge = b(num(ib.mr_proc));
+      if(k === 'lpo') badge = num(ib.mr_proc) ? `<span class="st-badge st-blink">${num(ib.mr_proc)}</span>` : '';
+      if(k === 'mylpo') badge = b(num(ib.lpo_mine));
       if(k === 'receive') badge = b(num(ib.lpo_receive));
       if(k === 'tools') badge = b(num(ib.tools_due));
       if(k === 'adjust') badge = b(num(ib.adj_approve));
       if(k === 'hold') badge = b(num(ib.holds_due));
       if(k === 'workshop') badge = b(num(ib.dw_work) + num(ib.dw_qc) + num(ib.dw_receive));
+      if(k === 'lpo' && num(ib.mr_proc)) badge = `<span class="st-badge st-blink">${num(ib.mr_proc)}</span>`;
       if(k === 'req' && (S.inbox || {}).site_req) badge = `<span class="st-badge">${S.inbox.site_req}</span>`;
       if(k === 'transfer' && S.pending.incoming) badge = `<span class="st-badge">${S.pending.incoming}</span>`;
       if(k === 'request' && S.pending.requests) badge = `<span class="st-badge">${S.pending.requests}</span>`;
@@ -20655,6 +20659,37 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       go('store', id);
     }));
     await load();
+  };
+
+  /* ---------- 🧾 My LPOs — what procurement ordered for my MRs ---------- */
+  VIEWS.mylpo = async function(main){
+    main.innerHTML = `<h2>🧾 LPOs for my requests</h2>
+      <div class="st-note">When procurement issues an LPO for your MR, it shows here with the supplier's name and phone number, so you can follow the delivery up yourself.</div>
+      <div id="stMyLpo"><div class="st-empty">Loading…</div></div>`;
+    try{
+      const rows = await rpc('st_lpo_for_me', {}) || [];
+      if(!rows.length){ $('stMyLpo').innerHTML = '<div class="st-empty">No open LPO for your requests.</div>'; return; }
+      $('stMyLpo').innerHTML = rows.map(o => `<div class="st-card">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div><b>${esc(o.lpo_no)}</b> · ${esc(dmy(o.lpo_date))} ${pill(o.status)}
+            <div class="st-muted">For MR ${esc(o.mr_no)} · deliver to ${esc(storeName(o.delivery_store))} · uploaded by ${esc(o.created_name)}</div></div>
+          <div style="text-align:right"><b>${esc(o.supplier)}</b>${o.contact_person ? `<div class="st-muted">${esc(o.contact_person)}</div>` : ''}
+            ${o.supplier_tel ? `<div style="margin-top:4px"><a href="tel:${esc(o.supplier_tel)}" class="st-btn st-ghost st-sm">📞 ${esc(o.supplier_tel)}</a>
+              <a href="https://wa.me/${esc(String(o.supplier_tel).replace(/[^0-9]/g, ''))}" target="_blank" rel="noopener" class="st-btn st-ghost st-sm">WhatsApp</a></div>` : '<div class="st-muted">No phone number given</div>'}</div>
+        </div>
+        <div class="st-row" style="margin-top:8px;gap:6px">
+          ${o.scan_path ? `<button type="button" class="st-btn st-ghost st-sm" data-sc="${esc(o.id)}">📄 See the LPO</button>` : ''}
+          ${o.mr_id ? `<button type="button" class="st-btn st-ghost st-sm" data-mr="${esc(o.mr_id)}">Open my MR</button>` : ''}
+        </div></div>`).join('');
+      $('stMyLpo').querySelectorAll('[data-sc]').forEach(b => b.addEventListener('click', async () => {
+        const o = rows.find(x => x.id === b.dataset.sc);
+        try{
+          const {data, error} = await client().storage.from('lpo-scans').createSignedUrl(o.scan_path, 3600);
+          if(error) throw error; window.open(data.signedUrl, '_blank');
+        }catch(e){ toast(e.message || 'Could not open the scan.', true); }
+      }));
+      $('stMyLpo').querySelectorAll('[data-mr]').forEach(b => b.addEventListener('click', () => go('mr', {open: b.dataset.mr})));
+    }catch(e){ $('stMyLpo').innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>24_memco_lpo_scan.sql</b> in Supabase first.</div>`; }
   };
 
   /* ---------- 👷 With the men — material issued against HR numbers ---------- */
@@ -23114,9 +23149,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(S.myStores.length || isAdmin()) cards.push(card(ib.mr_store, '📝 MRs to check (site store)', 'Enter what your store already has, then send to PM', 'mr', 'store_check'));
     if(hasRole('pm')) cards.push(card(ib.mr_pm, '✅ MRs waiting for my approval', 'Approve, reduce, return or reject', 'mr', 'pm_approval'));
     if(isMain()) cards.push(card(ib.mr_main, '🏬 MRs at main store', 'Send from stock and/or forward to procurement', 'mr', 'main_store'));
-    if(hasRole('procurement')) cards.push(card(ib.mr_proc, '🧾 MRs to purchase', 'Create LPOs for the purchase lines', 'lpo', ''));
+    if(hasRole('procurement')) cards.push(card(ib.mr_proc, '🧾 MRs to purchase', 'Print the MR, make the LPO in Focus, then upload the scan', 'lpo', ''));
     if(S.myStores.length || isAdmin()) cards.push(card(ib.mr_issue, '📤 Approved MRs to issue from site stock', 'Issue what your store said it has', 'mr', 'site_issue'));
     cards.push(card(ib.mr_returned, '↩️ My MRs returned for correction', 'Correct and send again', 'mr', 'returned'));
+    cards.push(card(ib.lpo_mine, '🧾 LPO issued for my request', 'Supplier name and phone — follow the delivery up', 'mylpo', ''));
     if(S.myStores.length || isMain()) cards.push(card(ib.lpo_receive, '📦 Deliveries to receive (open LPOs)', 'Record supplier DO when material arrives', 'receive', ''));
     if(S.myStores.length || isAdmin()){
       cards.push(card(ib.transfers, '🚚 Transfers to receive', 'Confirm material that arrived from another store', 'transfer', ''));
@@ -23454,7 +23490,6 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   /* ---------- LPO ---------- */
   VIEWS.lpo = async function(main, arg){
     arg = (arg && typeof arg === 'object') ? arg : {};
-    if(arg.mr || arg.create) return lpoForm(main, arg.mr);
     const canMake = hasRole('procurement') || isMain();
     const c = client();
     const [lpos, pend] = await Promise.all([
@@ -23462,128 +23497,117 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       canMake ? query(c.from('st_mr').select('*').in('status', ['procurement']).order('updated_at')) : Promise.resolve([])
     ]);
     main.innerHTML = `<h2>Purchase Orders (LPO)</h2>
-      ${canMake ? `<div class="st-row" style="margin-bottom:10px"><button type="button" class="st-btn st-ok" id="stLpNew">➕ New LPO (without MR)</button>
-        <label class="st-btn" style="cursor:pointer">📥 Import LPOs from Focus (Excel)<input type="file" id="stLpFile" accept=".xlsx,.xlsm,.csv" style="display:none"></label>
-        <span class="st-muted">Columns: LPO No · Date · Supplier · Item Code · Qty · Rate (optional: Disc %, Store, Project, PR No)</span></div>` : ''}
-      ${canMake ? `<h3>MRs waiting for LPO</h3>${pend.length ? `<div class="st-tw"><table class="st-t"><thead><tr><th>MR</th><th>Project</th><th>Deliver to</th><th>Lines to buy</th><th></th></tr></thead><tbody>
-        ${pend.map(m => `<tr><td><b>${esc(m.mr_no)}</b></td><td>${esc(projectLabel(m.project_code) || m.department)}</td><td>${esc(storeName(m.store_id))}</td>
+      <div class="st-note">LPOs are made in <b>Focus</b>. Here you only upload the scanned LPO against its MR, so the site can see it and the store can receive against it.</div>
+      ${canMake ? `<h3>MRs waiting for LPO ${pend.length ? `<span class="st-pill p-rejected st-blink">${pend.length}</span>` : ''}</h3>
+        ${pend.length ? `<div class="st-tw"><table class="st-t"><thead><tr><th>MR</th><th>Date</th><th>Project</th><th>Deliver to</th><th>To buy</th><th>Raised by</th><th></th></tr></thead><tbody>
+        ${pend.map(m => `<tr><td><b>${esc(m.mr_no)}</b></td><td>${esc(dmy(m.created_at))}</td><td>${esc(projectLabel(m.project_code) || m.department)}</td><td>${esc(storeName(m.store_id))}</td>
           <td>${(m.lines || []).filter(l => n0(l.proc_qty) > n0(l.lpo_qty)).map(l => `${esc(l.code)} × ${fmt(n0(l.proc_qty) - n0(l.lpo_qty))}`).join(', ')}</td>
-          <td><div class="st-actions"><button type="button" class="st-btn st-ok st-sm" data-mk="${esc(m.id)}">Create LPO</button><button type="button" class="st-btn st-ghost st-sm" data-open="${esc(m.id)}">Open MR</button></div></td></tr>`).join('')}
-        </tbody></table></div>` : '<div class="st-empty">Nothing waiting.</div>'}` : ''}
+          <td>${esc(m.created_name || '')}</td>
+          <td><div class="st-actions"><button type="button" class="st-btn st-ghost st-sm" data-open="${esc(m.id)}">👁 Open / print MR</button>
+            <button type="button" class="st-btn st-ok st-sm" data-up="${esc(m.id)}">⬆ Upload LPO</button></div></td></tr>`).join('')}
+        </tbody></table></div>` : '<div class="st-empty">Nothing waiting.</div>'}
+        <div id="stLpUp"></div>` : ''}
       <h3>LPO register</h3>
-      <div class="st-row" style="margin-bottom:6px"><div class="st-field"><input id="stLpQ" placeholder="Search LPO, supplier, MR, item"></div>
-        <div class="st-field s"><select id="stLpS"><option value="">All status</option><option value="open">Open</option><option value="partly_received">Partly received</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
+      <div class="st-row" style="margin-bottom:6px"><div class="st-field"><input id="stLpQ" placeholder="Search LPO, supplier, MR"></div>
+        <div class="st-field s"><select id="stLpS"><option value="">All status</option><option value="open">Open</option><option value="partly_received">Partly received</option><option value="received">Closed</option><option value="cancelled">Cancelled</option></select></div>
         <button type="button" class="st-btn st-ghost" id="stLpCsv">⬇ Excel (CSV)</button></div>
-      <div id="stLpImp"></div>
       <div id="stLpList"></div>`;
-    if($('stLpNew')) $('stLpNew').addEventListener('click', () => go('lpo', {create: true}));
-    if($('stLpFile')) $('stLpFile').addEventListener('change', async e => {
-      const f = e.target.files[0]; e.target.value = ''; if(!f) return;
-      const box = $('stLpImp');
-      reportBox(box, `⏳ Reading <b>${esc(f.name)}</b>…`);
-      let info;
-      try{ info = await readSheet(f, ['lpo', 'code', 'qty']); }
-      catch(err){ reportBox(box, `❌ ${esc(err.message)}`, 'warn'); return; }
-      const {rows, col} = info;
-      const groups = {}, unknown = new Set(), noStore = new Set();
-      let bad = 0;
-      rows.forEach(r => {
-        const no = String(r[col.lpo] || '').trim().toUpperCase();
-        const code = String(r[col.code] || '').trim().toUpperCase();
-        const qty = num(r[col.qty]);
-        if(!no || !code || !(qty > 0)){ bad++; return; }
-        if(!S.itemMap[code]){ unknown.add(code); return; }
-        const storeTxt = col.store >= 0 ? String(r[col.store] || '').trim() : '';
-        const st = storeTxt ? (S.stores.find(x => x.id.toLowerCase() === storeTxt.toLowerCase()
-                     || x.name.toLowerCase() === storeTxt.toLowerCase()
-                     || shortStore(x.id).toLowerCase() === storeTxt.toLowerCase()) || null) : null;
-        if(storeTxt && !st) noStore.add(storeTxt);
-        const g = groups[no] = groups[no] || {
-          lpo_no: no,
-          lpo_date: col.date >= 0 ? excelDate(r[col.date]) : todayIso(),
-          supplier: col.supplier >= 0 ? String(r[col.supplier] || '').trim() : '',
-          project_code: col.project >= 0 ? String(r[col.project] || '').trim() : '',
-          pr_no: col.pr >= 0 ? String(r[col.pr] || '').trim() : '',
-          delivery_store: st ? st.id : '', note: 'Imported from Focus', lines: []
-        };
-        if(!g.supplier && col.supplier >= 0) g.supplier = String(r[col.supplier] || '').trim();
-        g.lines.push({code, brand: col.brand >= 0 ? normBrand(r[col.brand]) : normBrand(S.itemMap[code].brand),
-                      qty, rate: col.rate >= 0 ? num(r[col.rate]) : 0, disc: col.disc >= 0 ? num(r[col.disc]) : 0});
-      });
-      const list = Object.values(groups);
-      if(!list.length){ reportBox(box, `❌ No usable rows found (need LPO No, Item Code and Qty).`, 'warn'); return; }
-      const already = new Set((await query(client().from('st_lpo').select('lpo_no'))).map(x => x.lpo_no));
-      const dup = list.filter(g => already.has(g.lpo_no)).length;
-      const stores = enterStores(true).length ? S.stores.filter(x => x.status === 'live') : S.stores;
-      reportBox(box, `
-        <b>📄 ${esc(f.name)}</b> — sheet “${esc(info.sheet)}”, header row ${info.headerRow}<br>
-        <b>${list.length}</b> LPO(s) · <b>${list.reduce((a, g) => a + g.lines.length, 0)}</b> line(s)
-        ${dup ? ` · ${dup} already in the system (will be skipped)` : ''}${bad ? ` · ${bad} row(s) without LPO/code/qty skipped` : ''}
-        ${unknown.size ? `<br>⚠ ${unknown.size} unknown item code(s), those lines are left out: ${esc([...unknown].slice(0, 20).join(', '))}${unknown.size > 20 ? ' …' : ''}` : ''}
-        ${noStore.size ? `<br>⚠ Store name(s) not recognised: ${esc([...noStore].join(', '))}` : ''}
-        <div class="st-row" style="margin-top:8px">
-          <div class="st-field"><label class="st-l">Delivery store for LPOs without one</label>
-            <select id="stLpImpStore">${storeOptions(stores, (enterStores(true)[0] || stores[0] || {}).id)}</select></div>
-          <button type="button" class="st-btn st-ok" id="stLpImpGo">✔ Import ${list.length - dup} LPO(s)</button>
-          <span id="stLpImpProg" class="st-muted"></span>
-        </div>
-        <div class="st-tw" style="margin-top:8px;max-height:220px"><table class="st-t"><thead><tr><th>LPO No</th><th>Date</th><th>Supplier</th><th>Project</th><th class="n">Lines</th><th class="n">Value</th><th>Status</th></tr></thead><tbody>
-          ${list.slice(0, 12).map(g => `<tr><td><b>${esc(g.lpo_no)}</b></td><td>${esc(dmy(g.lpo_date))}</td><td>${esc(g.supplier)}</td><td>${esc(g.project_code)}</td>
-            <td class="n">${g.lines.length}</td><td class="n">${money(g.lines.reduce((a, l) => a + l.qty * l.rate * (1 - l.disc / 100), 0))}</td>
-            <td>${already.has(g.lpo_no) ? 'already in system' : (g.supplier ? 'ready' : '⚠ no supplier')}</td></tr>`).join('')}
-        </tbody></table></div>`);
-      $('stLpImpGo').addEventListener('click', ev => busy(ev.currentTarget, async () => {
-        const def = $('stLpImpStore').value;
-        const todo = list.filter(g => !already.has(g.lpo_no)).map(g => Object.assign({}, g, {
-          delivery_store: g.delivery_store || def,
-          supplier: g.supplier || 'UNKNOWN SUPPLIER'
-        }));
-        if(!todo.length){ toast('Nothing new to import.', true); return; }
-        let added = 0, skipped = 0, errors = [];
-        for(let i = 0; i < todo.length; i += 20){
-          $('stLpImpProg').textContent = `Importing… ${Math.min(i + 20, todo.length)} / ${todo.length}`;
-          const res = await rpc('st_lpo_import', {p_rows: todo.slice(i, i + 20)});
-          added += res.added; skipped += res.skipped;
-          (res.errors || []).forEach(x => errors.push(`${x.lpo_no}: ${x.error}`));
-        }
-        S.importReport = {kind: errors.length ? 'warn' : '', html: `${errors.length ? '⚠' : '✅'} <b>Focus LPO import finished</b><br>
-          <b>${added}</b> imported · <b>${skipped}</b> already existed${errors.length ? `<br>❌ ${errors.slice(0, 10).map(esc).join('<br>')}` : ''}`};
-        go('lpo');
-      }));
-    });
-    if(S.importReport && $('stLpImp')){ reportBox($('stLpImp'), S.importReport.html, S.importReport.kind); S.importReport = null; }
-    main.querySelectorAll('[data-mk]').forEach(b => b.addEventListener('click', () => go('lpo', {mr: b.dataset.mk})));
     main.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => go('mr', {open: b.dataset.open})));
+    main.querySelectorAll('[data-up]').forEach(b => b.addEventListener('click', () => uploadForm(pend.find(m => m.id === b.dataset.up))));
+
+    async function openScan(o){
+      if(!o.scan_path){ toast('No scan was uploaded for this LPO.', true); return; }
+      try{
+        const {data, error} = await client().storage.from('lpo-scans').createSignedUrl(o.scan_path, 3600);
+        if(error) throw error;
+        window.open(data.signedUrl, '_blank');
+      }catch(e){ toast(e.message || 'Could not open the scan.', true); }
+    }
+    function uploadForm(m){
+      const host = $('stLpUp');
+      const stores = S.stores.filter(x => x.status === 'live');
+      host.innerHTML = `<div class="st-card" style="border-color:#f59e0b">
+        <h3 style="margin-top:0">⬆ Upload LPO${m ? ` for MR <b>${esc(m.mr_no)}</b>` : ''}</h3>
+        <div class="st-row">
+          <div class="st-field s"><label class="st-l">LPO number (from Focus) *</label><input id="lpNo" placeholder="e.g. PO-2026-0456"></div>
+          <div class="st-field s"><label class="st-l">LPO date</label><input type="date" id="lpDate" value="${todayIso()}"></div>
+          <div class="st-field"><label class="st-l">Supplier *</label><input id="lpSup" list="lpSupL"><datalist id="lpSupL">${[...new Set(lpos.map(o => o.supplier).filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
+          <div class="st-field s"><label class="st-l">Supplier phone</label><input id="lpTel" inputmode="tel" placeholder="+971…"></div>
+        </div>
+        <div class="st-row" style="margin-top:8px">
+          <div class="st-field s"><label class="st-l">Contact person</label><input id="lpCon"></div>
+          <div class="st-field"><label class="st-l">Deliver to store *</label><select id="lpStore">${storeOptions(stores, m ? m.store_id : '')}</select></div>
+          <div class="st-field"><label class="st-l">Note</label><input id="lpNote" placeholder="e.g. delivery promised on 28/09"></div>
+        </div>
+        <div class="st-row" style="margin-top:8px;align-items:center;gap:8px">
+          <label class="st-btn st-ghost st-sm" style="cursor:pointer">📎 Choose the scanned LPO (PDF / photo)<input type="file" id="lpFile" accept="application/pdf,image/*" style="display:none"></label>
+          <span class="st-muted" id="lpFileName">No file chosen</span>
+        </div>
+        <div class="st-row" style="margin-top:12px;justify-content:flex-end;gap:6px">
+          <button type="button" class="st-btn st-ghost" id="lpCancel">Cancel</button>
+          <button type="button" class="st-btn st-ok" id="lpSave">⬆ Save LPO</button></div></div>`;
+      host.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      let file = null;
+      $('lpFile').addEventListener('change', e => { file = e.target.files[0] || null; $('lpFileName').textContent = file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : 'No file chosen'; });
+      $('lpCancel').addEventListener('click', () => { host.innerHTML = ''; });
+      $('lpSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+        const no = $('lpNo').value.trim().toUpperCase();
+        if(!no) throw new Error('Enter the LPO number from Focus.');
+        if(!$('lpSup').value.trim()) throw new Error('Enter the supplier name.');
+        if(!$('lpStore').value) throw new Error('Choose the delivery store.');
+        if(!file && !confirm('No scan chosen. Save the LPO without the scanned copy?')) return;
+        let path = '', name = '';
+        if(file){
+          if(file.size > 20 * 1024 * 1024) throw new Error('The file is bigger than 20 MB — scan it smaller.');
+          name = file.name;
+          path = `${no.replace(/[^A-Z0-9_-]+/gi, '_')}/${Date.now()}_${name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
+          const {error} = await client().storage.from('lpo-scans').upload(path, file, {upsert: false, contentType: file.type || 'application/octet-stream'});
+          if(error) throw new Error('Upload failed: ' + (error.message || error));
+        }
+        const o = await rpc('st_lpo_upload', {p: {mr_id: m ? m.id : null, lpo_no: no, lpo_date: $('lpDate').value || todayIso(),
+          supplier: $('lpSup').value.trim(), supplier_tel: $('lpTel').value.trim(), contact_person: $('lpCon').value.trim(),
+          delivery_store: $('lpStore').value, note: $('lpNote').value.trim(), scan_path: path, scan_name: name}});
+        toast(`${o.lpo_no} saved${m ? ` — ${m.created_name || 'the requester'} can see it now` : ''}`);
+        await loadPending(); renderTabs(); go('lpo');
+      }));
+    }
+
     let shown = [];
     const draw = () => {
       const q = $('stLpQ').value.trim().toLowerCase(), st = $('stLpS').value;
-      shown = lpos.filter(o => (!st || o.status === st) && (!q || (o.lpo_no + ' ' + o.supplier + ' ' + o.mr_no + ' ' + o.pr_no + ' ' + (o.lines || []).map(l => l.code + ' ' + l.description).join(' ')).toLowerCase().includes(q)));
-      $('stLpList').innerHTML = !shown.length ? '<div class="st-empty">No LPOs.</div>' : `<div class="st-tw"><table class="st-t"><thead><tr><th>LPO</th><th>Date</th><th>Supplier</th><th>MR</th><th>Deliver to</th><th>Status</th><th class="n">Grand total</th><th class="n">Received</th><th></th></tr></thead><tbody>
-        ${shown.map(o => { const q2 = (o.lines || []).reduce((a, l) => a + n0(l.qty), 0); const r2 = (o.lines || []).reduce((a, l) => a + n0(l.received), 0);
-          return `<tr><td><b>${esc(o.lpo_no)}</b></td><td>${esc(dmy(o.lpo_date))}</td><td>${esc(o.supplier)}</td><td>${esc(o.mr_no)}</td><td>${esc(storeName(o.delivery_store))}</td>
-          <td>${pill(o.status)}</td><td class="n">${money(o.grand_total)}</td><td class="n">${q2 ? Math.round(100 * r2 / q2) : 0}%</td>
-          <td><div class="st-actions"><button type="button" class="st-btn st-ghost st-sm" data-pr="${esc(o.id)}">🖨 Print</button>
-          ${o.status === 'open' && canMake ? `<button type="button" class="st-btn st-danger st-sm" data-cx="${esc(o.id)}">Cancel</button>` : ''}</div></td></tr>`; }).join('')}
+      shown = lpos.filter(o => (!st || o.status === st)
+        && (!q || (o.lpo_no + ' ' + o.supplier + ' ' + o.mr_no + ' ' + (o.supplier_tel || '')).toLowerCase().includes(q)));
+      $('stLpList').innerHTML = !shown.length ? '<div class="st-empty">No LPOs.</div>' : `<div class="st-tw"><table class="st-t"><thead><tr><th>LPO</th><th>Date</th><th>Supplier</th><th>Phone</th><th>MR</th><th>Deliver to</th><th>Status</th><th></th></tr></thead><tbody>
+        ${shown.map(o => `<tr><td><b>${esc(o.lpo_no)}</b>${o.source === 'scan' ? '' : '<div class="st-muted">old system</div>'}</td><td>${esc(dmy(o.lpo_date))}</td>
+          <td>${esc(o.supplier)}${o.contact_person ? `<div class="st-muted">${esc(o.contact_person)}</div>` : ''}</td>
+          <td>${o.supplier_tel ? `<a href="tel:${esc(o.supplier_tel)}" style="color:#7dd3fc">${esc(o.supplier_tel)}</a>` : ''}</td>
+          <td>${esc(o.mr_no)}</td><td>${esc(storeName(o.delivery_store))}</td><td>${pill(o.status)}</td>
+          <td><div class="st-actions">
+            ${o.scan_path ? `<button type="button" class="st-btn st-ghost st-sm" data-sc="${esc(o.id)}">📄 Scan</button>` : ''}
+            ${o.mr_id ? `<button type="button" class="st-btn st-ghost st-sm" data-mro="${esc(o.mr_id)}">MR</button>` : ''}
+            ${['open','partly_received'].includes(o.status) && canMake ? `<button type="button" class="st-btn st-ghost st-sm" data-cl="${esc(o.id)}">✔ Close</button>` : ''}
+          </div></td></tr>`).join('')}
         </tbody></table></div>`;
-      $('stLpList').querySelectorAll('[data-pr]').forEach(b => b.addEventListener('click', () => printLPO(lpos.find(o => o.id === b.dataset.pr))));
-      $('stLpList').querySelectorAll('[data-cx]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
-        const o = lpos.find(x => x.id === b.dataset.cx);
-        const note = prompt(`Cancel ${o.lpo_no}? Reason:`); if(note === null) return;
-        await rpc('st_lpo_cancel', {p_id: o.id, p_note: note}); toast('LPO cancelled.'); go('lpo');
+      $('stLpList').querySelectorAll('[data-sc]').forEach(b => b.addEventListener('click', () => openScan(lpos.find(o => o.id === b.dataset.sc))));
+      $('stLpList').querySelectorAll('[data-mro]').forEach(b => b.addEventListener('click', () => go('mr', {open: b.dataset.mro})));
+      $('stLpList').querySelectorAll('[data-cl]').forEach(b => b.addEventListener('click', () => busy(b, async () => {
+        const o = lpos.find(x => x.id === b.dataset.cl);
+        const note = prompt(`Close ${o.lpo_no}? (nothing more coming). Note:`, ''); if(note === null) return;
+        await rpc('st_lpo_close', {p_id: o.id, p_note: note.trim()});
+        toast(`${o.lpo_no} closed`); await loadPending(); go('lpo');
       })));
     };
     $('stLpQ').addEventListener('input', draw); $('stLpS').addEventListener('change', draw);
     $('stLpCsv').addEventListener('click', () => {
       if(!shown.length){ toast('Nothing to export.', true); return; }
-      const rows = [['LPO','Date','Supplier','MR','PR','Deliver to','Status','Code','Description','Brand','Unit','Qty','Rate','Disc %','Amount','Received','Grand total']];
-      shown.forEach(o => (o.lines || []).forEach(l => rows.push([o.lpo_no, o.lpo_date, o.supplier, o.mr_no, o.pr_no, storeName(o.delivery_store), o.status,
-        l.code, l.description, l.brand, l.unit, n0(l.qty), n0(l.rate), n0(l.disc), n0(l.amount), n0(l.received), n0(o.grand_total)])));
-      downloadCsv(`MEMCO_LPO_${todayIso()}.csv`, rows);
+      downloadCsv(`MEMCO_LPO_${todayIso()}.csv`, [['LPO','Date','Supplier','Phone','Contact','MR','Deliver to','Status','Uploaded by','Note'],
+        ...shown.map(o => [o.lpo_no, o.lpo_date, o.supplier, o.supplier_tel, o.contact_person, o.mr_no, storeName(o.delivery_store), o.status, o.created_name, o.note])]);
     });
     draw();
+    if(arg.mr && pend.length) uploadForm(pend.find(m => m.id === arg.mr));
   };
 
-  async function lpoForm(main, mrId){
+  async function lpoForm(main, mrId){   // not used any more: LPOs are made in Focus and uploaded as a scan
     let m = null;
     if(mrId) m = (await query(client().from('st_mr').select('*').eq('id', mrId)))[0];
     const prev = await query(client().from('st_lpo').select('supplier,supplier_address,supplier_tel,supplier_trn,pay_terms,delivery_terms').order('created_at', {ascending:false}).limit(300)).catch(() => []);
@@ -23743,6 +23767,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const o = lpos.find(x => x.id === $('rcLpo').value);
       if(!o){ $('rcBody').innerHTML = ''; return; }
       if(enterStores(true).some(s => s.id === o.delivery_store)) $('rcStore').value = o.delivery_store;
+      if(!(o.lines || []).length){ scanReceive(o); return; }
       $('rcBody').innerHTML = `
         <div class="st-row" style="margin-top:8px">
           <div class="st-field s"><label class="st-l">DO number *</label><input id="rcDo"></div>
@@ -23766,6 +23791,45 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       }));
     });
   };
+
+  // receiving against a scanned LPO: the store types what actually came
+  async function scanReceive(o){
+    $('rcBody').innerHTML = `<div class="st-row" style="margin-top:8px">
+        <div class="st-field s"><label class="st-l">DO number *</label><input id="rcDo"></div>
+        <div class="st-field s"><label class="st-l">DO date</label><input type="date" id="rcDate" value="${todayIso()}"></div>
+        <div class="st-field"><label class="st-l">Note</label><input id="rcNote"></div></div>
+      <div class="st-note">LPO <b>${esc(o.lpo_no)}</b> — ${esc(o.supplier)}${o.supplier_tel ? ' · ' + esc(o.supplier_tel) : ''}${o.mr_no ? ' · MR ' + esc(o.mr_no) : ''}.
+        ${o.scan_path ? '<button type="button" class="st-btn st-ghost st-sm" id="rcScan">📄 Open the scanned LPO</button>' : 'No scan was uploaded.'}
+        <br>Enter the items and quantities that actually arrived.</div>
+      <div id="rcLines"></div>
+      <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="rcSave">📦 Receive &amp; print GRN</button></div>`;
+    if($('rcScan')) $('rcScan').addEventListener('click', async () => {
+      try{
+        const {data, error} = await client().storage.from('lpo-scans').createSignedUrl(o.scan_path, 3600);
+        if(error) throw error; window.open(data.signedUrl, '_blank');
+      }catch(e){ toast(e.message || 'Could not open the scan.', true); }
+    });
+    const ed = linesEditor($('rcLines'), {withRemarks: true, qtyLabel: 'Received qty'});
+    if(o.mr_id){
+      try{
+        const mrs = await query(client().from('st_mr').select('*').eq('id', o.mr_id).limit(1));
+        const m = mrs[0];
+        const pre = ((m && m.lines) || []).map(l => ({code: l.code, brand: l.brand || '',
+            qty: Math.max(0, n0(l.proc_qty) - n0(l.received))})).filter(l => l.qty > 0);
+        if(pre.length) ed.setLines(pre);
+      }catch(e){}
+    }
+    $('rcSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+      const lines = ed.getLines();
+      if(!lines.length) throw new Error('Enter what was received.');
+      if(!$('rcDo').value.trim()) throw new Error('Enter the supplier DO number.');
+      if(!$('rcStore').value) throw new Error('Choose the store that received the material.');
+      const d = await rpc('st_grn_scan', {p_lpo: o.id, p_store: $('rcStore').value, p_do_no: $('rcDo').value.trim(),
+        p_do_date: $('rcDate').value || null, p_lines: lines, p_note: $('rcNote').value.trim()});
+      toast(`${d.doc_no} saved — stock added to ${storeName(d.store_id)}.`);
+      d.lpo_no = o.lpo_no; printDoc(d); clearStockCache(); await loadPending(); go('receive');
+    }));
+  }
 
   /* ---------- Tools ---------- */
   VIEWS.tools = async function(main, argStore){
