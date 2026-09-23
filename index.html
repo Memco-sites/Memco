@@ -3,7 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v61</title>
+<title>MEMCO Portal v66</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a2540">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MEMCO ERP">
+<link rel="apple-touch-icon" href="icon-192.png">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -18696,7 +18703,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <button type="button" class="st-btn st-ghost" id="stHomeBtn" title="Home">🏠 Home</button>
       <button type="button" class="st-btn st-ghost" id="stMenuBtn" title="Show / hide the menu">☰</button>
       <button type="button" class="st-btn st-ghost" id="stRefreshBtn" title="Reload">⟳</button>
-      <button type="button" class="st-btn st-ghost" id="stCloseBtn">✕ Close</button>
+      <button type="button" class="st-btn st-ghost" data-install-app style="display:none" onclick="memcoInstallApp()">📲 Install</button><button type="button" class="st-btn st-ghost" id="stCloseBtn">✕ Close</button>
     </div>
   </header>
   <div class="st-shell">
@@ -18886,6 +18893,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['hold',     '🔒 Material Hold'],
     ['people',   '👷 With the men'],
     ['mylpo',    '🧾 My LPOs'],
+    ['time',     '🗒 Time sheets'],
     ['issue',    '📤 Issue Voucher'],
     ['transfer', '🚚 Transfers'],
     ['request',  '📨 Requests'],
@@ -19506,7 +19514,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function tabAllowedFor(k){
     const staffOnly = S.access === 'staff';
     if(k === 'admin') return isAdmin();
-    if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r)))
+    if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'time' && ['timekeeper','foreman','pm','engineer'].some(r => hasRole(r))) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r)))
       || (k === 'lpo' && hasRole('procurement')) || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
     if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
     if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -19520,7 +19528,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       if(wsMode) return k === 'workshop';
       if(k === 'workshop') return false;
       if(k === 'admin') return isAdmin();
-      if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
+      if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'time' && ['timekeeper','foreman','pm','engineer'].some(r => hasRole(r))) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
         || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
       if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
       if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -20747,6 +20755,444 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     await loadOne(); await loadAll();
   };
 
+  VIEWS.time = async function(main){ await wsTimeSheets(main, '', () => {}); };
+
+  /* ---------- 🗒 Time sheets: OT · print · read the signed sheet ---------- */
+  function wsPeople(group){
+    const out = {};
+    const add = (code, name, trade, site) => {
+      const hr = String(code || '').trim();
+      if(!hr || out[hr]) return;
+      if(group && String(site || '').trim() !== group) return;
+      out[hr] = {hr, name: String(name || '').trim(), trade: String(trade || '').trim(), site: String(site || '').trim()};
+    };
+    try{ (typeof laborRecords !== 'undefined' ? laborRecords : []).forEach(l => {
+      if(String(l.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return;
+      add(l.code, l.name, l.trade, l.site);
+    }); }catch(e){}
+    try{ (typeof staffRecords !== 'undefined' ? staffRecords : []).forEach(x => add(x.code || x.hrCode || x.hr, x.name, x.designation || x.trade || x.role, x.site)); }catch(e){}
+    return Object.values(out).sort((a, b) => (num(a.hr) - num(b.hr)) || String(a.hr).localeCompare(String(b.hr)));
+  }
+  function wsGroups(){
+    const set = new Set();
+    try{ (typeof laborRecords !== 'undefined' ? laborRecords : []).forEach(l => { if(l.site) set.add(String(l.site).trim()); }); }catch(e){}
+    try{ (typeof staffRecords !== 'undefined' ? staffRecords : []).forEach(l => { if(l.site) set.add(String(l.site).trim()); }); }catch(e){}
+    return [...set].sort();
+  }
+  const wsYesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
+
+  async function wsTimeSheets(main, nav, wireNav){
+    const groups = wsGroups();
+    const guess = groups.find(g => /workshop/i.test(g)) || groups[0] || '';
+    const T = S.tsTab || 'ot';
+    main.innerHTML = `<h2>🗒 Time sheets</h2>${nav}
+      <div class="dw-sub">
+        <button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Crews</button>
+        <button type="button" class="st-btn st-ghost st-sm ${T === 'mark' ? 'on' : ''}" data-ts="mark">✅ Mark attendance</button>
+        <button type="button" class="st-btn st-ghost st-sm ${T === 'ot' ? 'on' : ''}" data-ts="ot">⏱ Overtime</button>
+        <button type="button" class="st-btn st-ghost st-sm ${T === 'print' ? 'on' : ''}" data-ts="print">🖨 Print sheet</button>
+        <button type="button" class="st-btn st-ghost st-sm ${T === 'read' ? 'on' : ''}" data-ts="read">📷 Read signed sheet</button>
+      </div>
+      <div class="st-row" style="margin-bottom:8px">
+        <div class="st-field"><label class="st-l">Group / site</label><select id="tsGroup">${groups.map(g => `<option ${g === (S.tsGroup || guess) ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+        ${['read','crew'].includes(T) ? '' : `<div class="st-field s"><label class="st-l">${T === 'ot' ? 'Work date (the day they worked)' : T === 'mark' ? 'Attendance date' : 'Sheet date'}</label>
+          <input type="date" id="tsDate" value="${T === 'ot' ? wsYesterday() : todayIso()}" max="${todayIso()}"></div>`}
+        ${T === 'print' ? `<div class="st-field s"><label class="st-l">Up to date (for several days)</label><input type="date" id="tsDate2" value="${todayIso()}"></div>
+          <div class="st-field s"><label class="st-l">Shift</label><select id="tsShift"><option>1st</option><option>2nd</option></select></div>` : ''}
+      </div>
+      <div id="tsBody"><div class="st-empty">Loading…</div></div>`;
+    wireNav();
+    main.querySelectorAll('[data-ts]').forEach(b => b.addEventListener('click', () => { S.tsTab = b.dataset.ts; go('workshop', {sub: 'time'}, true); }));
+    $('tsGroup').addEventListener('change', () => { S.tsGroup = $('tsGroup').value; go('workshop', {sub: 'time'}, true); });
+
+    const group = $('tsGroup').value;
+    const people = wsPeople(group);
+
+    const crews = await rpc('st_crew_list', {p_group: group}).catch(() => []) || [];
+    const crewOf = hr => crews.find(c => (c.members || []).some(m => m.hr === hr));
+    const crewOptions = (sel, allLabel) => `<option value="">${esc(allLabel || 'All men on the site')}</option>`
+      + crews.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.foreman_name || 'Crew')}${c.foreman_name ? ' — ' + esc(c.foreman_name) : ''} (${(c.members || []).length})</option>`).join('');
+
+    /* ---------------- crews: which men are under which foreman ---------------- */
+    if(T === 'crew'){
+      const body = $('tsBody');
+      const drawCrew = () => {
+        const taken = new Set();
+        crews.forEach(c => (c.members || []).forEach(m => taken.add(m.hr)));
+        const free = people.filter(p => !taken.has(p.hr));
+        body.innerHTML = `<div class="st-note">Put every man under his foreman. Each crew gets its own sheet, so a foreman only signs for his own men.
+            A man belongs to one crew per site — moving him to another foreman takes him out of the old crew by itself.</div>
+          <div class="st-card"><div class="st-row" style="align-items:flex-end;gap:8px">
+            <div class="st-field s"><label class="st-l">Foreman HR</label><input id="tsCfHr" placeholder="e.g. 3934"></div>
+            <div class="st-field"><label class="st-l">Foreman name</label><input id="tsCfName"></div>
+            <div class="st-field s"><label class="st-l">Trade / list</label><input id="tsCtrade" placeholder="Electrical"></div>
+            <button type="button" class="st-btn st-ok st-sm" id="tsCadd">➕ New crew</button>
+          </div></div>
+          ${crews.map(c => `<div class="st-card">
+            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+              <div><b>${esc(c.name || 'Crew')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
+                <div class="st-muted">Foreman: ${esc(c.foreman_name || '—')}${c.foreman_hr ? ' (HR ' + esc(c.foreman_hr) + ')' : ''} · ${(c.members || []).length} men</div></div>
+              <div class="st-actions">
+                <button type="button" class="st-btn st-ghost st-sm" data-cprint="${esc(c.id)}">🖨 Sheet</button>
+                <button type="button" class="st-btn st-ghost st-sm" data-coff="${esc(c.id)}">Close crew</button></div>
+            </div>
+            <div class="st-row" style="margin-top:8px;align-items:flex-end;gap:8px">
+              <div class="st-field" style="flex:2 1 320px"><label class="st-l">Add men by HR number (paste a list)</label>
+                <input class="tsCadd2" data-crew="${esc(c.id)}" placeholder="2258, 2305, 2331"></div>
+              <button type="button" class="st-btn st-sm" data-cassign="${esc(c.id)}">Add to this crew</button>
+            </div>
+            ${(c.members || []).length ? `<div class="st-tw" style="margin-top:8px;max-height:230px"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th>Trade</th><th></th></tr></thead><tbody>
+              ${(c.members || []).map(m => `<tr><td><b>${esc(m.hr)}</b></td><td>${esc(m.name)}</td><td class="st-muted">${esc(m.trade)}</td>
+                <td><button type="button" class="st-btn st-ghost st-sm" data-cdel="${esc(c.id)}|${esc(m.hr)}">✕</button></td></tr>`).join('')}
+            </tbody></table></div>` : '<div class="st-empty">No men yet.</div>'}</div>`).join('')}
+          <h3>Not in any crew (${free.length})</h3>
+          ${free.length ? `<div class="st-row" style="margin-bottom:6px"><div class="st-field s"><select id="tsFreeCrew">${crewOptions('', '— choose a crew —')}</select></div>
+              <button type="button" class="st-btn st-sm" id="tsFreeGo">Move ticked men</button></div>
+            <div class="st-tw" style="max-height:40vh"><table class="st-t st-compact"><thead><tr><th style="width:36px"></th><th>HR</th><th>Name</th><th>Trade</th></tr></thead><tbody>
+            ${free.map(p => `<tr><td><input type="checkbox" class="tsFree" value="${esc(p.hr)}"></td><td><b>${esc(p.hr)}</b></td><td>${esc(p.name)}</td><td class="st-muted">${esc(p.trade)}</td></tr>`).join('')}
+            </tbody></table></div>` : '<div class="st-empty">Everybody is in a crew.</div>'}`;
+
+        $('tsCadd').addEventListener('click', e => busy(e.currentTarget, async () => {
+          const hr = $('tsCfHr').value.trim();
+          const p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
+          const nm = $('tsCfName').value.trim() || (p ? p.name : '');
+          if(!nm && !hr) throw new Error('Enter the foreman HR number or his name.');
+          await rpc('st_crew_save', {p: {group_code: group, name: ($('tsCtrade').value.trim() ? $('tsCtrade').value.trim() + ' — ' : '') + (nm || 'Crew'),
+            trade: $('tsCtrade').value.trim(), foreman_hr: hr, foreman_name: nm}});
+          toast('Crew added');
+          go('workshop', {sub: 'time'}, true);
+        }));
+        body.querySelectorAll('[data-cassign]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
+          const box = body.querySelector(`.tsCadd2[data-crew="${b.dataset.cassign}"]`);
+          const hrs = box.value.split(/[^0-9A-Za-z]+/).filter(Boolean);
+          if(!hrs.length) throw new Error('Paste the HR numbers first.');
+          const list = [], miss = [];
+          hrs.forEach(h => { const p = people.find(x => x.hr === h); if(p) list.push({hr: p.hr, name: p.name, trade: p.trade}); else miss.push(h); });
+          if(!list.length) throw new Error('None of those HR numbers is on this site.');
+          const r = await rpc('st_crew_assign', {p_crew: b.dataset.cassign, p_people: list});
+          toast(`${r.moved} men moved${miss.length ? ' · not on this site: ' + miss.join(', ') : ''}`, !!miss.length);
+          go('workshop', {sub: 'time'}, true);
+        })));
+        body.querySelectorAll('[data-cdel]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
+          const [cid, hr] = b.dataset.cdel.split('|');
+          await rpc('st_crew_remove', {p_crew: cid, p_hrs: [hr]});
+          go('workshop', {sub: 'time'}, true);
+        })));
+        body.querySelectorAll('[data-coff]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
+          const c = crews.find(x => x.id === b.dataset.coff);
+          if(!confirm(`Close the crew "${c.name}"? The men go back to "not in any crew".`)) return;
+          await rpc('st_crew_save', {p: {id: c.id, group_code: c.group_code, name: c.name, trade: c.trade,
+            foreman_hr: c.foreman_hr, foreman_name: c.foreman_name, active: false}});
+          go('workshop', {sub: 'time'}, true);
+        })));
+        body.querySelectorAll('[data-cprint]').forEach(b => b.addEventListener('click', () => {
+          S.tsCrew = b.dataset.cprint; S.tsTab = 'print'; go('workshop', {sub: 'time'}, true);
+        }));
+        if($('tsFreeGo')) $('tsFreeGo').addEventListener('click', e => busy(e.currentTarget, async () => {
+          const cid = $('tsFreeCrew').value;
+          if(!cid) throw new Error('Choose the crew first.');
+          const hrs = [...body.querySelectorAll('.tsFree:checked')].map(i => i.value);
+          if(!hrs.length) throw new Error('Tick the men you want to move.');
+          const list = hrs.map(h => people.find(x => x.hr === h)).filter(Boolean).map(p => ({hr: p.hr, name: p.name, trade: p.trade}));
+          const r = await rpc('st_crew_assign', {p_crew: cid, p_people: list});
+          toast(`${r.moved} men moved`);
+          go('workshop', {sub: 'time'}, true);
+        }));
+      };
+      drawCrew();
+      return;
+    }
+
+    /* ---------------- mark attendance on the phone ---------------- */
+    if(T === 'mark'){
+      const body = $('tsBody');
+      const draw = async () => {
+        const date = $('tsDate').value || todayIso();
+        const crewId = S.tsCrew || '';
+        const crew = crews.find(c => c.id === crewId);
+        const list = crew ? (crew.members || []) : people;
+        let saved = [];
+        try{ saved = await rpc('st_att_list', {p_date: date, p_group: group, p_crew: crewId || null}) || []; }
+        catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>28_memco_crews_attendance.sql</b> in Supabase first.</div>`; return; }
+        const mark = {}, ot = {};
+        list.forEach(p => { mark[p.hr] = true; });
+        saved.forEach(a => { mark[a.hr] = a.present; ot[a.hr] = num(a.ot); });
+        const drawRows = () => {
+          const pres = list.filter(p => mark[p.hr]).length;
+          $('tsMarkSum').innerHTML = `<b>${pres}</b> present · <b>${list.length - pres}</b> absent`;
+          $('tsMarkRows').innerHTML = list.map(p => `<tr data-hr="${esc(p.hr)}">
+            <td><b>${esc(p.hr)}</b></td><td>${esc(p.name)}<div class="st-muted">${esc(p.trade || '')}</div></td>
+            <td><button type="button" class="st-btn st-sm ${mark[p.hr] ? 'st-ok' : 'st-danger'}" data-flip="${esc(p.hr)}">${mark[p.hr] ? 'Present' : 'Absent'}</button></td>
+            <td class="n"><input type="number" class="tsOt" data-hr="${esc(p.hr)}" min="0" max="24" step="0.5" value="${ot[p.hr] || ''}" style="width:80px" ${mark[p.hr] ? '' : 'disabled'}></td></tr>`).join('')
+            || '<tr><td colspan="4" class="st-muted">Nobody in this crew.</td></tr>';
+          $('tsMarkRows').querySelectorAll('[data-flip]').forEach(b => b.addEventListener('click', () => { mark[b.dataset.flip] = !mark[b.dataset.flip]; if(!mark[b.dataset.flip]) ot[b.dataset.flip] = 0; drawRows(); }));
+          $('tsMarkRows').querySelectorAll('.tsOt').forEach(i => i.addEventListener('change', () => { ot[i.dataset.hr] = num(i.value); }));
+        };
+        body.innerHTML = `<div class="st-note">Mark attendance straight from the phone — for a site where nobody prints a sheet, or to correct what the sheet read.
+            Overtime typed here goes to the same place as the Overtime screen, so tomorrow's sheet will already show it.</div>
+          <div class="st-row" style="margin-bottom:8px">
+            <div class="st-field"><label class="st-l">Crew</label><select id="tsMarkCrew">${crewOptions(crewId)}</select></div>
+            <div class="st-field s" style="align-self:flex-end"><button type="button" class="st-btn st-ghost st-sm" id="tsAllPresent">All present</button></div>
+            <span class="st-muted" id="tsMarkSum" style="align-self:center"></span>
+          </div>
+          <div class="st-tw" style="max-height:58vh"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th style="width:110px">Attendance</th><th class="n" style="width:100px">OT hours</th></tr></thead>
+            <tbody id="tsMarkRows"></tbody></table></div>
+          <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="tsMarkSave">💾 Save attendance</button></div>`;
+        $('tsMarkCrew').addEventListener('change', () => { S.tsCrew = $('tsMarkCrew').value; draw(); });
+        $('tsAllPresent').addEventListener('click', () => { list.forEach(p => { mark[p.hr] = true; }); drawRows(); });
+        $('tsMarkSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+          const rows = list.map(p => ({hr: p.hr, name: p.name, trade: p.trade || '', present: !!mark[p.hr], ot: num(ot[p.hr])}));
+          const r = await rpc('st_att_set', {p_date: date, p_group: group, p_crew: crewId || null, p_rows: rows, p_source: 'phone'});
+          toast(`Saved — ${r.marked} men, ${r.ot} with overtime`);
+        }));
+        drawRows();
+      };
+      $('tsDate').addEventListener('change', draw);
+      await draw();
+      return;
+    }
+
+    /* ---------------- overtime ---------------- */
+    if(T === 'ot'){
+      const body = $('tsBody');
+      const draw = async () => {
+        const date = $('tsDate').value || wsYesterday();
+        let saved = [];
+        try{ saved = await rpc('st_ot_list', {p_date: date, p_group: group}) || []; }
+        catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>26</b> and <b>27</b> (attendance) in Supabase first.</div>`; return; }
+        const map = {}; saved.forEach(o => { map[o.hr] = num(o.hours); });
+        body.innerHTML = `
+          <div class="st-card">
+            <div class="st-row" style="align-items:flex-end;gap:8px">
+              <div class="st-field s"><label class="st-l">Everybody gets</label><input type="number" id="tsAll" min="0" max="24" step="0.5" value="2"></div>
+              <button type="button" class="st-btn st-sm" id="tsAllGo">Apply to all</button>
+              <button type="button" class="st-btn st-ghost st-sm" id="tsPrev">📋 Same as the day before</button>
+              <button type="button" class="st-btn st-ghost st-sm" id="tsZero">Clear all</button>
+            </div>
+            <div class="st-row" style="margin-top:8px;align-items:flex-end;gap:8px">
+              <div class="st-field" style="flex:2 1 320px"><label class="st-l">Only these HR numbers (paste a list)</label>
+                <input id="tsSome" placeholder="4124, 4475, 3901"></div>
+              <div class="st-field s"><label class="st-l">Hours</label><input type="number" id="tsSomeH" min="0" max="24" step="0.5" value="3"></div>
+              <button type="button" class="st-btn st-sm" id="tsSomeGo">Apply to these</button>
+            </div>
+            <div class="st-row" style="margin-top:8px"><div class="st-field"><input id="tsFind" placeholder="🔎 Find by HR number, name or trade"></div>
+              <span class="st-muted" id="tsSum"></span></div>
+          </div>
+          <div class="st-tw"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th>Trade</th><th class="n" style="width:110px">OT hours</th></tr></thead>
+            <tbody id="tsRows"></tbody></table></div>
+          <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="tsSave">💾 Save overtime</button></div>`;
+        const rowsHost = $('tsRows');
+        const drawRows = () => {
+          const q = $('tsFind').value.trim().toLowerCase();
+          const list = people.filter(p => !q || (p.hr + ' ' + p.name + ' ' + p.trade).toLowerCase().includes(q));
+          rowsHost.innerHTML = list.map(p => `<tr><td><b>${esc(p.hr)}</b></td><td>${esc(p.name)}</td><td class="st-muted">${esc(p.trade)}</td>
+            <td class="n"><input type="number" class="tsH" data-hr="${esc(p.hr)}" min="0" max="24" step="0.5" value="${map[p.hr] || ''}" style="width:90px"></td></tr>`).join('')
+            || '<tr><td colspan="4" class="st-muted">Nobody found.</td></tr>';
+          rowsHost.querySelectorAll('.tsH').forEach(i => {
+            i.addEventListener('change', () => { map[i.dataset.hr] = num(i.value); sum(); });
+            i.addEventListener('keydown', ev => {
+              if(ev.key !== 'Enter') return;
+              ev.preventDefault();
+              const all = [...rowsHost.querySelectorAll('.tsH')];
+              const nx = all[all.indexOf(i) + 1];
+              if(nx){ nx.focus(); nx.select(); }
+            });
+          });
+        };
+        const sum = () => {
+          const men = Object.values(map).filter(h => h > 0).length;
+          const hrs = Object.values(map).reduce((a, h) => a + (h > 0 ? h : 0), 0);
+          $('tsSum').innerHTML = `<b>${men}</b> men · <b>${fmt(hrs)}</b> hours · ${people.length - men} with no OT`;
+        };
+        const setAll = h => { people.forEach(p => { map[p.hr] = h; }); drawRows(); sum(); };
+        $('tsAllGo').addEventListener('click', () => setAll(num($('tsAll').value)));
+        $('tsZero').addEventListener('click', () => setAll(0));
+        $('tsSomeGo').addEventListener('click', () => {
+          const hrs = $('tsSome').value.split(/[^0-9A-Za-z]+/).filter(Boolean);
+          const h = num($('tsSomeH').value);
+          let hit = 0, miss = [];
+          hrs.forEach(x => { if(people.some(p => p.hr === x)){ map[x] = h; hit++; } else miss.push(x); });
+          drawRows(); sum();
+          toast(`${hit} men set to ${h} h${miss.length ? ' · not in this group: ' + miss.join(', ') : ''}`, !!miss.length);
+        });
+        $('tsPrev').addEventListener('click', e => busy(e.currentTarget, async () => {
+          const d = new Date($('tsDate').value || wsYesterday()); d.setDate(d.getDate() - 1);
+          const prev = await rpc('st_ot_list', {p_date: d.toISOString().slice(0, 10), p_group: group}) || [];
+          if(!prev.length){ toast('Nothing was entered for the day before.', true); return; }
+          prev.forEach(o => { map[o.hr] = num(o.hours); });
+          drawRows(); sum();
+          toast(`${prev.length} men copied from ${dmy(d.toISOString().slice(0, 10))}`);
+        }));
+        $('tsFind').addEventListener('input', drawRows);
+        $('tsSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+          const rows = people.map(p => ({hr: p.hr, name: p.name, trade: p.trade, hours: num(map[p.hr])}));
+          const r = await rpc('st_ot_save', {p_date: $('tsDate').value, p_group: group, p_rows: rows});
+          toast(`Overtime saved — ${r.saved} men`);
+        }));
+        drawRows(); sum();
+      };
+      $('tsDate').addEventListener('change', draw);
+      await draw();
+      return;
+    }
+
+    /* ---------------- print the sheet ---------------- */
+    if(T === 'print'){
+      const body = $('tsBody');
+      const picked = new Set(people.map(p => p.hr));
+      const draw = () => {
+        const crewId = S.tsCrew || '';
+        const crew = crews.find(c => c.id === crewId);
+        const crewMen = crew ? (crew.members || []).map(m => people.find(p => p.hr === m.hr) || m) : people;
+        picked.clear(); crewMen.forEach(p => picked.add(p.hr));
+        body.innerHTML = `<div class="st-row" style="margin-bottom:8px"><div class="st-field"><label class="st-l">Crew (one sheet per foreman)</label>
+            <select id="tsPrintCrew">${crewOptions(crewId)}</select></div></div>
+          <div class="st-note">The sheet prints with the OT that is already in the system for <b>the day before</b> the sheet date, so printing never has to wait for tonight's overtime.
+            Keep the four black corner squares clean — the phone uses them to read the sheet later. For an absent man the foreman puts a mark in the <b>ABS</b> box.</div>
+          <div class="st-card"><div class="st-row">
+            <div class="st-field"><label class="st-l">Project</label><input id="tsMProj" value="${esc(group)}"></div>
+            <div class="st-field s"><label class="st-l">Job No</label><input id="tsMJob" value="${esc(S.tsJob || '')}" placeholder="J-313"></div>
+            <div class="st-field s"><label class="st-l">Trade / list</label><input id="tsMTrade" value="${esc(S.tsTrade || '')}" placeholder="Electrical"></div>
+          </div><div class="st-row" style="margin-top:8px">
+            <div class="st-field"><label class="st-l">Location</label><input id="tsMLoc" value="${esc(S.tsLoc || '')}" placeholder="WADI AL SAFA 7, Dubai, U.A.E."></div>
+            <div class="st-field"><label class="st-l">Foreman</label><input id="tsMFore" value="${esc(S.tsFore || (crew ? crew.foreman_name : ''))}"></div>
+          </div></div>
+          <div class="st-row" style="margin-bottom:8px"><span class="st-muted" id="tsCnt"></span>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsPickAll">Select all</button>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsPickNone">Select none</button></div>
+          <div class="st-tw" style="max-height:50vh"><table class="st-t st-compact"><thead><tr><th style="width:40px"></th><th>HR</th><th>Name</th><th>Trade</th></tr></thead><tbody>
+            ${crewMen.map(p => `<tr><td><input type="checkbox" class="tsP" data-hr="${esc(p.hr)}" ${picked.has(p.hr) ? 'checked' : ''}></td>
+              <td><b>${esc(p.hr)}</b></td><td>${esc(p.name)}</td><td class="st-muted">${esc(p.trade)}</td></tr>`).join('')}
+          </tbody></table></div>
+          <div class="st-row" style="margin-top:10px;justify-content:space-between;align-items:center;gap:8px">
+            <div class="st-row" style="gap:6px;margin:0">
+              <span class="st-muted" style="align-self:center">Quick:</span>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="1">today</button>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="7">7 days</button>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="10">10 days</button>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="30">1 month</button>
+            </div>
+            <button type="button" class="st-btn st-ok" id="tsPrintGo">🖨 Make &amp; print</button></div>`;
+        $('tsPrintCrew').addEventListener('change', () => { S.tsCrew = $('tsPrintCrew').value; draw(); });
+        const cnt = () => { $('tsCnt').innerHTML = `<b>${picked.size}</b> of ${crewMen.length} men on the sheet${picked.size > MEMCO_ATT.G.maxRows ? ` — more than ${MEMCO_ATT.G.maxRows} men need a second sheet` : ''}`; };
+        body.querySelectorAll('.tsP').forEach(c => c.addEventListener('change', () => { c.checked ? picked.add(c.dataset.hr) : picked.delete(c.dataset.hr); cnt(); }));
+        $('tsPickAll').addEventListener('click', () => { crewMen.forEach(p => picked.add(p.hr)); draw(); });
+        $('tsPickNone').addEventListener('click', () => { picked.clear(); draw(); });
+        body.querySelectorAll('[data-days]').forEach(b => b.addEventListener('click', () => {
+          const from = new Date($('tsDate').value || todayIso());
+          const to = new Date(from); to.setDate(to.getDate() + (+b.dataset.days - 1));
+          $('tsDate2').value = to.toISOString().slice(0, 10);
+          toast(+b.dataset.days === 1 ? 'One sheet for that day' : `${b.dataset.days} sheets, one for each day`);
+        }));
+        $('tsPrintGo').addEventListener('click', e => busy(e.currentTarget, async () => {
+          const rows = crewMen.filter(p => picked.has(p.hr)).map(p => ({hr: p.hr, name: p.name, trade: p.trade || ''}));
+          if(!rows.length) throw new Error('Choose at least one man.');
+          if(rows.length > MEMCO_ATT.G.maxRows && !confirm(`${rows.length} men do not fit on one page (${MEMCO_ATT.G.maxRows} per sheet). Print the first ${MEMCO_ATT.G.maxRows} now?`)) return;
+          S.tsJob = $('tsMJob').value.trim(); S.tsTrade = $('tsMTrade').value.trim();
+          S.tsLoc = $('tsMLoc').value.trim(); S.tsFore = $('tsMFore').value.trim();
+          const meta = {project: $('tsMProj').value.trim(), job_no: S.tsJob, trade: S.tsTrade || (crew ? crew.trade : ''),
+            location: S.tsLoc, foreman: S.tsFore || (crew ? crew.foreman_name : ''), crew_id: crewId || null};
+          const from = $('tsDate').value || todayIso(), to = $('tsDate2').value || from;
+          if(to < from) throw new Error('The "up to" date is before the start date.');
+          const men = rows.slice(0, MEMCO_ATT.G.maxRows);
+          const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+          if(days > 1){
+            if(!confirm(`Make ${days} sheets — one for each day from ${dmy(from)} to ${dmy(to)}?\nOT can only be printed for days that already have it.`)) return;
+            const r = await rpc('st_att_sheet_range', {p_from: from, p_to: to, p_shift: $('tsShift').value,
+              p_group: group, p_group_name: group, p_rows: men, p_meta: meta});
+            toast(`${r.made} sheets ready`);
+            MEMCO_ATT.printMany(r.sheets);
+          } else {
+            const sheet = await rpc('st_att_sheet_create', {p_date: from, p_shift: $('tsShift').value,
+              p_group: group, p_group_name: group, p_rows: men, p_meta: meta});
+            toast(`${sheet.sheet_no} ready`);
+            MEMCO_ATT.print(sheet);
+          }
+        }));
+        cnt();
+      };
+      $('tsDate').addEventListener('change', draw);
+      $('tsShift').addEventListener('change', draw);
+      draw();
+      return;
+    }
+
+    /* ---------------- read the signed sheet ---------------- */
+    const body = $('tsBody');
+    let sheets = [];
+    try{ sheets = await rpc('st_att_sheet_list', {p_from: null, p_to: null, p_group: group, p_limit: 60}) || []; }
+    catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>26</b> and <b>27</b> (attendance) in Supabase first.</div>`; return; }
+    const waiting = sheets.filter(x => x.status === 'printed');
+    body.innerHTML = `<div class="st-note">Take the photo flat over the paper, with the whole sheet and its four black corner squares inside the picture.
+      ${waiting.length ? `<br><b>${waiting.length}</b> printed sheet(s) are still waiting to be read: ${esc(waiting.slice(0, 8).map(x => dmy(x.sheet_date)).join(' · '))}${waiting.length > 8 ? ' …' : ''}` : ''}</div>
+      <div class="st-tw"><table class="st-t"><thead><tr><th>Sheet</th><th>Date</th><th>Shift</th><th class="n">Men</th><th>Status</th><th></th></tr></thead><tbody>
+        ${sheets.length ? sheets.map(s2 => `<tr><td><b>${esc(s2.sheet_no)}</b><div class="st-muted">${esc(s2.created_name)}</div></td><td>${esc(dmy(s2.sheet_date))}</td><td>${esc(s2.shift)}</td>
+          <td class="n">${(s2.rows || []).length}</td>
+          <td>${pill(s2.status)}${s2.status === 'posted' ? `<div class="st-muted">${s2.present_cnt} present · ${s2.absent_cnt} absent</div>` : ''}</td>
+          <td><div class="st-actions"><button type="button" class="st-btn st-ghost st-sm" data-pr="${esc(s2.id)}">🖨 Print again</button>
+            <label class="st-btn st-ok st-sm" style="cursor:pointer">📷 Photo<input type="file" accept="image/*" capture="environment" data-ph="${esc(s2.id)}" style="display:none"></label>
+            ${s2.scan_path ? `<button type="button" class="st-btn st-ghost st-sm" data-sc="${esc(s2.id)}">📄 Sheet photo</button>` : ''}</div></td></tr>`).join('')
+          : '<tr><td colspan="6" class="st-muted">No sheet printed yet for this group.</td></tr>'}
+      </tbody></table></div><div id="tsRead"></div>`;
+    body.querySelectorAll('[data-pr]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
+      const s2 = sheets.find(x => x.id === b.dataset.pr);
+      let fresh = s2;
+      try{ fresh = await rpc('st_att_sheet_refresh', {p_id: s2.id}) || s2; }catch(err){}
+      MEMCO_ATT.print(fresh);
+    })));
+    body.querySelectorAll('[data-sc]').forEach(b => b.addEventListener('click', async () => {
+      const s2 = sheets.find(x => x.id === b.dataset.sc);
+      try{
+        const {data, error} = await client().storage.from('do-scans').createSignedUrl(s2.scan_path, 3600);
+        if(error) throw error; window.open(data.signedUrl, '_blank');
+      }catch(e){ toast(e.message || 'Could not open the photo.', true); }
+    }));
+    body.querySelectorAll('[data-ph]').forEach(inp => inp.addEventListener('change', async e => {
+      const file = e.target.files[0]; e.target.value = '';
+      if(!file) return;
+      const sheet = sheets.find(x => x.id === inp.dataset.ph);
+      const host = $('tsRead');
+      host.innerHTML = '<div class="st-empty">Reading the sheet…</div>';
+      host.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+      let res;
+      try{ res = await MEMCO_ATT.read(file, sheet); }
+      catch(err){ host.innerHTML = `<div class="st-note warn">${esc(err.message)}</div>`; return; }
+      const marks = {};
+      res.rows.forEach(r => { marks[r.hr] = r.present; });
+      const drawRead = () => {
+        const pres = Object.values(marks).filter(Boolean).length;
+        host.innerHTML = `<div class="st-card"><h3 style="margin-top:0">${esc(sheet.sheet_no)} — check before saving</h3>
+          <div class="st-muted">Tap a row to change it. <b>${pres}</b> present · <b>${res.rows.length - pres}</b> absent.</div>
+          <div class="st-tw" style="margin-top:8px;max-height:55vh"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th class="n">OT</th><th>Signature</th><th class="n">Sign</th><th class="n">ABS</th><th>Result</th></tr></thead><tbody>
+            ${res.rows.map((r, i) => `<tr data-hr="${esc(r.hr)}" style="cursor:pointer">
+              <td><b>${esc(r.hr)}</b></td><td>${esc(r.name)}</td><td class="n">${r.ot ? fmt(r.ot) : ''}</td>
+              <td><img src="${res.crops[i]}" style="height:26px;border-radius:3px;background:#fff"></td>
+              <td class="n st-muted">${fmt(r.ink)}%</td><td class="n st-muted">${fmt(r.absent_ink || 0)}%</td>
+              <td><span class="st-pill ${marks[r.hr] ? 'p-live' : 'p-rejected'}">${marks[r.hr] ? 'Present' : 'Absent'}</span></td></tr>`).join('')}
+          </tbody></table></div>
+          <div class="st-row" style="margin-top:10px;justify-content:flex-end;gap:6px">
+            <button type="button" class="st-btn st-ghost" id="tsReadCancel">Cancel</button>
+            <button type="button" class="st-btn st-ok" id="tsReadSave">💾 Save attendance</button></div></div>`;
+        host.querySelectorAll('tr[data-hr]').forEach(tr => tr.addEventListener('click', () => { marks[tr.dataset.hr] = !marks[tr.dataset.hr]; drawRead(); }));
+        $('tsReadCancel').addEventListener('click', () => { host.innerHTML = ''; });
+        $('tsReadSave').addEventListener('click', ev => busy(ev.currentTarget, async () => {
+          let path = '', name = file.name || 'sheet.jpg';
+          try{
+            path = `att/${sheet.sheet_no}/${Date.now()}_${name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
+            const up = await client().storage.from('do-scans').upload(path, file, {contentType: file.type || 'image/jpeg'});
+            if(up.error) throw up.error;
+          }catch(err){ path = ''; toast('The photo could not be kept: ' + (err.message || err), true); }
+          const out = res.rows.map(r => ({hr: r.hr, present: !!marks[r.hr], ink: r.ink}));
+          const s3 = await rpc('st_att_sheet_post', {p_id: sheet.id, p_rows: out, p_scan_path: path, p_scan_name: name});
+          toast(`Attendance saved — ${s3.present_cnt} present, ${s3.absent_cnt} absent`);
+          go('workshop', {sub: 'time'}, true);
+        }));
+      };
+      drawRead();
+    }));
+  }
+
+
   /* ---------- 🏭 Duct Workshop ---------- */
   const DW = {masters: null, filter: {status: 'open', project: '', search: ''}};
   const DW_STEPS = ['submitted', 'tagged', 'fabricated', 'qc_passed', 'delivered'];
@@ -20876,9 +21322,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const nav = `<div class="dw-sub">
       <button type="button" class="st-btn st-ghost st-sm ${sub === 'list' ? 'on' : ''}" data-dw="list">📋 Orders</button>
       ${canRaise ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'new' ? 'on' : ''}" data-dw="new">➕ New duct order</button>` : ''}
+      <button type="button" class="st-btn st-ghost st-sm ${sub === 'time' ? 'on' : ''}" data-dw="time">🗒 Time sheets</button>
       ${me_.boss ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'admin' ? 'on' : ''}" data-dw="admin">⚙ People, masters &amp; old data</button>` : ''}</div>`;
     const noAccess = !S.access ? `<div class="st-note warn">You do not have workshop access yet. Ask Admin to add you in <b>Duct Workshop › ⚙ People</b>.</div>` : '';
     const wireNav = () => main.querySelectorAll('[data-dw]').forEach(b => b.addEventListener('click', () => go('workshop', {sub: b.dataset.dw})));
+
+    if(sub === 'time'){ await wsTimeSheets(main, nav, wireNav); return; }
 
     /* ----- list ----- */
     if(sub === 'list'){
@@ -23540,7 +23989,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="st-field"><label class="st-l">Note</label><input id="lpNote" placeholder="e.g. delivery promised on 28/09"></div>
         </div>
         <div class="st-row" style="margin-top:8px;align-items:center;gap:8px">
-          <label class="st-btn st-ghost st-sm" style="cursor:pointer">📎 Choose the scanned LPO (PDF / photo)<input type="file" id="lpFile" accept="application/pdf,image/*" style="display:none"></label>
+          <button type="button" class="st-btn st-sm" id="lpCam">📷 Scan with camera</button>
+          <label class="st-btn st-ghost st-sm" style="cursor:pointer">📎 Choose a file (PDF / photo)<input type="file" id="lpFile" accept="application/pdf,image/*" style="display:none"></label>
           <span class="st-muted" id="lpFileName">No file chosen</span>
         </div>
         <div class="st-row" style="margin-top:12px;justify-content:flex-end;gap:6px">
@@ -23548,7 +23998,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <button type="button" class="st-btn st-ok" id="lpSave">⬆ Save LPO</button></div></div>`;
       host.scrollIntoView({behavior: 'smooth', block: 'nearest'});
       let file = null;
-      $('lpFile').addEventListener('change', e => { file = e.target.files[0] || null; $('lpFileName').textContent = file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : 'No file chosen'; });
+      const showFile = () => { $('lpFileName').textContent = file ? `${file.name} (${Math.round(file.size / 1024)} KB)` : 'No file chosen'; };
+      $('lpFile').addEventListener('change', e => { file = e.target.files[0] || null; showFile(); });
+      $('lpCam').addEventListener('click', async () => {
+        const r = await MEMCO_SCAN.open({title: 'Scan the LPO', name: 'LPO_' + ($('lpNo').value.trim() || 'scan')});
+        if(r){ file = r.file; showFile(); toast(`${r.pages} page(s) scanned`); }
+      });
       $('lpCancel').addEventListener('click', () => { host.innerHTML = ''; });
       $('lpSave').addEventListener('click', e => busy(e.currentTarget, async () => {
         const no = $('lpNo').value.trim().toUpperCase();
@@ -23725,7 +24180,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <button type="button" class="st-btn st-ghost" id="rcXMark">✔ Mark as sent</button>
       </div><div id="rcXOut" class="st-muted" style="margin-top:6px">Press “Show receipts”.</div></div>
       <h3>Recent receipts (GRN)</h3><div id="rcHist"></div>`;
-    $('rcHist').innerHTML = docTable(grns, {actions: d => `<span class="st-muted">${esc(d.party)} · DO ${esc(d.ext_ref)}${d.exported_at ? ' · ✔ sent to Focus' : ''}</span>`});
+    $('rcHist').innerHTML = docTable(grns, {actions: d => `<span class="st-muted">${esc(d.party)} · DO ${esc(d.ext_ref)}${d.exported_at ? ' · ✔ sent to Focus' : ''}</span>`
+      + (d.scan_path ? ` <button type="button" class="st-btn st-ghost st-sm" data-scan="${esc(d.id)}">📄 DO photo</button>` : '')});
+    $('rcHist').querySelectorAll('[data-scan]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); openDocScan(grns.find(x => x.id === b.dataset.scan)); }));
     wirePrint($('rcHist'), grns);
     // ---- export receipts for Focus ----
     let xRows = [], xDocs = [];
@@ -23778,7 +24235,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             <td class="n">${fmt(l.qty)}</td><td class="n">${fmt(l.received)}</td>
             <td class="n">${left ? `<input type="number" min="0" max="${left}" step="any" data-rc="${esc(l.code)}" data-brand="${esc(l.brand || '')}" value="${left}" style="width:95px;text-align:right">` : '✔'}</td></tr>`; }).join('')}
         </tbody></table></div>
-        <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="rcSave">📦 Receive & print GRN</button></div>`;
+        <div class="st-row" style="margin-top:10px;justify-content:space-between;align-items:center;gap:8px">
+          <div><button type="button" class="st-btn st-ghost st-sm" id="rcCam2">📷 Photo of the supplier DO</button> <span class="st-muted" id="rcCamName2"></span></div>
+          <button type="button" class="st-btn st-ok" id="rcSave">📦 Receive & print GRN</button></div>`;
+      window.__rcScanFile = null;
+      $('rcCam2').addEventListener('click', async () => {
+        const r = await MEMCO_SCAN.open({title: 'Photo of the supplier DO', name: 'DO_' + ($('rcDo').value.trim() || 'scan')});
+        if(r){ window.__rcScanFile = r.file; $('rcCamName2').textContent = `${r.pages} page(s) ready`; }
+      });
       $('rcSave').addEventListener('click', e => busy(e.currentTarget, async () => {
         const vals = [...$('rcBody').querySelectorAll('[data-rc]')].map(i => ({code: i.dataset.rc, brand: i.dataset.brand, qty: num(i.value)})).filter(v => v.qty > 0);
         if(!vals.length) throw new Error('Enter the received quantities.');
@@ -23786,11 +24250,30 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(!$('rcStore').value) throw new Error('Choose the store that received the material.');
         const d = await rpc('st_grn_create', {p_lpo: o.id, p_store: $('rcStore').value, p_do_no: $('rcDo').value.trim(),
           p_do_date: $('rcDate').value || null, p_vals: vals, p_note: $('rcNote').value.trim()});
+        await attachScan(d, window.__rcScanFile || null); window.__rcScanFile = null;
         toast(`${d.doc_no} saved — stock added to ${storeName(d.store_id)}.`);
         d.lpo_no = o.lpo_no; printDoc(d); clearStockCache(); await loadPending(); go('receive');
       }));
     });
   };
+
+  // keep the photo of the supplier DO with the receipt
+  async function attachScan(doc, file){
+    if(!doc || !file) return;
+    try{
+      const path = `${doc.doc_no.replace(/[^A-Za-z0-9._-]+/g, '_')}/${Date.now()}_${file.name}`;
+      const {error} = await client().storage.from('do-scans').upload(path, file, {contentType: file.type || 'application/pdf'});
+      if(error) throw error;
+      await rpc('st_doc_scan_set', {p_doc: doc.id, p_path: path, p_name: file.name});
+    }catch(e){ toast('The receipt was saved, but the photo could not be attached: ' + (e.message || e), true); }
+  }
+  async function openDocScan(doc){
+    if(!doc || !doc.scan_path){ toast('No photo with this document.', true); return; }
+    try{
+      const {data, error} = await client().storage.from('do-scans').createSignedUrl(doc.scan_path, 3600);
+      if(error) throw error; window.open(data.signedUrl, '_blank');
+    }catch(e){ toast(e.message || 'Could not open the photo.', true); }
+  }
 
   // receiving against a scanned LPO: the store types what actually came
   async function scanReceive(o){
@@ -23802,7 +24285,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         ${o.scan_path ? '<button type="button" class="st-btn st-ghost st-sm" id="rcScan">📄 Open the scanned LPO</button>' : 'No scan was uploaded.'}
         <br>Enter the items and quantities that actually arrived.</div>
       <div id="rcLines"></div>
-      <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="rcSave">📦 Receive &amp; print GRN</button></div>`;
+      <div class="st-row" style="margin-top:10px;justify-content:space-between;align-items:center;gap:8px">
+        <div><button type="button" class="st-btn st-ghost st-sm" id="rcCam">📷 Photo of the supplier DO</button>
+          <span class="st-muted" id="rcCamName"></span></div>
+        <button type="button" class="st-btn st-ok" id="rcSave">📦 Receive &amp; print GRN</button></div>`;
     if($('rcScan')) $('rcScan').addEventListener('click', async () => {
       try{
         const {data, error} = await client().storage.from('lpo-scans').createSignedUrl(o.scan_path, 3600);
@@ -23819,6 +24305,11 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(pre.length) ed.setLines(pre);
       }catch(e){}
     }
+    let doScan = null;
+    $('rcCam').addEventListener('click', async () => {
+      const r = await MEMCO_SCAN.open({title: 'Photo of the supplier DO', name: 'DO_' + ($('rcDo').value.trim() || 'scan')});
+      if(r){ doScan = r.file; $('rcCamName').textContent = `${r.pages} page(s) ready`; }
+    });
     $('rcSave').addEventListener('click', e => busy(e.currentTarget, async () => {
       const lines = ed.getLines();
       if(!lines.length) throw new Error('Enter what was received.');
@@ -23826,6 +24317,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       if(!$('rcStore').value) throw new Error('Choose the store that received the material.');
       const d = await rpc('st_grn_scan', {p_lpo: o.id, p_store: $('rcStore').value, p_do_no: $('rcDo').value.trim(),
         p_do_date: $('rcDate').value || null, p_lines: lines, p_note: $('rcNote').value.trim()});
+      await attachScan(d, doScan);
       toast(`${d.doc_no} saved — stock added to ${storeName(d.store_id)}.`);
       d.lpo_no = o.lpo_no; printDoc(d); clearStockCache(); await loadPending(); go('receive');
     }));
@@ -26659,5 +27151,471 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 </script>
 <!-- ============ END SITE ⇄ ACCOUNT SYNC ============ -->
 
+<script>
+/* ============================================================
+   MEMCO — document scanner (phone camera → clean PDF)
+   Used for LPO scans, supplier DO photos and any other paper.
+   No outside library: the pages are drawn on a canvas, cleaned,
+   compressed as JPEG and written into a PDF by hand.
+   ============================================================ */
+const MEMCO_SCAN = (() => {
+  const MAX_W = 1654, MAX_H = 2339;          // A4 at ~200 dpi
+
+  function readImage(file){
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('That file is not a picture.')); };
+      img.src = url;
+    });
+  }
+
+  // shrink, and (optionally) lift the contrast so paper looks white and ink black
+  async function prepare(file, enhance){
+    const img = await readImage(file);
+    let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    const k = Math.min(1, MAX_W / w, MAX_H / h);
+    w = Math.max(1, Math.round(w * k)); h = Math.max(1, Math.round(h * k));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
+    cx.drawImage(img, 0, 0, w, h);
+    if(enhance){
+      const d = cx.getImageData(0, 0, w, h), p = d.data;
+      let sum = 0;
+      for(let i = 0; i < p.length; i += 4 * 17) sum += (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000;
+      const mean = sum / (p.length / (4 * 17));                 // rough paper brightness
+      const lo = Math.max(12, mean * 0.45), hi = Math.max(lo + 30, Math.min(252, mean * 0.94)), span = hi - lo;
+      for(let i = 0; i < p.length; i += 4){
+        const g = (p[i] * 299 + p[i + 1] * 587 + p[i + 2] * 114) / 1000;
+        let v = (g - lo) * 255 / span;
+        v = v < 0 ? 0 : v > 255 ? 255 : v;
+        p[i] = p[i + 1] = p[i + 2] = v;
+      }
+      cx.putImageData(d, 0, 0);
+    }
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.72));
+    return {blob, w, h, url: URL.createObjectURL(blob)};
+  }
+
+  // build a PDF holding the JPEG pages (one page per picture)
+  async function toPdf(pages, title){
+    const enc = new TextEncoder();
+    const chunks = [];
+    let len = 0;
+    const put = x => { const b = typeof x === 'string' ? enc.encode(x) : x; chunks.push(b); len += b.length; };
+    const offsets = [0];
+    const obj = (n, body, stream) => {
+      offsets[n] = len;
+      put(`${n} 0 obj\n${body}\n`);
+      if(stream){ put('stream\n'); put(stream); put('\nendstream\n'); }
+      put('endobj\n');
+    };
+    const n = pages.length;
+    const pageIds = [], contentIds = [], imgIds = [];
+    for(let i = 0; i < n; i++){ pageIds.push(3 + i * 3); contentIds.push(4 + i * 3); imgIds.push(5 + i * 3); }
+
+    put('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+    obj(1, `<< /Type /Catalog /Pages 2 0 R >>`);
+    obj(2, `<< /Type /Pages /Kids [${pageIds.map(i => `${i} 0 R`).join(' ')}] /Count ${n} >>`);
+    for(let i = 0; i < n; i++){
+      const p = pages[i];
+      const scale = Math.min(595 / p.w, 842 / p.h);             // fit on A4
+      const pw = Math.round(p.w * scale), ph = Math.round(p.h * scale);
+      const x = Math.round((595 - pw) / 2), y = Math.round((842 - ph) / 2);
+      const content = `q ${pw} 0 0 ${ph} ${x} ${y} cm /Im0 Do Q`;
+      obj(pageIds[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /XObject << /Im0 ${imgIds[i]} 0 R >> >> /Contents ${contentIds[i]} 0 R >>`);
+      obj(contentIds[i], `<< /Length ${content.length} >>`, enc.encode(content));
+      const bytes = new Uint8Array(await p.blob.arrayBuffer());
+      obj(imgIds[i], `<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>`, bytes);
+    }
+    const infoId = 3 + n * 3;
+    const clean = String(title || 'MEMCO scan').replace(/[()\\]/g, ' ');
+    obj(infoId, `<< /Title (${clean}) /Producer (MEMCO ERP) /CreationDate (D:${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}Z) >>`);
+
+    const xref = len;
+    const total = infoId + 1;
+    let table = `xref\n0 ${total}\n0000000000 65535 f \n`;
+    for(let i = 1; i < total; i++) table += String(offsets[i] || 0).padStart(10, '0') + ' 00000 n \n';
+    put(table);
+    put(`trailer\n<< /Size ${total} /Root 1 0 R /Info ${infoId} 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+
+    const out = new Uint8Array(len);
+    let at = 0;
+    chunks.forEach(c => { out.set(c, at); at += c.length; });
+    return new Blob([out], {type: 'application/pdf'});
+  }
+
+  /* open the scanner window.
+     opts: {title, name}  →  resolves with {file, pages} or null if cancelled */
+  function open(opts){
+    opts = opts || {};
+    return new Promise(resolve => {
+      const pages = [];
+      const w = document.createElement('div');
+      w.style.cssText = 'position:fixed;inset:0;z-index:9600;background:rgba(2,10,20,.92);display:flex;align-items:center;justify-content:center;padding:14px';
+      w.innerHTML = `<div style="background:#0b2137;border:1px solid rgba(56,189,248,.25);border-radius:14px;max-width:760px;width:100%;max-height:92vh;display:flex;flex-direction:column;color:#e6f2ff;font-family:inherit">
+        <div style="padding:12px 14px;border-bottom:1px solid rgba(56,189,248,.18);display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <b>📷 ${(opts.title || 'Scan document')}</b><button type="button" data-x style="background:none;border:0;color:#9fc0da;font-size:20px;cursor:pointer">✕</button></div>
+        <div style="padding:12px 14px;overflow:auto;flex:1">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <label style="background:#0369a1;border:1px solid #38bdf8;border-radius:8px;padding:8px 12px;cursor:pointer">📷 Take photo
+              <input type="file" accept="image/*" capture="environment" multiple data-cam style="display:none"></label>
+            <label style="background:#0a2540;border:1px solid rgba(56,189,248,.35);border-radius:8px;padding:8px 12px;cursor:pointer">🖼 From gallery / file
+              <input type="file" accept="image/*" multiple data-pick style="display:none"></label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#9fc0da"><input type="checkbox" data-enh checked> Clean up (black &amp; white)</label>
+          </div>
+          <div data-list style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px"></div>
+          <div data-empty style="color:#9fc0da;font-size:13px;margin-top:12px">Take a photo of each page. Hold the phone flat over the paper in good light.</div>
+        </div>
+        <div style="padding:12px 14px;border-top:1px solid rgba(56,189,248,.18);display:flex;justify-content:flex-end;gap:8px">
+          <button type="button" data-cancel style="background:#0a2540;border:1px solid rgba(56,189,248,.35);color:#e6f2ff;border-radius:8px;padding:9px 14px;cursor:pointer">Cancel</button>
+          <button type="button" data-save style="background:#047857;border:1px solid #10b981;color:#fff;border-radius:8px;padding:9px 14px;cursor:pointer">✔ Use <span data-cnt>0</span> page(s)</button>
+        </div></div>`;
+      document.body.appendChild(w);
+      const $$ = s => w.querySelector(s);
+      const draw = () => {
+        $$('[data-cnt]').textContent = pages.length;
+        $$('[data-empty]').style.display = pages.length ? 'none' : '';
+        $$('[data-list]').innerHTML = pages.map((p, i) => `<div style="position:relative;border:1px solid rgba(56,189,248,.25);border-radius:8px;overflow:hidden;background:#061524">
+            <img src="${p.url}" style="width:100%;height:150px;object-fit:cover;display:block">
+            <div style="position:absolute;left:6px;top:6px;background:rgba(2,10,20,.75);border-radius:6px;padding:1px 7px;font-size:12px">${i + 1}</div>
+            <button type="button" data-del="${i}" style="position:absolute;right:6px;top:6px;background:#b91c1c;border:0;color:#fff;border-radius:6px;padding:2px 7px;cursor:pointer">✕</button></div>`).join('');
+        $$('[data-list]').querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { pages.splice(+b.dataset.del, 1); draw(); }));
+      };
+      const add = async files => {
+        const enh = $$('[data-enh]').checked;
+        for(const f of files){
+          if(!/^image\//.test(f.type || '')) continue;
+          try{ pages.push(await prepare(f, enh)); }catch(e){}
+        }
+        draw();
+      };
+      $$('[data-cam]').addEventListener('change', e => { add([...e.target.files]); e.target.value = ''; });
+      $$('[data-pick]').addEventListener('change', e => { add([...e.target.files]); e.target.value = ''; });
+      const close = val => { document.body.removeChild(w); resolve(val); };
+      $$('[data-x]').addEventListener('click', () => close(null));
+      $$('[data-cancel]').addEventListener('click', () => close(null));
+      w.addEventListener('click', e => { if(e.target === w) close(null); });
+      $$('[data-save]').addEventListener('click', async () => {
+        if(!pages.length){ alert('Take at least one photo.'); return; }
+        const btn = $$('[data-save]');
+        btn.disabled = true; btn.textContent = 'Preparing…';
+        try{
+          const base = (opts.name || 'scan').replace(/[^A-Za-z0-9._-]+/g, '_');
+          const blob = await toPdf(pages, opts.title || base);
+          close({file: new File([blob], base + '.pdf', {type: 'application/pdf'}), pages: pages.length});
+        }catch(e){
+          btn.disabled = false; btn.textContent = '✔ Use';
+          alert('Could not build the PDF: ' + (e.message || e));
+        }
+      });
+      draw();
+    });
+  }
+
+  return {open, toPdf, prepare};
+})();
+
+/* ============================================================
+   MEMCO — attendance sheet: print it, then read the signatures
+   from a photo. The sheet carries four black corner squares;
+   everything on it sits at a known place, so the phone only has
+   to look at each signature box and see whether there is ink.
+   ============================================================ */
+const MEMCO_ATT = (() => {
+  // page geometry in millimetres (A4)
+  const G = {
+    pageW: 210, pageH: 297,
+    mark: {x1: 8, y1: 8, x2: 202, y2: 289, size: 7},    // centres of the four squares (clear of the table)
+    head: 44,            // table header top (the project block sits above it)
+    rowTop: 52,          // first row top
+    rowH: 8,
+    box: {left: 14, right: 196},
+    // SL | CODE | NAME | DESIGNATION | OVER TIME | ABSENT | SIGNATURE
+    cols: {no: 14, id: 26, name: 46, desig: 110, ot: 142, abs: 158, sign: 170, end: 196},
+    maxRows: 27          // the table always fills the page; spare rows are for a man who joins late
+  };
+  const u = mm => (mm - G.mark.x1) / (G.mark.x2 - G.mark.x1);
+  const v = mm => (mm - G.mark.y1) / (G.mark.y2 - G.mark.y1);
+
+  function sheetHtml(sheet){
+    const data = (sheet.rows || []).slice(0, G.maxRows);
+    const blanks = Math.max(0, G.maxRows - data.length);
+    const m = sheet.meta || {};
+    const dmy = d => { const x = new Date(d); return isNaN(x) ? String(d || '') : `${String(x.getDate()).padStart(2,'0')}/${String(x.getMonth()+1).padStart(2,'0')}/${x.getFullYear()}`; };
+    const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const C = G.cols, tableH = (G.rowTop - G.head) + G.maxRows * G.rowH;
+    const cell = (x, w, html, cls) => `<span style="left:${x + 1.5}mm;width:${w - 3}mm" class="${cls || ''}">${html}</span>`;
+    const line = (r, i) => {
+      const top = G.rowTop + i * G.rowH;
+      return `<div class="row" style="top:${top}mm">
+        ${cell(C.no, C.id - C.no, String(i + 1))}
+        ${cell(C.id, C.name - C.id, `<b>${esc(r.hr)}</b>`)}
+        ${cell(C.name, C.desig - C.name, esc(r.name))}
+        ${cell(C.desig, C.ot - C.desig, esc(r.trade || ''))}
+        ${cell(C.ot, C.abs - C.ot, r.ot ? `<b>${esc(r.ot)}</b>` : '', 'mid')}
+      </div>`;
+    };
+    const blankLine = i => `<div class="row" style="top:${G.rowTop + i * G.rowH}mm">${cell(C.no, C.id - C.no, String(i + 1))}</div>`;
+    const bounds = [C.no, C.id, C.name, C.desig, C.ot, C.abs, C.sign, C.end];
+    const vlines = bounds.map(x => `<div class="v" style="left:${x}mm"></div>`).join('');
+    const hlines = [G.head].concat(Array.from({length: G.maxRows + 1}, (_, i) => G.rowTop + i * G.rowH))
+      .map(y => `<div class="h" style="top:${y}mm"></div>`).join('');
+    const info = (x, w, label, val) => `<div class="inf" style="left:${x}mm;width:${w}mm"><span>${esc(label)}</span><b>${esc(val || '')}</b></div>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(sheet.sheet_no)}</title>
+      <style>
+        @page{size:A4;margin:0}
+        body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff}
+        .page{position:relative;width:${G.pageW}mm;height:${G.pageH}mm;overflow:hidden}
+        .mk{position:absolute;width:${G.mark.size}mm;height:${G.mark.size}mm;background:#000}
+        .inf{position:absolute;font-size:9pt;white-space:nowrap;overflow:hidden}
+        .inf span{color:#444;font-size:7.5pt;text-transform:uppercase;margin-right:2mm}
+        .ttl{position:absolute;top:31mm;left:0;width:${G.pageW}mm;text-align:center;font-size:13pt;font-weight:bold;text-decoration:underline}
+        .sub{position:absolute;top:38.5mm;left:0;width:${G.pageW}mm;text-align:center;font-size:7.5pt;color:#333}
+        .hd,.row{position:absolute}
+        .hd{top:${G.head}mm;height:${G.rowTop - G.head}mm;font-size:8pt;font-weight:bold}
+        .hd span{line-height:${G.rowTop - G.head}mm}
+        .row{height:${G.rowH}mm;font-size:9pt;line-height:${G.rowH}mm}
+        .hd span,.row span{position:absolute;overflow:hidden;white-space:nowrap}
+        .mid{text-align:center}
+        .v{position:absolute;top:${G.head}mm;height:${tableH}mm;border-left:.35mm solid #000}
+        .h{position:absolute;left:${G.box.left}mm;width:${G.box.right - G.box.left}mm;border-top:.35mm solid #000}
+        .foot{position:absolute;top:${G.rowTop + G.maxRows * G.rowH + 5}mm;left:${G.box.left}mm;width:${G.box.right - G.box.left}mm;font-size:8pt;color:#222;display:flex;justify-content:space-between}
+        .no{position:absolute;top:${G.rowTop + G.maxRows * G.rowH + 14}mm;left:${G.box.left}mm;font-size:7pt;color:#555}
+      </style></head><body><div class="page">
+      <div class="mk" style="left:${G.mark.x1 - G.mark.size / 2}mm;top:${G.mark.y1 - G.mark.size / 2}mm"></div>
+      <div class="mk" style="left:${G.mark.x2 - G.mark.size / 2}mm;top:${G.mark.y1 - G.mark.size / 2}mm"></div>
+      <div class="mk" style="left:${G.mark.x1 - G.mark.size / 2}mm;top:${G.mark.y2 - G.mark.size / 2}mm"></div>
+      <div class="mk" style="left:${G.mark.x2 - G.mark.size / 2}mm;top:${G.mark.y2 - G.mark.size / 2}mm"></div>
+      ${info(14, 96, 'Project:', m.project || sheet.group_name || sheet.group_code)}
+      ${info(120, 76, 'Date:', dmy(sheet.sheet_date))}
+      <div style="position:absolute;top:0;left:0;width:0;height:0"></div>
+      ${info(14, 96, 'Job No:', m.job_no || '').replace('class="inf" style="left:14mm;width:96mm"', 'class="inf" style="left:14mm;width:96mm;top:20mm"')}
+      ${info(120, 76, 'Foreman:', m.foreman || '').replace('class="inf" style="left:120mm;width:76mm"', 'class="inf" style="left:120mm;width:76mm;top:20mm"')}
+      ${info(14, 182, 'Location:', m.location || '').replace('class="inf" style="left:14mm;width:182mm"', 'class="inf" style="left:14mm;width:182mm;top:25mm"')}
+      <div class="ttl">LABOR ATTENDANCE LIST${m.trade ? ' — ' + esc(String(m.trade).toUpperCase()) : ''}</div>
+      <div class="sub">${esc(sheet.sheet_no)} · ${esc(sheet.shift)} shift · OT shown is of ${dmy(sheet.ot_date)} · ${data.length} men on the list</div>
+      ${vlines}${hlines}
+      <div class="hd">
+        ${cell(C.no, C.id - C.no, 'SL NO')}
+        ${cell(C.id, C.name - C.id, 'EMP CODE')}
+        ${cell(C.name, C.desig - C.name, 'NAME')}
+        ${cell(C.desig, C.ot - C.desig, 'DESIGNATION')}
+        ${cell(C.ot, C.abs - C.ot, 'OT (Hrs)', 'mid')}
+        ${cell(C.abs, C.sign - C.abs, 'ABS', 'mid')}
+        ${cell(C.sign, C.end - C.sign, 'SIGNATURE')}
+      </div>
+      ${data.map(line).join('')}
+      ${Array.from({length: blanks}, (_, k) => blankLine(data.length + k)).join('')}
+      <div class="foot"><span>Foreman: ________________</span><span>Supervisor: ________________</span><span>Project Engineer: ________________</span></div>
+      <div class="no">Absent: put a mark (✗) in the ABSENT box — do not write in the signature box.</div>
+      </div><script>window.onload=function(){setTimeout(function(){window.print();},350);}<\/script></body></html>`;
+  }
+
+  function print(sheet){ printMany([sheet]); }
+
+  // several sheets in one print job — one page each, date by date
+  function printMany(sheets){
+    const list = (sheets || []).filter(Boolean);
+    if(!list.length) return;
+    const w = window.open('', '_blank');
+    if(!w){ alert('Allow pop-ups to print the sheets.'); return; }
+    const first = sheetHtml(list[0]);
+    const body = list.map((s, i) => {
+      const html = sheetHtml(s);
+      const inner = html.slice(html.indexOf('<div class="page">'), html.indexOf('<div class="foot"'));
+      const foot = html.slice(html.indexOf('<div class="foot"'), html.indexOf('</div><script>'));
+      return `<div class="sheetwrap" style="${i ? 'page-break-before:always' : ''}">${inner}${foot}</div></div>`;
+    }).join('');
+    const head = first.slice(0, first.indexOf('</head>'));
+    w.document.open();
+    w.document.write(`${head}<style>.sheetwrap{position:relative}</style></head><body>${body}
+      <script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script></body></html>`);
+    w.document.close();
+  }
+
+  // ---- reading the photo -------------------------------------------------
+  function toCanvas(img, maxW){
+    const k = Math.min(1, maxW / (img.naturalWidth || img.width));
+    const cv = document.createElement('canvas');
+    cv.width = Math.round((img.naturalWidth || img.width) * k);
+    cv.height = Math.round((img.naturalHeight || img.height) * k);
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+
+  // centre of the dark square in one corner area
+  // look for a SOLID dark square (the printed corner mark) inside one corner area
+  function squareIn(gray, W, H, cx, cy, thr, bw, bh, mk){
+    const x0 = Math.max(0, Math.round(cx - bw / 2)), y0 = Math.max(0, Math.round(cy - bh / 2));
+    const x1 = Math.min(W, Math.round(cx + bw / 2)), y1 = Math.min(H, Math.round(cy + bh / 2));
+    const w = x1 - x0, h = y1 - y0;
+    if(w < mk + 2 || h < mk + 2) return null;
+    // integral image of the dark mask
+    const ii = new Int32Array((w + 1) * (h + 1));
+    for(let y = 0; y < h; y++){
+      let run = 0;
+      for(let x = 0; x < w; x++){
+        run += gray[(y0 + y) * W + (x0 + x)] < thr ? 1 : 0;
+        ii[(y + 1) * (w + 1) + (x + 1)] = ii[y * (w + 1) + (x + 1)] + run;
+      }
+    }
+    const box = Math.max(4, Math.round(mk));
+    const cntOf = (x, y) => ii[(y + box) * (w + 1) + (x + box)] - ii[y * (w + 1) + (x + box)]
+                          - ii[(y + box) * (w + 1) + x] + ii[y * (w + 1) + x];
+    let best = -1, bx = 0, by = 0;
+    const step = Math.max(1, Math.round(box / 6));
+    for(let y = 0; y + box <= h; y += step){
+      for(let x = 0; x + box <= w; x += step){
+        const c = cntOf(x, y);
+        if(c > best){ best = c; bx = x; by = y; }
+      }
+    }
+    if(best < box * box * 0.45) return null;          // not solid enough to be the square
+    // centre of gravity inside the window found
+    let sx = 0, sy = 0, n = 0;
+    for(let y = by; y < by + box; y++){
+      for(let x = bx; x < bx + box; x++){
+        if(gray[(y0 + y) * W + (x0 + x)] < thr){ sx += x0 + x; sy += y0 + y; n++; }
+      }
+    }
+    return n ? {x: sx / n, y: sy / n, n} : null;
+  }
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  function findMarks(gray, W, H, thr){
+    const pos = [[0.09, 0.07], [0.91, 0.07], [0.09, 0.93], [0.91, 0.93]];
+    let mk = (H / 297) * G.mark.size * 0.85;           // first guess; the sheet fills most of the picture
+    let found = null;
+    for(let pass = 0; pass < 2; pass++){
+      const got = pos.map(([fx, fy]) => squareIn(gray, W, H, W * fx, H * fy, thr, W * 0.34, H * 0.26, mk));
+      if(got.some(g => !g)) return found;
+      found = {TL: got[0], TR: got[1], BL: got[2], BR: got[3]};
+      const pageW = (dist(found.TL, found.TR) + dist(found.BL, found.BR)) / 2;
+      const mk2 = pageW / (G.mark.x2 - G.mark.x1) * G.mark.size;
+      if(Math.abs(mk2 - mk) / mk < 0.08) break;
+      mk = mk2;
+    }
+    if(!found) return null;
+    const w1 = dist(found.TL, found.TR), h1 = dist(found.TL, found.BL);
+    if(w1 < W * 0.3 || h1 < H * 0.3) return null;      // the sheet is too small in the picture
+    return found;
+  }
+
+  async function read(file, sheet){
+    const img = await new Promise((res, rej) => {
+      const url = URL.createObjectURL(file);
+      const im = new Image();
+      im.onload = () => { URL.revokeObjectURL(url); res(im); };
+      im.onerror = () => rej(new Error('That file is not a picture.'));
+      im.src = url;
+    });
+    const cv = toCanvas(img, 1700);
+    const W = cv.width, H = cv.height;
+    const d = cv.getContext('2d').getImageData(0, 0, W, H).data;
+    const gray = new Uint8Array(W * H);
+    let sum = 0;
+    for(let i = 0, p = 0; i < d.length; i += 4, p++){
+      const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+      gray[p] = g; sum += g;
+    }
+    const mean = sum / (W * H);
+    const darkThr = mean * 0.55;
+
+    const M = findMarks(gray, W, H, darkThr);
+    if(!M) throw new Error('The four corner squares were not found. Put the whole sheet in the picture, flat and in good light.');
+    const TL = M.TL, TR = M.TR, BL = M.BL, BR = M.BR;
+    const at = (uu, vv) => ({
+      x: (1 - uu) * (1 - vv) * TL.x + uu * (1 - vv) * TR.x + (1 - uu) * vv * BL.x + uu * vv * BR.x,
+      y: (1 - uu) * (1 - vv) * TL.y + uu * (1 - vv) * TR.y + (1 - uu) * vv * BL.y + uu * vv * BR.y
+    });
+    const px = (uu, vv) => {
+      const p = at(uu, vv);
+      const x = Math.max(0, Math.min(W - 1, Math.round(p.x))), y = Math.max(0, Math.min(H - 1, Math.round(p.y)));
+      return gray[y * W + x];
+    };
+
+    // read every signature box first, then decide how white the clean paper is
+    const cells = (sheet.rows || []).map((r, i) => {
+      const top = G.rowTop + i * G.rowH;
+      const vals = [];
+      // stay inside the box, away from the printed column lines
+      for(let x = G.cols.sign + 2; x < G.cols.end - 2; x += 0.25){
+        for(let y = top + 1.6; y < top + G.rowH - 1.6; y += 0.35){
+          vals.push(px(u(x), v(y)));
+        }
+      }
+      return vals;
+    });
+    const all = [].concat.apply([], cells).sort((x, y) => x - y);
+    const paper = all.length ? all[Math.floor(all.length * 0.8)] : mean;   // most of the box is blank paper
+    const inkThr = Math.max(40, paper * 0.72);
+
+    const inkIn = (x0, x1, top, y0, y1) => {
+      let hit = 0, n = 0;
+      for(let x = x0; x < x1; x += 0.25){
+        for(let y = top + y0; y < top + y1; y += 0.3){
+          if(px(u(x), v(y)) < inkThr) hit++;
+          n++;
+        }
+      }
+      return n ? hit / n : 0;
+    };
+    const out = (sheet.rows || []).map((r, i) => {
+      const top = G.rowTop + i * G.rowH;
+      const sign = inkIn(G.cols.sign + 2, G.cols.end - 2, top, 1.4, G.rowH - 1.4);
+      const absent = inkIn(G.cols.abs + 3, G.cols.sign - 3, top, 2, G.rowH - 2);
+      // a mark in the ABSENT box wins, even if somebody wrote "Absent" where the signature goes.
+      // a little ink there is ignored: it is usually the neighbour's signature running over.
+      const marked = absent > 0.04 && absent > sign * 0.8;
+      const present = !marked && sign > 0.012;
+      return Object.assign({}, r, {ink: Math.round(sign * 1000) / 10, absent_ink: Math.round(absent * 1000) / 10, present});
+    });
+
+    // small picture of each signature box, for the checking screen
+    const crops = out.map((r, i) => {
+      const top = G.rowTop + i * G.rowH;
+      const c1 = at(u(G.cols.sign), v(top)), c2 = at(u(G.cols.end), v(top)),
+            c3 = at(u(G.cols.sign), v(top + G.rowH)), c4 = at(u(G.cols.end), v(top + G.rowH));
+      const x0 = Math.max(0, Math.floor(Math.min(c1.x, c3.x))), x1 = Math.min(W, Math.ceil(Math.max(c2.x, c4.x)));
+      const y0 = Math.max(0, Math.floor(Math.min(c1.y, c2.y))), y1 = Math.min(H, Math.ceil(Math.max(c3.y, c4.y)));
+      const cc = document.createElement('canvas');
+      cc.width = Math.max(8, x1 - x0); cc.height = Math.max(6, y1 - y0);
+      cc.getContext('2d').drawImage(cv, x0, y0, cc.width, cc.height, 0, 0, cc.width, cc.height);
+      return cc.toDataURL('image/jpeg', 0.6);
+    });
+
+    return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr)};
+  }
+
+  return {G, print, printMany, sheetHtml, read};
+})();
+
+/* ---- put MEMCO on the phone (PWA) ---- */
+let MEMCO_INSTALL = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault(); MEMCO_INSTALL = e;
+  document.querySelectorAll('[data-install-app]').forEach(b => { b.style.display = ''; });
+});
+async function memcoInstallApp(){
+  if(!MEMCO_INSTALL){
+    alert('To put MEMCO on your phone:\n\nAndroid (Chrome): menu \u22EE \u2192 "Add to Home screen"\niPhone (Safari): Share \u2192 "Add to Home Screen"');
+    return;
+  }
+  MEMCO_INSTALL.prompt();
+  try{ await MEMCO_INSTALL.userChoice; }catch(e){}
+  MEMCO_INSTALL = null;
+  document.querySelectorAll('[data-install-app]').forEach(b => { b.style.display = 'none'; });
+}
+window.addEventListener('appinstalled', () => {
+  document.querySelectorAll('[data-install-app]').forEach(b => { b.style.display = 'none'; });
+});
+if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
+</script>
 </body>
 </html>
