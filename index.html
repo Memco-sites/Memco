@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v58</title>
+<title>MEMCO Portal v60</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
 
@@ -18883,6 +18883,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['stock',    '📊 Company Stock'],
     ['workshop', '🏭 Duct Workshop'],
     ['hold',     '🔒 Material Hold'],
+    ['people',   '👷 With the men'],
     ['issue',    '📤 Issue Voucher'],
     ['transfer', '🚚 Transfers'],
     ['request',  '📨 Requests'],
@@ -19422,6 +19423,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <tr><td class="k">Name</td><td>${esc(d.party || '')}</td></tr>
         <tr><td class="k">HR No</td><td>${esc(d.ext_ref || '')}</td></tr>
         <tr><td class="k">Project</td><td>${esc(d.project_code ? projectLabel(d.project_code) : '')}</td></tr></table>`;
+    } else if(d.doc_type === 'SIV' && d.taker_hr){
+      infoLeft = `<div>Store : <b>${esc(storeName(d.store_id))}</b></div><div>Issued to : <b>${esc(d.taker_name)}</b> (HR ${esc(d.taker_hr)})${d.taker_trade ? ' · ' + esc(d.taker_trade) : ''}</div>
+        ${d.project_code ? `<div>Project : <b>${esc(projectLabel(d.project_code))}</b></div>` : ''}${d.department ? `<div>Department : <b>${esc(d.department)}</b></div>` : ''}`;
     } else if(isAdj){
       const val = lines.reduce((a, l) => a + num(l.value), 0);
       infoLeft = `<div>Store : <b>${esc(storeName(d.store_id))}</b></div><div>Reason : <b>${esc(ADJ_REASON[d.reason] || d.reason || '')}</b></div>
@@ -19435,6 +19439,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       : ['GRN','TIS','TRT'].includes(d.doc_type)
       ? `<div class="sg"><div><b>${d.doc_type === 'GRN' ? 'Received By' : 'Store Keeper'}:</b> ${esc(d.created_name || '')}<div class="ln">Name, signature &amp; date</div><b>Store Keeper</b></div>
          <div><b>${d.doc_type === 'GRN' ? 'Checked By' : (d.doc_type === 'TIS' ? 'Received By' : 'Returned By')}:</b> ${d.doc_type === 'GRN' ? '' : esc(d.party || '')}<div class="ln">Name, signature &amp; date</div><b>${d.doc_type === 'GRN' ? 'Site Engineer / QC' : 'Tool Holder'}</b></div></div>`
+      : d.doc_type === 'SIV' && d.taker_hr
+      ? `<div class="sg"><div><b>Prepared By:</b> ${esc(d.created_name || '')}<div class="ln">Name, signature &amp; date</div><b>Store Keeper</b></div>
+         <div><b>Received By:</b> ${esc(d.taker_name || '')} (HR ${esc(d.taker_hr)})${d.taker_trade ? ' — ' + esc(d.taker_trade) : ''}<div class="ln">Name, signature &amp; date</div><b>Technician / Foreman</b></div></div>`
       : d.doc_type === 'SIV'
       ? `<div class="sg"><div><b>Prepared By:</b> ${esc(d.created_name || '')}<div class="ln">Name, signature &amp; date</div><b>DC/Admin</b></div><div></div></div>
          <div class="sg"><div><b>Checked By:</b><div class="ln">Name, signature &amp; date</div><b>Project Manager</b></div><div><b>Received By:</b><div class="ln">Name, signature &amp; date</div><b>Department Head</b></div></div>`
@@ -20129,12 +20136,29 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="st-field"><label class="st-l">Issued to</label><select id="stIsProj"></select></div>
           <div class="st-field s"><label class="st-l">MR number</label><input id="stIsMr" placeholder="DXB-26-1245"></div>
         </div>
+        <div class="st-row" style="margin-top:8px;align-items:flex-end">
+          <div class="st-field s"><label class="st-l">Taken by — HR number</label><input id="stIsHr" placeholder="e.g. 4124" inputmode="numeric"></div>
+          <div class="st-field" style="flex:2 1 320px"><label class="st-l">Person</label><div id="stIsWho" class="st-muted" style="padding:8px 0">Type the HR number of the technician / foreman taking the material (leave empty for a normal site issue).</div></div>
+        </div>
         <div class="st-row" style="margin-top:8px"><div class="st-field"><label class="st-l">Note (optional)</label><input id="stIsNote"></div></div>
         <h3>Items</h3><div id="stIsLines"></div>
         <div class="st-row" style="margin-top:12px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="stIsSave">✔ Save & Print Voucher</button></div>
       </div>
       <h3>Recent issue vouchers</h3><div id="stIsList"><div class="st-empty">Loading…</div></div>`;
     const ed = linesEditor($('stIsLines'), {availStore: () => $('stIsStore').value, withRemarks: true});
+    let taker = null;
+    function showTaker(){
+      const hr = $('stIsHr').value.trim();
+      const w = $('stIsWho');
+      if(!hr){ taker = null; w.innerHTML = 'Type the HR number of the technician / foreman taking the material (leave empty for a normal site issue).'; return; }
+      const r = personByHr(hr);
+      if(!r){ taker = null; w.innerHTML = `<span style="color:#fca5a5">HR ${esc(hr)} not found in the staff list.</span>`; return; }
+      taker = {hr, name: r.name || '', trade: r.trade || r.designation || ''};
+      w.innerHTML = `<b>${esc(taker.name)}</b>${taker.trade ? ' · ' + esc(taker.trade) : ''}${r.site ? ' · ' + esc(r.site) : ''}
+        <button type="button" class="st-btn st-ghost st-sm" data-ledger="${esc(hr)}" style="margin-left:8px">📋 What he holds</button>`;
+      w.querySelector('[data-ledger]').addEventListener('click', () => go('people', {hr}));
+    }
+    $('stIsHr').addEventListener('input', showTaker);
     const setProj = () => { $('stIsProj').innerHTML = projectSelectHtml($('stIsStore').value); };
     setProj(); ed.reloadAvail();
     $('stIsStore').addEventListener('change', () => { setProj(); ed.reloadAvail(); loadList(); });
@@ -20142,11 +20166,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const c = client();
       const docs = await query(c.from('st_docs').select('*').eq('doc_type','SIV').eq('store_id', $('stIsStore').value).order('created_at', {ascending:false}).limit(60));
       $('stIsList').innerHTML = docTable(docs, {project:true});
+      $('stIsList').querySelectorAll('tr[data-doc]').forEach(tr => { const dd = docs.find(x => x.id === tr.dataset.doc); if(dd && dd.taker_hr){ const c = tr.querySelector('td:nth-child(3)'); if(c) c.insertAdjacentHTML('beforeend', `<div class="st-muted">👷 ${esc(dd.taker_name)} (HR ${esc(dd.taker_hr)})</div>`); } });
       wirePrint($('stIsList'), docs);
     }
     $('stIsSave').addEventListener('click', e => busy(e.currentTarget, async () => {
       const pv = $('stIsProj').value;
-      if(!pv) throw new Error('Choose the project or department.');
+      if(!pv && !taker) throw new Error('Choose the project or department — or enter the HR number of the person taking it.');
       const lines = ed.getLines();
       const store = $('stIsStore').value;
       if(!confirm(`Issue ${lines.length} item(s) from ${storeName(store)}?`)) return;
@@ -20155,11 +20180,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         p_project: pv.startsWith('P:') ? pv.slice(2) : '',
         p_department: pv.startsWith('D:') ? pv.slice(2) : '',
         p_mr_no: $('stIsMr').value.trim(), p_date: $('stIsDate').value || todayIso(),
-        p_lines: lines, p_note: $('stIsNote').value.trim()
+        p_lines: lines, p_note: $('stIsNote').value.trim(),
+        p_taker_hr: taker ? taker.hr : '', p_taker_name: taker ? taker.name : '', p_taker_trade: taker ? taker.trade : ''
       });
-      toast(`Saved ${d.doc_no}`);
+      toast(taker ? `Saved ${d.doc_no} — issued to ${taker.name}` : `Saved ${d.doc_no}`);
       printDoc(d);
-      ed.clear(); $('stIsMr').value = ''; $('stIsNote').value = '';
+      ed.clear(); $('stIsHr').value = ''; showTaker(); $('stIsMr').value = ''; $('stIsNote').value = '';
       delete S.availCache[store]; ed.reloadAvail(); loadList();
     }));
     loadList().catch(e => { $('stIsList').innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; });
@@ -20631,6 +20657,61 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     await load();
   };
 
+  /* ---------- 👷 With the men — material issued against HR numbers ---------- */
+  VIEWS.people = async function(main, arg){
+    const stores = viewStores();
+    const focus = (stores.some(x => x.id === S.storeFocus) ? S.storeFocus : '') || '';
+    main.innerHTML = `
+      <h2>👷 With the men</h2>
+      <div class="st-note">Material handed over the counter against an <b>HR number</b>. What he took, what he returned, and what is still with him.
+        Issue it on the <b>Issue Voucher</b> screen (HR field), and take it back on the <b>Returns</b> screen with the same HR number.</div>
+      <div class="st-row" style="margin-bottom:8px">
+        <div class="st-field s"><label class="st-l">HR number</label><input id="stPpHr" placeholder="e.g. 4124" value="${esc((arg && arg.hr) || '')}"></div>
+        <div class="st-field"><label class="st-l">Store</label><select id="stPpStore">${storeOptions(stores, focus, 'All stores')}</select></div>
+      </div>
+      <div id="stPpOne"></div>
+      <h3>Everyone still holding material</h3>
+      <div id="stPpAll"><div class="st-empty">Loading…</div></div>`;
+
+    async function loadOne(){
+      const hr = $('stPpHr').value.trim(), host = $('stPpOne');
+      if(!hr){ host.innerHTML = ''; return; }
+      const p = personByHr(hr);
+      try{
+        const d = await rpc('st_person_ledger', {p_hr: hr, p_store: $('stPpStore').value || null}) || {};
+        const items = (d.items || []).filter(x => num(x.balance) !== 0 || num(x.issued) > 0);
+        host.innerHTML = `<div class="st-card">
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <div><b>${esc(p ? p.name : 'HR ' + hr)}</b> ${p ? `<span class="st-muted">HR ${esc(hr)}${p.trade ? ' · ' + esc(p.trade) : ''}${p.site ? ' · ' + esc(p.site) : ''}</span>` : '<span class="st-muted">(not in the staff list)</span>'}</div>
+            <div class="st-muted">${(d.vouchers || []).length} voucher(s) · ${(d.returns || []).length} return(s)</div>
+          </div>
+          ${items.length ? `<div class="st-tw" style="margin-top:8px"><table class="st-t st-compact"><thead><tr><th>Item</th><th>Brand</th><th class="n">Taken</th><th class="n">Returned</th><th class="n">Still with him</th></tr></thead><tbody>
+            ${items.map(x => `<tr><td><b>${esc(x.code)}</b><div class="st-muted">${esc(x.description || '')}</div></td><td>${esc(x.brand || '')}</td>
+              <td class="n">${fmt(x.issued)} ${esc(x.unit || '')}</td><td class="n">${fmt(x.returned)}</td>
+              <td class="n"><b style="color:${num(x.balance) > 0 ? '#fcd34d' : '#6ee7b7'}">${fmt(x.balance)}</b></td></tr>`).join('')}
+            </tbody></table></div>` : '<div class="st-empty">Nothing was issued to this HR number yet.</div>'}
+          ${(d.vouchers || []).length ? `<div class="st-muted" style="margin-top:8px">Vouchers: ${(d.vouchers || []).map(v => `${esc(v.doc_no)} (${esc(dmy(v.doc_date))})`).join(' · ')}</div>` : ''}
+        </div>`;
+      }catch(e){ host.innerHTML = `<div class="st-note warn">${esc(e.message)}</div>`; }
+    }
+    async function loadAll(){
+      const host = $('stPpAll');
+      try{
+        const rows = (await rpc('st_person_outstanding', {p_store: $('stPpStore').value || null}) || []).filter(r => num(r.balance) > 0);
+        if(!rows.length){ host.innerHTML = '<div class="st-empty">Nobody is holding material right now.</div>'; return; }
+        host.innerHTML = `<div class="st-tw"><table class="st-t"><thead><tr><th>HR</th><th>Name</th><th>Trade</th><th class="n">Taken</th><th class="n">Returned</th><th class="n">Still with him</th><th>Last issue</th><th></th></tr></thead><tbody>
+          ${rows.map(r => `<tr><td><b>${esc(r.hr)}</b></td><td>${esc(r.name || (personByHr(r.hr) || {}).name || '')}</td><td>${esc(r.trade || '')}</td>
+            <td class="n">${fmt(r.issued)}</td><td class="n">${fmt(r.returned)}</td><td class="n"><b style="color:#fcd34d">${fmt(r.balance)}</b></td>
+            <td>${esc(dmy(r.last_date))}</td><td><button type="button" class="st-btn st-ghost st-sm" data-hr="${esc(r.hr)}">Open</button></td></tr>`).join('')}
+        </tbody></table></div>`;
+        host.querySelectorAll('[data-hr]').forEach(b => b.addEventListener('click', () => { $('stPpHr').value = b.dataset.hr; loadOne(); }));
+      }catch(e){ host.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>23_memco_issue_to_person.sql</b> in Supabase first.</div>`; }
+    }
+    let t; $('stPpHr').addEventListener('input', () => { clearTimeout(t); t = setTimeout(loadOne, 350); });
+    $('stPpStore').addEventListener('change', () => { loadOne(); loadAll(); });
+    await loadOne(); await loadAll();
+  };
+
   /* ---------- 🏭 Duct Workshop ---------- */
   const DW = {masters: null, filter: {status: 'open', project: '', search: ''}};
   const DW_STEPS = ['submitted', 'tagged', 'fabricated', 'qc_passed', 'delivered'];
@@ -20788,10 +20869,11 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         DW.filter = {status: $('dwFSt').value, project: $('dwFPrj').value, search: $('dwFQ').value.trim()};
         const host = $('dwList');
         try{
-          const rows = await rpc('dw_order_list', {p_status: DW.filter.status || null, p_project: DW.filter.project || null, p_search: DW.filter.search || null, p_limit: 300}) || [];
+          const LIM = 1000;
+          const rows = await rpc('dw_order_list', {p_status: DW.filter.status || null, p_project: DW.filter.project || null, p_search: DW.filter.search || null, p_limit: LIM}) || [];
           if(!rows.length){ host.innerHTML = '<div class="st-empty">No duct orders.</div>'; return; }
           const tA = rows.reduce((a, r) => a + num(r.area), 0);
-          host.innerHTML = `<div class="st-muted" style="margin-bottom:6px">${rows.length} order(s) · ${fmt(tA)} sq ft</div>
+          host.innerHTML = `<div class="st-muted" style="margin-bottom:6px">${fmt(rows.length)} order(s)${rows.length >= LIM ? ' (newest ' + fmt(LIM) + ' — narrow the filter to see older ones)' : ''} · ${fmt(tA)} sq ft</div>
             <div class="st-tw"><table class="st-t"><thead><tr><th>Order</th><th>Date</th><th>Project</th><th>Building / Floor</th><th>Material</th>
               <th class="n">Items</th><th class="n">Pieces</th><th class="n">Area sq ft</th><th class="n">Delivered</th><th>Status</th></tr></thead><tbody>
             ${rows.map(r => { const pc = num(r.pieces) ? Math.round(100 * num(r.delivered_pieces) / num(r.pieces)) : 0; return `<tr class="dw-row" data-id="${esc(r.id)}">
@@ -20990,9 +21072,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const f = e.target.files[0]; if(!f) return;
         $('dwDumpInfo').textContent = 'Reading ' + f.name + '…';
         try{
-          const text = await f.text();
+          let text = await f.text();
           const T = ['f_duct_type','f_matel','f_connection','f_orders','f_duct_details','f_donumbers','f_do_datailss'];
-          const d = dwParseDump(text, T);
+          let d = dwParseDump(text, T);
+          text = null;                       // the 40+ MB file is not needed any more
           const plan = [['duct_types','f_duct_type','Duct types'],['metals','f_matel','Materials'],['connections','f_connection','Connectors'],
             ['orders','f_orders','Orders'],['items','f_duct_details','Duct items'],['dos','f_donumbers','DOs'],['do_lines','f_do_datailss','DO lines']];
           $('dwDumpInfo').textContent = f.name + ' — ' + plan.map(([, t, l]) => `${l} ${d[t].length}`).join(' · ');
@@ -21009,13 +21092,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             }
             $('dwDumpProg').textContent = 'Checking delivery status…';
             const fx = await rpcOptional('dw_legacy_fix', {});
-            await dwMasters(true);
-            toast('Old workshop data imported');
-            go('workshop', {sub: 'admin'}, true);
-            setTimeout(() => {
-              const info = $('dwDumpInfo');
-              if(info) info.innerHTML = '✔ Imported — ' + (fx && fx.by_status ? Object.entries(fx.by_status).map(([k, v]) => `${esc(STATUS_LABEL[k] || k)} ${v}`).join(' · ') : 'done');
-            }, 600);
+            const summary = fx && fx.by_status ? Object.entries(fx.by_status).map(([k, v]) => `${STATUS_LABEL[k] || k}: ${v}`).join('\n') : '';
+            // let go of the file and the parsed rows, then start the page fresh
+            d = null; plan.length = 0;
+            $('dwDumpGo').innerHTML = '';
+            $('dwDumpProg').textContent = '';
+            alert('Old workshop data imported.\n\n' + summary + '\n\nThe page will now reload so the workshop runs light again.');
+            location.reload();
           }));
         }catch(err){ $('dwDumpInfo').textContent = ''; toast(err.message, true); }
         e.target.value = '';
