@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v69 — Al Muhanad</title>
+<title>MEMCO Operations Console v72 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4095,6 +4095,17 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
 }
 </style>
 
+<style>
+/* compact bars — same look inside the Attendance page */
+#attSheetsHost .ts-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:#0a2540;border:1px solid rgba(56,189,248,.18);border-radius:10px;padding:8px 10px;margin-bottom:8px}
+#attSheetsHost .ts-bar .st-field{margin:0}
+#attSheetsHost .ts-bar label.st-l{font-size:10px;margin-bottom:2px}
+#attSheetsHost .ts-bar input[type=number]{text-align:center}
+#attSheetsHost .ts-bar .st-btn{padding:7px 10px}
+#attSheetsHost .st-field input[type=number]{text-align:center}
+#attSheetsHost{color:#e6f2ff}
+#attSheetsHost h2,#attSheetsHost h3{color:#e6f2ff}
+</style>
 </head>
 <body>
 <!-- Plain-HTML/inline-CSS loading screen: shown instantly, before any
@@ -4914,10 +4925,6 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
   </div>
 
   <div id="attendanceView" style="display:none;">
-    <div class="hero" style="margin-bottom:8px;">
-      <h1 style="font-size:26px;">Sub-Contractor & Al Muhanad Attendance</h1>
-      <p class="hero-sub">Daily headcount and labor attendance, project-wise</p>
-    </div>
     <div class="att-topbar-compact">
       <div class="att-compact-field">
         <label for="attDate">Date</label>
@@ -4931,15 +4938,14 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
       <button class="tab-btn att-compact-mode" id="attModeSubBtn">🏗 Sub-Contractor</button>
     </div>
 
-    <div id="attSourceStrip" style="margin:6px 0"></div>
-    <div class="att-tabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px">
+    <div class="att-tabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px">
       <button class="tab-btn active" id="attTabDaily">🗓️ Daily attendance</button>
       <button class="tab-btn" id="attTabSheets">🗒 Time sheets &amp; foreman crews</button>
     </div>
+    <div id="attSourceStrip" style="margin:0 0 8px"></div>
     <div id="attSheetsWrap" style="display:none">
-      <div id="attSheetsHost"></div>
+      <div id="attSheetsHost" class="st-scope"></div>
     </div>
-    <div id="attDailyWrap">
     <div class="att-snapshot" id="attSnapshot"></div>
 
     <div id="attSubSection" style="display:none;">
@@ -5240,7 +5246,6 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
       <div id="villaList"></div>
     </div>
   </div>
-    </div><!-- /attDailyWrap -->
   </div>
 
 <div class="overlay" id="villaOverlay">
@@ -6649,6 +6654,7 @@ async function boot(){
   await loadData();
   await refreshUnifiedSites();
   renderHomeStats();
+  setTimeout(() => { try{ warmHomeStats(); }catch(e){} }, 1200);
 }
 
 // Lands a signed-in Driver account directly on their personal Vehicle
@@ -8465,10 +8471,19 @@ async function attRenderSources(){
 }
 
 function attShowTab(which){
-  const daily = document.getElementById('attDailyWrap'), sheets = document.getElementById('attSheetsWrap');
+  const view = document.getElementById('attendanceView');
+  const sheets = document.getElementById('attSheetsWrap');
   const bD = document.getElementById('attTabDaily'), bS = document.getElementById('attTabSheets');
   const isSheets = which === 'sheets';
-  if(daily) daily.style.display = isSheets ? 'none' : '';
+  // everything above the tabs stays; the rest of the daily screen is hidden
+  const keep = ['attSourceStrip', 'attSheetsWrap'];
+  if(view){
+    [...view.children].forEach(ch => {
+      if(keep.includes(ch.id) || ch.classList.contains('att-tabs') || ch.classList.contains('att-topbar-compact')) return;
+      if(ch.dataset.attDaily === undefined) ch.dataset.attDaily = ch.style.display || '';
+      ch.style.display = isSheets ? 'none' : ch.dataset.attDaily;
+    });
+  }
   if(sheets) sheets.style.display = isSheets ? '' : 'none';
   if(bD) bD.classList.toggle('active', !isSheets);
   if(bS) bS.classList.toggle('active', isSheets);
@@ -8518,6 +8533,19 @@ async function goTransfer(){
   if(!laborDataLoaded){ await loadLaborData(); laborDataLoaded = true; }
   initTransferPanel();
 }
+// fill the dashboard cards with real numbers without waiting for the user
+// to open each screen first
+let homeWarmDone = false;
+async function warmHomeStats(){
+  if(homeWarmDone) return;
+  homeWarmDone = true;
+  try{ if(!laborDataLoaded){ await loadLaborData(); laborDataLoaded = true; } }catch(e){}
+  try{ if(typeof campsDataLoaded !== 'undefined' && !campsDataLoaded){ await loadCampsData(); campsDataLoaded = true; } }catch(e){}
+  try{ if(typeof villaDataLoaded !== 'undefined' && !villaDataLoaded && typeof loadVillaData === 'function'){ await loadVillaData(); villaDataLoaded = true; } }catch(e){}
+  try{ if(typeof loadAttendanceData === 'function' && typeof attUIReady !== 'undefined' && !attUIReady){ await loadAttendanceData(); attUIReady = true; } }catch(e){}
+  try{ renderHomeStats(); }catch(e){}
+}
+
 function goHome(){
   // Leaving the app entirely via Home drops any pending "return to Labor"
   // context — it would otherwise stay stale if the user comes back to
@@ -8525,6 +8553,7 @@ function goHome(){
   laborReturnState = null;
   showSection('homeView');
   renderHomeStats();
+  warmHomeStats();
 }
 
 function updateCampBackToLaborVisibility(){
@@ -15850,7 +15879,7 @@ window.addEventListener('load', safeCreateLucideIcons);
   function build(){
     if(document.getElementById('erpSidebar')) return;
     const sb=el('aside',{id:'erpSidebar','aria-label':'Main navigation'});
-    sb.innerHTML='<div class="erp-brand"><div class="erp-brand-kicker">Company Operations</div><div class="erp-brand-title">MEMCO ERP</div><div class="erp-brand-sub">Al Muhanad Electro-Mechanical Cont. L.L.C.</div></div><div class="erp-nav"></div><div class="erp-footer">MEMCO Operations Console · v69<br>Dashboard · Workforce · Fleet · HSE<br><span style="opacity:.85">Built for the company by <b>Muhammad Jamshed</b> — Operations Director</span></div>';
+    sb.innerHTML='<div class="erp-brand"><div class="erp-brand-kicker">Company Operations</div><div class="erp-brand-title">MEMCO Operations Console</div><div class="erp-brand-sub">Al Muhanad Electro-Mechanical Cont. L.L.C.</div></div><div class="erp-nav"></div><div class="erp-footer">Built for the company by <b>Muhammad Jamshed</b> — Operations Director</div>';
     document.body.appendChild(sb);
     const nav=sb.querySelector('.erp-nav'); let last='';
     NAV.forEach(([sec,label,ico,target])=>{
@@ -15858,7 +15887,7 @@ window.addEventListener('load', safeCreateLucideIcons);
       const b=el('button',{class:'erp-nav-btn',type:'button','data-target':target},`<span class="ico">${ico}</span><span>${label}</span>`);
       b.onclick=()=>clickTarget(target); nav.appendChild(b);
     });
-    const top=el('div',{id:'erpTopStrip'},'<div><div class="erp-page-title">MEMCO Management Console</div><div class="erp-page-sub">Operations, workforce, fleet and HSE in one workspace</div></div><div class="erp-live"><span class="erp-live-dot"></span> System Ready</div>');
+    const top=el('div',{id:'erpTopStrip'},'<div><div class="erp-page-title">MEMCO Operations Console</div><div class="erp-page-sub">Operations, workforce, fleet and HSE in one workspace</div></div><div class="erp-live"><span class="erp-live-dot"></span> System Ready</div>');
     const app=document.getElementById('appRoot'); if(app) app.insertBefore(top,app.firstChild);
     const mob=el('nav',{id:'erpMobileNav','aria-label':'Mobile navigation'});
     [['Home','🏠','homeView'],['Labor','👷','homeLaborCard'],['Attendance','✓','homeAttendanceCard'],['Vehicles','🚙','homeVehiclesCard'],['More','☰','homeDirectoryCard']].forEach(([label,ico,target])=>{
@@ -16713,7 +16742,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   var VIEWS = [
     ['homeView',        'homeView',            'Dashboard',            'Operations, workforce, fleet and HSE in one workspace'],
     ['directoryView',   'homeDirectoryCard',   'Sub-Contractors',      'Directory, contacts and agreements'],
-    ['attendanceView',  'homeAttendanceCard',  'Attendance',           'Daily headcount, project-wise'],
+    ['attendanceView',  'homeAttendanceCard',  'Sub-Contractor & Al Muhanad Attendance', 'Daily headcount and labor attendance, project-wise'],
     ['laborView',       'homeLaborCard',       'Labor',                'Workforce records, trades and leave status'],
     ['villasView',      'homeVillasCard',      'Projects',             'Unit-wise progress tracking'],
     ['campsView',       'homeCampsCard',       'Labor Camps',          'Camp management and room allocation'],
@@ -16740,7 +16769,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }
     var title=document.querySelector('#erpTopStrip .erp-page-title');
     var sub=document.querySelector('#erpTopStrip .erp-page-sub');
-    if(title) title.textContent = (v[0]==='homeView') ? 'MEMCO Management Console' : v[2];
+    if(title) title.textContent = (v[0]==='homeView') ? 'MEMCO Operations Console' : v[2];
     if(sub) sub.textContent = v[3];
   }
 
@@ -18842,6 +18871,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #stApp .p-fabricated,#stApp .p-partly_delivered{background:#78350f;color:#fcd34d}
 #stApp .dw-sub{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}#stApp .dw-sub .st-btn.on{background:#0369a1;border-color:#38bdf8}
 #stApp .dw-row{cursor:pointer}#stApp .dw-row:hover td{background:rgba(56,189,248,.06)}
+#stApp .ts-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:#0a2540;border:1px solid rgba(56,189,248,.18);border-radius:10px;padding:8px 10px;margin-bottom:8px}
+#stApp .ts-bar .st-field{margin:0}
+#stApp .ts-bar label.st-l{font-size:10px;margin-bottom:2px}
+#stApp .ts-bar input[type=number]{text-align:center}
+#stApp .ts-bar .st-btn{padding:7px 10px}
+#stApp .st-field input[type=number]{text-align:center}
 #stApp .st-blink{animation:stBlink 1.1s ease-in-out infinite}@keyframes stBlink{0%,100%{opacity:1}50%{opacity:.25}}
 #stApp .dw-log{font-size:12px;color:#9fc0da;border-left:2px solid #1e4b6e;padding-left:10px}#stApp .dw-log div{margin-bottom:3px}
 #stApp .p-partly_accepted{background:#1e3a8a;color:#bfdbfe}
@@ -18935,6 +18970,167 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   #stApp .st-tabs .st-tab{width:auto;white-space:nowrap}
   #stApp .st-field,#stApp .st-field.s{min-width:100%;flex:1 1 100%}
   #stApp .st-sub,#stApp .st-who{display:none}
+}
+
+/* same styling when the stores UI is shown inside another page */
+
+#attSheetsHost{position:fixed;inset:0;z-index:9000;display:flex;flex-direction:column;background:#06182b;color:#e6eef7;font-family:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,Arial,sans-serif;font-size:14px}
+#attSheetsHost *{box-sizing:border-box}
+#attSheetsHost .st-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:linear-gradient(90deg,#0a2a4a,#06213a);border-bottom:1px solid rgba(56,189,248,.25)}
+#attSheetsHost .st-brand{display:flex;align-items:center;gap:10px}
+#attSheetsHost .st-logo{font-size:26px}
+#attSheetsHost .st-title{font-weight:700;font-size:18px;letter-spacing:.3px}
+#attSheetsHost .st-sub{font-size:11.5px;color:#8fb3d1}
+#attSheetsHost .st-head-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+#attSheetsHost .st-who{font-size:12px;color:#9cc3e4}
+#attSheetsHost .st-shell{flex:1;min-height:0;display:flex}
+#attSheetsHost .st-cond{display:flex;gap:4px;flex-wrap:wrap}
+#attSheetsHost .st-cond .st-btn{padding:3px 8px;font-size:11.5px}
+
+#attSheetsHost .st-tw{max-height:min(var(--tw-max, 70vh), calc(100vh - 250px))}
+#attSheetsHost .st-main.st-fit .st-tw{max-height:none}
+@media (max-height:800px){#attSheetsHost .st-tw{max-height:calc(100vh - 250px)}
+  #attSheetsHost .rq-grid{max-height:calc(100vh - 400px)}}
+@media (max-height:700px){#attSheetsHost .st-tw{max-height:calc(100vh - 230px)}}
+#attSheetsHost .st-main.st-fit{overflow:hidden;display:flex;flex-direction:column;padding-bottom:10px}
+#attSheetsHost .st-stats{display:flex;gap:10px;margin:10px 0;flex-wrap:wrap}
+#attSheetsHost .st-stat{flex:1;min-width:130px;background:linear-gradient(160deg,#0d3358,#0a2540);border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:8px 12px}
+#attSheetsHost .st-stat.hot{border-color:rgba(248,113,113,.6)}
+#attSheetsHost .st-stat b{display:block;font-size:19px}
+#attSheetsHost .st-stat span{color:#8fb3d1;font-size:12px}
+#attSheetsHost .st-cols{flex:1;min-height:0;display:flex;gap:14px;margin-top:8px}
+#attSheetsHost .st-col{flex:2;min-width:0;display:flex;flex-direction:column;min-height:0}
+#attSheetsHost .st-col-side{flex:1}
+#attSheetsHost .st-colbody{flex:1;min-height:0;overflow:auto}
+@media (max-width:1000px){#attSheetsHost .st-cols{flex-direction:column}#attSheetsHost .st-col-side{flex:0 0 auto;max-height:240px}}
+#attSheetsHost .st-home{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+#attSheetsHost .st-home-card{background:linear-gradient(160deg,#0d3358,#0a2540);border:1px solid rgba(56,189,248,.25);border-radius:14px;padding:14px;cursor:pointer;transition:transform .12s,border-color .12s}
+#attSheetsHost .st-home-card:hover{transform:translateY(-2px);border-color:#38bdf8}
+#attSheetsHost .st-home-card.hot{border-color:rgba(248,113,113,.65);background:linear-gradient(160deg,#3b1d2a,#0a2540)}
+#attSheetsHost .st-home-ico{font-size:24px;margin-bottom:6px}
+#attSheetsHost .st-home-t{font-weight:700;font-size:15px}
+#attSheetsHost .st-home-s{color:#8fb3d1;font-size:12.5px;margin-top:3px;line-height:1.4}
+#attSheetsHost .st-tabs{flex:0 0 218px;display:flex;flex-direction:column;gap:3px;padding:10px 8px;overflow-y:auto;overflow-x:hidden;background:#071f36;border-right:1px solid rgba(56,189,248,.18)}
+#attSheetsHost.st-menu-off .st-tabs{display:none}
+#attSheetsHost .st-tabs .st-tab{width:100%;text-align:left;white-space:normal;line-height:1.25}
+#attSheetsHost .st-tabs-old{display:flex;gap:4px;padding:8px 12px;overflow-x:auto;background:#071f36;border-bottom:1px solid rgba(56,189,248,.15);scrollbar-width:thin}
+#attSheetsHost .st-tab{flex:0 0 auto;border:1px solid transparent;background:transparent;color:#b8cfe4;padding:7px 12px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px;white-space:nowrap}
+#attSheetsHost .st-tab:hover{background:rgba(56,189,248,.08)}
+#attSheetsHost .st-tab.on{background:#0e4a7d;color:#fff;border-color:rgba(56,189,248,.45)}
+#attSheetsHost .st-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-left:5px;border-radius:9px;background:#e11d48;color:#fff;font-size:11px;text-align:center}
+#attSheetsHost .st-main{flex:1;min-width:0;overflow:auto;padding:16px;width:100%;margin:0}
+#attSheetsHost h2{font-size:18px;margin:4px 0 12px}
+#attSheetsHost h3{font-size:15px;margin:18px 0 8px;color:#cfe3f5}
+#attSheetsHost .st-card{background:#0a2540;border:1px solid rgba(56,189,248,.18);border-radius:12px;padding:14px;margin-bottom:14px}
+#attSheetsHost .st-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+#attSheetsHost .st-store{background:#0b2a48;border:1px solid rgba(56,189,248,.18);border-radius:12px;padding:12px}
+#attSheetsHost .st-store.child{margin-left:0;border-left:3px solid #38bdf8}
+#attSheetsHost .st-store-name{font-weight:600;font-size:14.5px}
+#attSheetsHost .st-muted{color:#8fb3d1;font-size:12px}
+#attSheetsHost .st-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;margin-right:4px}
+#attSheetsHost .p-live{background:#064e3b;color:#6ee7b7}
+#attSheetsHost .p-opening{background:#78350f;color:#fcd34d}
+#attSheetsHost .p-not_started{background:#334155;color:#cbd5e1}
+#attSheetsHost .p-level{background:#1e3a8a;color:#bfdbfe}
+#attSheetsHost .p-in_transit,#attSheetsHost .p-pending,#attSheetsHost .p-site_approved,#attSheetsHost .p-active{background:#78350f;color:#fcd34d}
+#attSheetsHost .p-received,#attSheetsHost .p-accepted,#attSheetsHost .p-issued,#attSheetsHost .p-posted,#attSheetsHost .p-delivered,#attSheetsHost .p-qc_passed{background:#064e3b;color:#6ee7b7}
+#attSheetsHost .p-submitted,#attSheetsHost .p-tagged,#attSheetsHost .p-dispatched{background:#1e3a8a;color:#bfdbfe}
+#attSheetsHost .p-fabricated,#attSheetsHost .p-partly_delivered{background:#78350f;color:#fcd34d}
+#attSheetsHost .dw-sub{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}#attSheetsHost .dw-sub .st-btn.on{background:#0369a1;border-color:#38bdf8}
+#attSheetsHost .dw-row{cursor:pointer}#attSheetsHost .dw-row:hover td{background:rgba(56,189,248,.06)}
+#attSheetsHost .st-blink{animation:stBlink 1.1s ease-in-out infinite}@keyframes stBlink{0%,100%{opacity:1}50%{opacity:.25}}
+#attSheetsHost .dw-log{font-size:12px;color:#9fc0da;border-left:2px solid #1e4b6e;padding-left:10px}#attSheetsHost .dw-log div{margin-bottom:3px}
+#attSheetsHost .p-partly_accepted{background:#1e3a8a;color:#bfdbfe}
+#attSheetsHost .p-rejected,#attSheetsHost .p-cancelled{background:#7f1d1d;color:#fecaca}
+#attSheetsHost .p-completed,#attSheetsHost .p-closed{background:#064e3b;color:#6ee7b7}
+#attSheetsHost .p-store_check,#attSheetsHost .p-pm_approval,#attSheetsHost .p-main_store,#attSheetsHost .p-returned,#attSheetsHost .p-out{background:#78350f;color:#fcd34d}
+#attSheetsHost .p-procurement,#attSheetsHost .p-ordered,#attSheetsHost .p-fulfilling,#attSheetsHost .p-open,#attSheetsHost .p-partly_received{background:#1e3a8a;color:#bfdbfe}
+#attSheetsHost .st-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+#attSheetsHost .st-field{display:flex;flex-direction:column;gap:4px;min-width:150px;flex:1}
+#attSheetsHost .st-field.s{flex:0 0 130px;min-width:110px}
+#attSheetsHost label.st-l{font-size:11.5px;color:#9cc3e4;text-transform:uppercase;letter-spacing:.4px}
+#attSheetsHost input,#attSheetsHost select,#attSheetsHost textarea{background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.28);border-radius:8px;padding:8px 10px;font:inherit;font-size:13.5px;width:100%}
+#attSheetsHost input:focus,#attSheetsHost select:focus,#attSheetsHost textarea:focus{outline:2px solid #38bdf8;outline-offset:0}
+#attSheetsHost .st-btn{border:1px solid rgba(56,189,248,.35);background:#0e4a7d;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px;font-weight:600;white-space:nowrap}
+#attSheetsHost .st-btn:hover{filter:brightness(1.15)}
+#attSheetsHost .st-btn:disabled{opacity:.5;cursor:not-allowed}
+#attSheetsHost .st-ghost{background:transparent}
+#attSheetsHost .st-ok{background:#047857;border-color:#10b981}
+#attSheetsHost .st-warn{background:#b45309;border-color:#f59e0b}
+#attSheetsHost .st-danger{background:#b91c1c;border-color:#ef4444}
+#attSheetsHost .st-sm{padding:4px 9px;font-size:12px}
+#attSheetsHost .st-tw{overflow-x:auto;border-radius:10px;border:1px solid rgba(56,189,248,.15)}
+#attSheetsHost table.st-t{border-collapse:collapse;width:100%;font-size:13px}
+#attSheetsHost .st-t th{position:sticky;top:0;background:#0d3358;color:#cfe3f5;text-align:left;font-weight:600;padding:8px;white-space:nowrap;z-index:1}
+#attSheetsHost .st-t td{padding:7px 8px;border-top:1px solid rgba(56,189,248,.10);vertical-align:top}
+#attSheetsHost .st-t tr:hover td{background:rgba(56,189,248,.05)}
+#attSheetsHost .st-t .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+#attSheetsHost .st-t .low{color:#fca5a5;font-weight:700}
+#attSheetsHost .st-t.st-compact th,#attSheetsHost .st-t.st-compact td{padding:4px 6px;font-size:12.5px}
+#attSheetsHost .st-t.st-compact th.n,#attSheetsHost .st-t.st-compact td.n{padding-left:4px;padding-right:6px}
+#attSheetsHost .st-t.st-compact .c2{max-width:260px}
+#attSheetsHost .st-t.st-vert thead th.n{vertical-align:bottom;padding:4px 2px}
+#attSheetsHost .st-t.st-vert thead th.n span{writing-mode:vertical-rl;transform:rotate(180deg);display:inline-block;max-height:120px;font-weight:600}
+#attSheetsHost .st-t.st-vert td.n,#attSheetsHost .st-t.st-vert th.n{min-width:34px;padding-left:3px;padding-right:5px}
+#attSheetsHost .st-t.st-vert .c2{max-width:190px}
+#attSheetsHost .st-sticky .c1{position:sticky;left:0;z-index:2;background:#0a2540;width:94px;min-width:94px}
+#attSheetsHost .st-sticky .c2{position:sticky;left:94px;z-index:2;background:#0a2540;min-width:210px}
+#attSheetsHost .st-sticky thead .c1,#attSheetsHost .st-sticky thead .c2{z-index:3;background:#0d3358}
+#attSheetsHost .st-sticky tr:hover .c1,#attSheetsHost .st-sticky tr:hover .c2{background:#0f3355}
+@media (max-width:700px){#attSheetsHost .st-sticky .c2{position:static}}
+#attSheetsHost .st-t .click{cursor:pointer;text-decoration:underline dotted}
+#attSheetsHost .st-lines td input{padding:6px 8px}
+#attSheetsHost .st-lines .desc{min-width:200px}
+#attSheetsHost .st-avail{font-size:11.5px;color:#8fb3d1;white-space:nowrap}
+#attSheetsHost .st-avail.bad{color:#fca5a5;font-weight:700}
+#attSheetsHost .st-note{background:#0b3050;border-left:3px solid #38bdf8;padding:10px 12px;border-radius:8px;font-size:13px;color:#cfe3f5;margin-bottom:12px}
+#attSheetsHost .st-note.warn{border-left-color:#f59e0b;background:#2a1f08;color:#fde68a}
+
+#attSheetsHost .rq-person-ok{border-color:#22c55e!important;box-shadow:0 0 0 1px rgba(34,197,94,.22)}
+#attSheetsHost .rq-picker{margin-top:10px;border:1px solid rgba(56,189,248,.28);border-radius:10px;background:#081f35;padding:10px}
+#attSheetsHost .rq-picker-head{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+#attSheetsHost .rq-picker-head input{flex:1;min-width:260px}
+#attSheetsHost .rq-chips{display:flex;gap:6px;flex-wrap:wrap}
+#attSheetsHost .rq-chip{border:1px solid rgba(148,163,184,.35);background:#0b2a47;color:#cfe3f5;border-radius:999px;padding:5px 10px;font-size:11px;cursor:pointer}
+#attSheetsHost .rq-chip.on{border-color:#38bdf8;background:#0d3a60;color:#fff}
+#attSheetsHost .rq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(285px,1fr));gap:7px;max-height:min(360px,calc(100vh - 430px));overflow:auto;padding:2px}
+#attSheetsHost .rq-item{border:1px solid rgba(148,163,184,.24);background:#0a2540;border-radius:8px;padding:8px;cursor:pointer;text-align:left;color:#e5f2ff}
+#attSheetsHost .rq-item:hover{border-color:#38bdf8;background:#0d3358}
+#attSheetsHost .rq-item.sel{border-color:#22c55e;background:#0d3d39}
+#attSheetsHost .rq-item .code{font-weight:800;color:#fff}
+#attSheetsHost .rq-item .desc{font-size:12px;line-height:1.25;margin-top:2px}
+#attSheetsHost .rq-item .meta{font-size:10.5px;color:#8fb3d1;margin-top:5px;display:flex;justify-content:space-between;gap:8px}
+#attSheetsHost .rq-item .have{font-weight:700;color:#86efac}
+#attSheetsHost .rq-selected{margin-top:10px}
+
+#attSheetsHost .st-empty{padding:18px;text-align:center;color:#8fb3d1}
+#attSheetsHost .st-toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#0f172a;border:1px solid #38bdf8;color:#fff;padding:10px 16px;border-radius:10px;font-size:13.5px;display:none;max-width:92vw;z-index:9100;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+#attSheetsHost .st-toast.err{border-color:#ef4444;background:#3b0d0d}
+#attSheetsHost .st-chk{display:flex;flex-wrap:wrap;gap:6px 14px}
+#attSheetsHost .st-chk label{display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer}
+#attSheetsHost .st-chk input{width:auto}
+#attSheetsHost .st-actions{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:700px){
+  #attSheetsHost .st-lines thead{display:none}
+  #attSheetsHost .st-lines tr{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;padding:10px 8px;border-top:1px solid rgba(56,189,248,.18)}
+  #attSheetsHost .st-lines td{border:none;padding:0;min-width:0}
+  #attSheetsHost .st-lines td.idx{display:none}
+  #attSheetsHost .st-lines td.desc{grid-column:1 / -1;min-width:0}
+  #attSheetsHost .st-lines td.unit::before{content:'Unit: ';color:#8fb3d1}
+  #attSheetsHost .st-lines td.c-brand::before,#attSheetsHost .st-lines td.c-qty::before,#attSheetsHost .st-lines td.c-rem::before,#attSheetsHost .st-lines td.c-boq::before,
+  #attSheetsHost .st-lines td.c-rate::before,#attSheetsHost .st-lines td.c-disc::before,#attSheetsHost .st-lines td.c-avail::before{display:block;font-size:11px;color:#8fb3d1;text-transform:uppercase}
+  #attSheetsHost .st-lines td.c-brand::before{content:'Brand'} #attSheetsHost .st-lines td.c-qty::before{content:'Quantity'}
+  #attSheetsHost .st-lines td.c-rem::before{content:'Remarks'} #attSheetsHost .st-lines td.c-boq::before{content:'BOQ Ref'}
+  #attSheetsHost .st-lines td.c-rate::before{content:'Rate'} #attSheetsHost .st-lines td.c-disc::before{content:'Disc %'} #attSheetsHost .st-lines td.c-avail::before{content:'Available'}
+  #attSheetsHost .st-lines td.c-kind::before{content:'Type';display:block;font-size:11px;color:#8fb3d1;text-transform:uppercase}
+  #attSheetsHost .st-lines td.c-avail{text-align:left}
+  #attSheetsHost .st-lines td.c-del{grid-column:1 / -1;text-align:right}
+  #attSheetsHost .st-main{padding:10px}
+  #attSheetsHost .st-shell{flex-direction:column}
+  #attSheetsHost .st-tabs{flex:0 0 auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid rgba(56,189,248,.18)}
+  #attSheetsHost .st-tabs .st-tab{width:auto;white-space:nowrap}
+  #attSheetsHost .st-field,#attSheetsHost .st-field.s{min-width:100%;flex:1 1 100%}
+  #attSheetsHost .st-sub,#attSheetsHost .st-who{display:none}
 }
 </style>
 
@@ -20861,7 +21057,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const guess = (TS_HOST && TS_GROUP && groups.includes(TS_GROUP) ? TS_GROUP : null)
       || groups.find(g => /workshop/i.test(g)) || groups[0] || '';
     const T = S.tsTab || 'ot';
-    main.innerHTML = `<h2>🗒 Time sheets</h2>${nav}
+    main.innerHTML = `${TS_HOST ? '' : '<h2>🗒 Time sheets</h2>'}${nav}
       <div class="dw-sub">
         <button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Crews</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'mark' ? 'on' : ''}" data-ts="mark">✅ Mark attendance</button>
@@ -20870,8 +21066,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <button type="button" class="st-btn st-ghost st-sm ${T === 'print' ? 'on' : ''}" data-ts="print">🖨 Print sheet</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'read' ? 'on' : ''}" data-ts="read">📷 Read signed sheet</button>
       </div>
-      <div class="st-row" style="margin-bottom:8px">
-        <div class="st-field"><label class="st-l">Group / site</label><select id="tsGroup">${groups.map(g => `<option ${g === (S.tsGroup || guess) ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+      <div class="ts-bar">
+        <div class="st-field" style="flex:2 1 220px"><label class="st-l">Group / site</label><select id="tsGroup">${groups.map(g => `<option ${g === (S.tsGroup || guess) ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
         ${['read','crew','moves'].includes(T) ? '' : `<div class="st-field s"><label class="st-l">${T === 'ot' ? 'Work date (the day they worked)' : T === 'mark' ? 'Attendance date' : 'Sheet date'}</label>
           <input type="date" id="tsDate" value="${T === 'ot' ? wsYesterday() : todayIso()}" max="${todayIso()}"></div>`}
         ${T === 'print' ? `<div class="st-field s"><label class="st-l">Up to date (for several days)</label><input type="date" id="tsDate2" value="${todayIso()}"></div>
@@ -21181,21 +21377,18 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>26</b> and <b>27</b> (attendance) in Supabase first.</div>`; return; }
         const map = {}; saved.forEach(o => { map[o.hr] = num(o.hours); });
         body.innerHTML = `
-          <div class="st-card">
-            <div class="st-row" style="align-items:flex-end;gap:8px">
-              <div class="st-field s"><label class="st-l">Everybody gets</label><input type="number" id="tsAll" min="0" max="24" step="0.5" value="2"></div>
-              <button type="button" class="st-btn st-sm" id="tsAllGo">Apply to all</button>
-              <button type="button" class="st-btn st-ghost st-sm" id="tsPrev">📋 Same as the day before</button>
-              <button type="button" class="st-btn st-ghost st-sm" id="tsZero">Clear all</button>
-            </div>
-            <div class="st-row" style="margin-top:8px;align-items:flex-end;gap:8px">
-              <div class="st-field" style="flex:2 1 320px"><label class="st-l">Only these HR numbers (paste a list)</label>
-                <input id="tsSome" placeholder="4124, 4475, 3901"></div>
-              <div class="st-field s"><label class="st-l">Hours</label><input type="number" id="tsSomeH" min="0" max="24" step="0.5" value="3"></div>
-              <button type="button" class="st-btn st-sm" id="tsSomeGo">Apply to these</button>
-            </div>
-            <div class="st-row" style="margin-top:8px"><div class="st-field"><input id="tsFind" placeholder="🔎 Find by HR number, name or trade"></div>
-              <span class="st-muted" id="tsSum"></span></div>
+          <div class="ts-bar">
+            <div class="st-field s" style="flex:0 0 120px"><label class="st-l">Everybody gets</label><input type="number" id="tsAll" min="0" max="24" step="0.5" value="2"></div>
+            <button type="button" class="st-btn st-sm" id="tsAllGo">Apply to all</button>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsPrev">📋 Same as yesterday</button>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsZero">Clear all</button>
+            <div class="st-field" style="flex:2 1 260px"><label class="st-l">Only these HR numbers</label><input id="tsSome" placeholder="4124, 4475, 3901"></div>
+            <div class="st-field s" style="flex:0 0 90px"><label class="st-l">Hours</label><input type="number" id="tsSomeH" min="0" max="24" step="0.5" value="3"></div>
+            <button type="button" class="st-btn st-sm" id="tsSomeGo">Apply to these</button>
+          </div>
+          <div class="ts-bar">
+            <div class="st-field" style="flex:2 1 240px"><input id="tsFind" placeholder="🔎 Find by HR number, name or trade"></div>
+            <span class="st-muted" id="tsSum" style="margin-left:auto;align-self:center"></span>
           </div>
           <div class="st-tw"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th>Trade</th><th class="n" style="width:110px">OT hours</th></tr></thead>
             <tbody id="tsRows"></tbody></table></div>
@@ -25845,6 +26038,23 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 .overlay, .modal, #stApp, #ltApp, #stApp .st-main, #stApp .st-tw, #ltApp .lt-body,
 #campSetOverlay, [id$="Overlay"]{overscroll-behavior:contain;}
 
+
+
+      body{font-family:Calibri,Arial,sans-serif;margin:18px;font-size:12px;color:#111}
+      h1{font-size:18px;margin:0}h2{font-size:15px;margin:2px 0 12px;font-weight:normal}
+      table{border-collapse:collapse;width:100%}th{background:#e8dcc0;border:1px solid #555;padding:5px;text-align:left}
+      td{border:1px solid #888;padding:4px 6px}
+      .box td{border:1px solid #555;padding:4px 8px}.box .k{background:#f2ead6;font-weight:700;width:130px}
+      .sg{display:flex;gap:30px;margin-top:30px}.sg>div{flex:1}.ln{border-top:1px solid #333;margin-top:34px;padding-top:2px;color:#444}
+    
+@keyframes campBlink{0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.0)}50%{box-shadow:0 0 0 4px rgba(248,113,113,.35)}}
+
+/* While any window is open, the page behind it must not move */
+html.memco-locked{overflow:hidden !important;}
+body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width:100%;}
+.overlay, .modal, #attSheetsHost, #ltApp, #attSheetsHost .st-main, #attSheetsHost .st-tw, #ltApp .lt-body,
+#campSetOverlay, [id$="Overlay"]{overscroll-behavior:contain;}
+
 </style></head><body>
       <h1>AL MUHANAD ELECTRO-MECHANICAL CONT. L.L.C.</h1><h2>LABOR TRANSFER / CAMP ALLOCATION</h2>
       <table class="box" style="margin-bottom:12px">
@@ -27679,7 +27889,8 @@ const MEMCO_ATT = (() => {
     }).join('');
     const head = first.slice(0, first.indexOf('</head>'));
     w.document.open();
-    w.document.write(`${head}<style>.sheetwrap{position:relative}</style></head><body>${body}
+    w.document.write(`${head}<style>.sheetwrap{position:relative}</style>
+</head><body>${body}
       <script>window.onload=function(){setTimeout(function(){window.print();},400);}<\/script></body></html>`);
     w.document.close();
   }
