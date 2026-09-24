@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v66</title>
+<title>MEMCO Portal v67</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0a2540">
 <meta name="mobile-web-app-capable" content="yes">
@@ -20789,13 +20789,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <div class="dw-sub">
         <button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Crews</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'mark' ? 'on' : ''}" data-ts="mark">✅ Mark attendance</button>
+        <button type="button" class="st-btn st-ghost st-sm ${T === 'moves' ? 'on' : ''}" data-ts="moves">🔁 Loans &amp; jobs</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'ot' ? 'on' : ''}" data-ts="ot">⏱ Overtime</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'print' ? 'on' : ''}" data-ts="print">🖨 Print sheet</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'read' ? 'on' : ''}" data-ts="read">📷 Read signed sheet</button>
       </div>
       <div class="st-row" style="margin-bottom:8px">
         <div class="st-field"><label class="st-l">Group / site</label><select id="tsGroup">${groups.map(g => `<option ${g === (S.tsGroup || guess) ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
-        ${['read','crew'].includes(T) ? '' : `<div class="st-field s"><label class="st-l">${T === 'ot' ? 'Work date (the day they worked)' : T === 'mark' ? 'Attendance date' : 'Sheet date'}</label>
+        ${['read','crew','moves'].includes(T) ? '' : `<div class="st-field s"><label class="st-l">${T === 'ot' ? 'Work date (the day they worked)' : T === 'mark' ? 'Attendance date' : 'Sheet date'}</label>
           <input type="date" id="tsDate" value="${T === 'ot' ? wsYesterday() : todayIso()}" max="${todayIso()}"></div>`}
         ${T === 'print' ? `<div class="st-field s"><label class="st-l">Up to date (for several days)</label><input type="date" id="tsDate2" value="${todayIso()}"></div>
           <div class="st-field s"><label class="st-l">Shift</label><select id="tsShift"><option>1st</option><option>2nd</option></select></div>` : ''}
@@ -20812,6 +20813,72 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const crewOf = hr => crews.find(c => (c.members || []).some(m => m.hr === hr));
     const crewOptions = (sel, allLabel) => `<option value="">${esc(allLabel || 'All men on the site')}</option>`
       + crews.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.foreman_name || 'Crew')}${c.foreman_name ? ' — ' + esc(c.foreman_name) : ''} (${(c.members || []).length})</option>`).join('');
+
+    const tasks = await rpc('st_task_list', {p_only_open: true}).catch(() => []) || [];
+    // ask "for how long?" and move / lend / send the men
+    async function askSend(people, opts){
+      opts = opts || {};
+      const date = opts.date || todayIso();
+      const crewsFor = crews.filter(c => c.id !== opts.fromCrew);
+      const w = document.createElement('div');
+      w.style.cssText = 'position:fixed;inset:0;z-index:9600;background:rgba(2,10,20,.9);display:flex;align-items:center;justify-content:center;padding:14px';
+      w.innerHTML = `<div class="st-card" style="max-width:560px;width:100%;margin:0">
+        <h3 style="margin-top:0">Where do these ${people.length} man/men go?</h3>
+        <div class="st-muted" style="margin-bottom:8px">${esc(people.map(p => p.hr).join(', '))}</div>
+        <div class="st-row"><div class="st-field"><label class="st-l">Send to</label><select id="skTo">
+          <optgroup label="Foreman crew">${crewsFor.map(c => `<option value="crew:${esc(c.id)}">${esc(c.name || c.foreman_name)}</option>`).join('')}</optgroup>
+          <optgroup label="Small job / outside work">${tasks.map(t => `<option value="task:${esc(t.id)}">${esc(t.name)}${t.location ? ' — ' + esc(t.location) : ''}</option>`).join('')}
+            <option value="task:new">➕ New job…</option></optgroup>
+        </select></div></div>
+        <div class="st-row" style="margin-top:8px"><div class="st-field"><label class="st-l">For how long</label><select id="skHow">
+          <option value="1">Only today</option><option value="3">3 days</option><option value="7">7 days</option>
+          <option value="date">Until a date…</option><option value="perm">For good (permanent)</option></select></div>
+          <div class="st-field s" id="skDateBox" style="display:none"><label class="st-l">Until</label><input type="date" id="skDate" value="${date}"></div></div>
+        <div class="st-row" style="margin-top:8px"><div class="st-field"><label class="st-l">Note</label><input id="skNote" placeholder="e.g. urgent work at consultant villa"></div></div>
+        <div class="st-row" style="margin-top:12px;justify-content:flex-end;gap:6px">
+          <button type="button" class="st-btn st-ghost" id="skX">Cancel</button>
+          <button type="button" class="st-btn st-ok" id="skGo">Send</button></div></div>`;
+      document.body.appendChild(w);
+      const close = () => { try{ document.body.removeChild(w); }catch(e){} };
+      return new Promise(resolve => {
+        w.querySelector('#skHow').addEventListener('change', e => {
+          w.querySelector('#skDateBox').style.display = e.target.value === 'date' ? '' : 'none';
+        });
+        w.querySelector('#skX').addEventListener('click', () => { close(); resolve(false); });
+        w.addEventListener('click', e => { if(e.target === w){ close(); resolve(false); } });
+        w.querySelector('#skGo').addEventListener('click', ev => busy(ev.currentTarget, async () => {
+          let to = w.querySelector('#skTo').value, how = w.querySelector('#skHow').value;
+          const note = w.querySelector('#skNote').value.trim();
+          let taskId = null, crewId = null;
+          if(to === 'task:new'){
+            const nm = prompt('Name of the job (e.g. Consultant villa — AC leak):', '');
+            if(!nm) return;
+            const place = prompt('Where is it?', '') || '';
+            const t = await rpc('st_task_save', {p: {name: nm.trim(), group_code: group, location: place.trim(),
+              from_date: date, to_date: date}});
+            tasks.push(t); taskId = t.id;
+          } else if(to.startsWith('task:')) taskId = to.slice(5);
+          else crewId = to.slice(5);
+
+          if(how === 'perm'){
+            if(!crewId) throw new Error('A permanent move needs a foreman crew, not a job.');
+            await rpc('st_send', {p_kind: 'move', p_people: people, p_from: date, p_to: date, p_crew: crewId,
+              p_task: null, p_group: group, p_note: note});
+            toast(`${people.length} man/men moved for good`);
+          } else {
+            const days = how === 'date' ? null : +how;
+            const from = date;
+            let toDate = w.querySelector('#skDate').value || date;
+            if(days){ const d = new Date(date); d.setDate(d.getDate() + days - 1); toDate = d.toISOString().slice(0, 10); }
+            if(toDate < from) throw new Error('The end date is before the start.');
+            await rpc('st_send', {p_kind: taskId ? 'task' : 'loan', p_people: people, p_from: from, p_to: toDate,
+              p_crew: crewId, p_task: taskId, p_group: group, p_note: note});
+            toast(`${people.length} man/men sent — ${dmy(from)} to ${dmy(toDate)}, then back by themselves`);
+          }
+          close(); resolve(true);
+        }));
+      });
+    }
 
     /* ---------------- crews: which men are under which foreman ---------------- */
     if(T === 'crew'){
@@ -20903,6 +20970,55 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       return;
     }
 
+    /* ---------------- loans, small jobs and permanent moves ---------------- */
+    if(T === 'moves'){
+      const body = $('tsBody');
+      const today = todayIso();
+      const running = await rpc('st_moves_today', {p_date: today}).catch(() => []) || [];
+      body.innerHTML = `<div class="st-note">A man can be lent to another foreman for a few days, or sent with a small team to an outside job.
+          He goes back to his own foreman by himself on the day it ends — nobody has to remember.</div>
+        <div class="st-card"><h3 style="margin-top:0">Send men</h3>
+          <div class="st-row" style="align-items:flex-end;gap:8px">
+            <div class="st-field" style="flex:2 1 320px"><label class="st-l">HR numbers (paste a list)</label>
+              <input id="mvHrs" placeholder="2258, 2305, 2331"></div>
+            <button type="button" class="st-btn st-ok st-sm" id="mvGo">Send…</button></div></div>
+        <h3>Running today (${running.length})</h3>
+        ${running.length ? `<div class="st-tw"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th>Where</th><th>Until</th><th></th></tr></thead><tbody>
+          ${running.map(r => `<tr><td><b>${esc(r.hr)}</b></td><td>${esc(r.name)}</td>
+            <td>${r.kind === 'task' ? '🧰 ' + esc(r.task_name || 'job') : '👷 ' + esc(r.crew_name || 'crew')}</td>
+            <td${r.ends_today ? ' style="color:#fcd34d"' : ''}>${esc(dmy(r.to_date))}${r.ends_today ? ' (last day)' : ''}</td>
+            <td><button type="button" class="st-btn st-ghost st-sm" data-back="${esc(r.hr)}">↩ Bring back</button></td></tr>`).join('')}
+        </tbody></table></div>` : '<div class="st-empty">Nobody is out today.</div>'}
+        <h3>Small jobs</h3>
+        ${tasks.length ? `<div class="st-tw"><table class="st-t st-compact"><thead><tr><th>Job</th><th>Where</th><th>Days</th><th class="n">Men</th><th></th></tr></thead><tbody>
+          ${tasks.map(t => `<tr><td><b>${esc(t.name)}</b></td><td>${esc(t.location || '')}</td>
+            <td>${esc(dmy(t.from_date))} → ${esc(dmy(t.to_date))}</td><td class="n">${fmt(t.men)}</td>
+            <td><button type="button" class="st-btn st-ghost st-sm" data-tclose="${esc(t.id)}">Close job</button></td></tr>`).join('')}
+        </tbody></table></div>` : '<div class="st-empty">No small job open. One is made when you send men to an outside job.</div>'}`;
+      $('mvGo').addEventListener('click', async () => {
+        const hrs = $('mvHrs').value.split(/[^0-9A-Za-z]+/).filter(Boolean);
+        if(!hrs.length){ toast('Paste the HR numbers first.', true); return; }
+        const list = [], miss = [];
+        hrs.forEach(h => { const p = people.find(x => x.hr === h); if(p) list.push({hr: p.hr, name: p.name, trade: p.trade}); else miss.push(h); });
+        if(!list.length){ toast('None of those HR numbers is on this site.', true); return; }
+        if(miss.length) toast('Not on this site: ' + miss.join(', '), true);
+        if(await askSend(list, {date: todayIso()})) go('workshop', {sub: 'time'}, true);
+      });
+      body.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
+        await rpc('st_send_cancel', {p_hrs: [b.dataset.back], p_date: todayIso()});
+        toast('Back with his own foreman');
+        go('workshop', {sub: 'time'}, true);
+      })));
+      body.querySelectorAll('[data-tclose]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
+        const t = tasks.find(x => x.id === b.dataset.tclose);
+        if(!confirm(`Close the job "${t.name}"?`)) return;
+        await rpc('st_task_save', {p: {id: t.id, name: t.name, group_code: t.group_code, location: t.location,
+          from_date: t.from_date, to_date: t.to_date, status: 'closed'}});
+        go('workshop', {sub: 'time'}, true);
+      })));
+      return;
+    }
+
     /* ---------------- mark attendance on the phone ---------------- */
     if(T === 'mark'){
       const body = $('tsBody');
@@ -20910,7 +21026,11 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const date = $('tsDate').value || todayIso();
         const crewId = S.tsCrew || '';
         const crew = crews.find(c => c.id === crewId);
-        const list = crew ? (crew.members || []) : people;
+        let list = crew ? (crew.members || []) : people;
+        if(crew){
+          // who really belongs to this foreman on that day (loans in, loans out, task teams)
+          try{ const men = await rpc('st_crew_men', {p_crew: crewId, p_date: date}); if(Array.isArray(men)) list = men; }catch(e){}
+        }
         let saved = [];
         try{ saved = await rpc('st_att_list', {p_date: date, p_group: group, p_crew: crewId || null}) || []; }
         catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>28_memco_crews_attendance.sql</b> in Supabase first.</div>`; return; }
@@ -20921,24 +21041,47 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           const pres = list.filter(p => mark[p.hr]).length;
           $('tsMarkSum').innerHTML = `<b>${pres}</b> present · <b>${list.length - pres}</b> absent`;
           $('tsMarkRows').innerHTML = list.map(p => `<tr data-hr="${esc(p.hr)}">
-            <td><b>${esc(p.hr)}</b></td><td>${esc(p.name)}<div class="st-muted">${esc(p.trade || '')}</div></td>
+            <td><b>${esc(p.hr)}</b>${p.kind === 'loan' ? '<div class="st-pill p-pending">lent in</div>' : ''}</td>
+            <td>${esc(p.name)}<div class="st-muted">${esc(p.trade || '')}${p.until ? ' · back ' + esc(dmy(p.until)) : ''}</div></td>
             <td><button type="button" class="st-btn st-sm ${mark[p.hr] ? 'st-ok' : 'st-danger'}" data-flip="${esc(p.hr)}">${mark[p.hr] ? 'Present' : 'Absent'}</button></td>
-            <td class="n"><input type="number" class="tsOt" data-hr="${esc(p.hr)}" min="0" max="24" step="0.5" value="${ot[p.hr] || ''}" style="width:80px" ${mark[p.hr] ? '' : 'disabled'}></td></tr>`).join('')
+            <td class="n"><input type="number" class="tsOt" data-hr="${esc(p.hr)}" min="0" max="24" step="0.5" value="${ot[p.hr] || ''}" style="width:80px" ${mark[p.hr] ? '' : 'disabled'}></td>
+            <td><button type="button" class="st-btn st-ghost st-sm" data-send="${esc(p.hr)}" title="Lend him / send him to a job">🔁</button></td></tr>`).join('')
             || '<tr><td colspan="4" class="st-muted">Nobody in this crew.</td></tr>';
           $('tsMarkRows').querySelectorAll('[data-flip]').forEach(b => b.addEventListener('click', () => { mark[b.dataset.flip] = !mark[b.dataset.flip]; if(!mark[b.dataset.flip]) ot[b.dataset.flip] = 0; drawRows(); }));
           $('tsMarkRows').querySelectorAll('.tsOt').forEach(i => i.addEventListener('change', () => { ot[i.dataset.hr] = num(i.value); }));
+          $('tsMarkRows').querySelectorAll('[data-send]').forEach(b => b.addEventListener('click', async () => {
+            const p = list.find(x => x.hr === b.dataset.send);
+            if(await askSend([{hr: p.hr, name: p.name, trade: p.trade || ''}], {date, fromCrew: crewId})) draw();
+          }));
         };
         body.innerHTML = `<div class="st-note">Mark attendance straight from the phone — for a site where nobody prints a sheet, or to correct what the sheet read.
             Overtime typed here goes to the same place as the Overtime screen, so tomorrow's sheet will already show it.</div>
           <div class="st-row" style="margin-bottom:8px">
             <div class="st-field"><label class="st-l">Crew</label><select id="tsMarkCrew">${crewOptions(crewId)}</select></div>
             <div class="st-field s" style="align-self:flex-end"><button type="button" class="st-btn st-ghost st-sm" id="tsAllPresent">All present</button></div>
+            <div class="st-field s" style="align-self:flex-end"><button type="button" class="st-btn st-sm" id="tsAddMan">➕ Add a man</button></div>
             <span class="st-muted" id="tsMarkSum" style="align-self:center"></span>
           </div>
-          <div class="st-tw" style="max-height:58vh"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th style="width:110px">Attendance</th><th class="n" style="width:100px">OT hours</th></tr></thead>
+          <div id="tsMissBox"></div>
+          <div class="st-tw" style="max-height:58vh"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th style="width:110px">Attendance</th><th class="n" style="width:100px">OT hours</th><th style="width:44px"></th></tr></thead>
             <tbody id="tsMarkRows"></tbody></table></div>
           <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="tsMarkSave">💾 Save attendance</button></div>`;
         $('tsMarkCrew').addEventListener('change', () => { S.tsCrew = $('tsMarkCrew').value; draw(); });
+        $('tsAddMan').addEventListener('click', async () => {
+          const hr = prompt('HR number of the man who came today:', '');
+          if(hr === null) return;
+          const p = people.find(x => x.hr === hr.trim()) || (personByHr(hr.trim()) ? {hr: hr.trim(), name: personByHr(hr.trim()).name, trade: personByHr(hr.trim()).trade || ''} : null);
+          if(!p){ toast(`HR ${hr} is not in the staff list.`, true); return; }
+          if(!crewId){ toast('Choose a crew first — then he can be added to it.', true); return; }
+          if(await askSend([{hr: p.hr, name: p.name, trade: p.trade || ''}], {date, fromCrew: null})) draw();
+        });
+        // men nobody has marked yet today
+        try{
+          const miss = await rpc('st_att_missing', {p_date: date, p_group: group}) || [];
+          const box = $('tsMissBox');
+          if(box) box.innerHTML = miss.length ? `<div class="st-note warn" style="margin-bottom:8px">⚠ <b>${miss.length}</b> man/men on this site have no attendance for ${esc(dmy(date))}:
+            ${esc(miss.slice(0, 12).map(m => m.hr + (m.crew_name ? ' (' + m.crew_name + ')' : '')).join(', '))}${miss.length > 12 ? ' …' : ''}</div>` : '';
+        }catch(e){}
         $('tsAllPresent').addEventListener('click', () => { list.forEach(p => { mark[p.hr] = true; }); drawRows(); });
         $('tsMarkSave').addEventListener('click', e => busy(e.currentTarget, async () => {
           const rows = list.map(p => ({hr: p.hr, name: p.name, trade: p.trade || '', present: !!mark[p.hr], ot: num(ot[p.hr])}));
@@ -21040,10 +21183,16 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(T === 'print'){
       const body = $('tsBody');
       const picked = new Set(people.map(p => p.hr));
-      const draw = () => {
+      const draw = async () => {
         const crewId = S.tsCrew || '';
         const crew = crews.find(c => c.id === crewId);
-        const crewMen = crew ? (crew.members || []).map(m => people.find(p => p.hr === m.hr) || m) : people;
+        let crewMen = crew ? (crew.members || []).map(m => people.find(p => p.hr === m.hr) || m) : people;
+        if(crew){
+          try{
+            const men = await rpc('st_crew_men', {p_crew: crewId, p_date: $('tsDate').value || todayIso()});
+            if(Array.isArray(men) && men.length) crewMen = men.map(m => Object.assign({}, people.find(p => p.hr === m.hr) || {}, m));
+          }catch(e){}
+        }
         picked.clear(); crewMen.forEach(p => picked.add(p.hr));
         body.innerHTML = `<div class="st-row" style="margin-bottom:8px"><div class="st-field"><label class="st-l">Crew (one sheet per foreman)</label>
             <select id="tsPrintCrew">${crewOptions(crewId)}</select></div></div>
@@ -21113,7 +21262,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       };
       $('tsDate').addEventListener('change', draw);
       $('tsShift').addEventListener('change', draw);
-      draw();
+      await draw();
       return;
     }
 
@@ -21157,23 +21306,41 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       let res;
       try{ res = await MEMCO_ATT.read(file, sheet); }
       catch(err){ host.innerHTML = `<div class="st-note warn">${esc(err.message)}</div>`; return; }
-      const marks = {};
+      const marks = {}, extra = [];
       res.rows.forEach(r => { marks[r.hr] = r.present; });
+      let where = {};
+      try{ where = await rpc('st_where', {p_date: sheet.sheet_date, p_hrs: res.rows.map(r => r.hr)}) || {}; }catch(e){}
       const drawRead = () => {
         const pres = Object.values(marks).filter(Boolean).length;
         host.innerHTML = `<div class="st-card"><h3 style="margin-top:0">${esc(sheet.sheet_no)} — check before saving</h3>
           <div class="st-muted">Tap a row to change it. <b>${pres}</b> present · <b>${res.rows.length - pres}</b> absent.</div>
           <div class="st-tw" style="margin-top:8px;max-height:55vh"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th class="n">OT</th><th>Signature</th><th class="n">Sign</th><th class="n">ABS</th><th>Result</th></tr></thead><tbody>
-            ${res.rows.map((r, i) => `<tr data-hr="${esc(r.hr)}" style="cursor:pointer">
-              <td><b>${esc(r.hr)}</b></td><td>${esc(r.name)}</td><td class="n">${r.ot ? fmt(r.ot) : ''}</td>
+            ${res.rows.map((r, i) => { const w = where[r.hr] || {}; const away = w.kind && w.kind !== 'home'; return `<tr data-hr="${esc(r.hr)}" style="cursor:pointer">
+              <td><b>${esc(r.hr)}</b></td><td>${esc(r.name)}${away ? `<div class="st-pill p-pending">${w.kind === 'task' ? '🧰 ' + esc(w.task_name || 'job') : '👷 ' + esc(w.crew_name || 'other foreman')} — not his day here</div>` : ''}</td><td class="n">${r.ot ? fmt(r.ot) : ''}</td>
               <td><img src="${res.crops[i]}" style="height:26px;border-radius:3px;background:#fff"></td>
               <td class="n st-muted">${fmt(r.ink)}%</td><td class="n st-muted">${fmt(r.absent_ink || 0)}%</td>
-              <td><span class="st-pill ${marks[r.hr] ? 'p-live' : 'p-rejected'}">${marks[r.hr] ? 'Present' : 'Absent'}</span></td></tr>`).join('')}
+              <td><span class="st-pill ${marks[r.hr] ? 'p-live' : 'p-rejected'}">${marks[r.hr] ? 'Present' : 'Absent'}</span></td></tr>`; }).join('')}
+            ${extra.map(x => `<tr style="background:rgba(56,189,248,.08)"><td><b>${esc(x.hr)}</b><div class="st-muted">added by hand</div></td><td>${esc(x.name)}</td><td class="n"></td>
+              <td colspan="2" class="st-muted">written on the sheet</td>
+              <td><span class="st-pill p-live">Present</span></td></tr>`).join('')}
           </tbody></table></div>
-          <div class="st-row" style="margin-top:10px;justify-content:flex-end;gap:6px">
-            <button type="button" class="st-btn st-ghost" id="tsReadCancel">Cancel</button>
-            <button type="button" class="st-btn st-ok" id="tsReadSave">💾 Save attendance</button></div></div>`;
+          <div class="st-row" style="margin-top:10px;justify-content:space-between;gap:6px">
+            <button type="button" class="st-btn st-sm" id="tsReadAdd">➕ Man written by hand</button>
+            <div class="st-row" style="gap:6px;margin:0">
+              <button type="button" class="st-btn st-ghost" id="tsReadCancel">Cancel</button>
+              <button type="button" class="st-btn st-ok" id="tsReadSave">💾 Save attendance</button></div></div></div>`;
         host.querySelectorAll('tr[data-hr]').forEach(tr => tr.addEventListener('click', () => { marks[tr.dataset.hr] = !marks[tr.dataset.hr]; drawRead(); }));
+        $('tsReadAdd').addEventListener('click', () => {
+          const hr = prompt('HR number written by hand on the sheet:', '');
+          if(hr === null) return;
+          const h = hr.trim();
+          if(!h) return;
+          if(res.rows.some(r => r.hr === h) || extra.some(x => x.hr === h)){ toast('He is already on this sheet.', true); return; }
+          const p = people.find(x => x.hr === h) || personByHr(h);
+          if(!p){ toast(`HR ${h} is not in the staff list.`, true); return; }
+          extra.push({hr: h, name: p.name || '', trade: p.trade || ''});
+          drawRead();
+        });
         $('tsReadCancel').addEventListener('click', () => { host.innerHTML = ''; });
         $('tsReadSave').addEventListener('click', ev => busy(ev.currentTarget, async () => {
           let path = '', name = file.name || 'sheet.jpg';
@@ -21184,7 +21351,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           }catch(err){ path = ''; toast('The photo could not be kept: ' + (err.message || err), true); }
           const out = res.rows.map(r => ({hr: r.hr, present: !!marks[r.hr], ink: r.ink}));
           const s3 = await rpc('st_att_sheet_post', {p_id: sheet.id, p_rows: out, p_scan_path: path, p_scan_name: name});
-          toast(`Attendance saved — ${s3.present_cnt} present, ${s3.absent_cnt} absent`);
+          if(extra.length){
+            await rpc('st_att_set', {p_date: sheet.sheet_date, p_group: sheet.group_code,
+              p_crew: (sheet.meta && sheet.meta.crew_id) || null,
+              p_rows: extra.map(x => ({hr: x.hr, name: x.name, trade: x.trade, present: true})), p_source: 'sheet'});
+          }
+          toast(`Attendance saved — ${s3.present_cnt + extra.length} present, ${s3.absent_cnt} absent`);
           go('workshop', {sub: 'time'}, true);
         }));
       };
