@@ -1,0 +1,3 @@
+# MEMCO Operations Console — internal company system, not for search engines
+User-agent: *
+Disallow: /
