@@ -3,13 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Portal v67</title>
+<title>MEMCO Operations Console v69 — Al Muhanad</title>
+<meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="googlebot" content="noindex, nofollow">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0a2540">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="MEMCO ERP">
+<meta name="apple-mobile-web-app-title" content="MEMCO Console">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4928,6 +4931,15 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
       <button class="tab-btn att-compact-mode" id="attModeSubBtn">🏗 Sub-Contractor</button>
     </div>
 
+    <div id="attSourceStrip" style="margin:6px 0"></div>
+    <div class="att-tabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px">
+      <button class="tab-btn active" id="attTabDaily">🗓️ Daily attendance</button>
+      <button class="tab-btn" id="attTabSheets">🗒 Time sheets &amp; foreman crews</button>
+    </div>
+    <div id="attSheetsWrap" style="display:none">
+      <div id="attSheetsHost"></div>
+    </div>
+    <div id="attDailyWrap">
     <div class="att-snapshot" id="attSnapshot"></div>
 
     <div id="attSubSection" style="display:none;">
@@ -5228,7 +5240,8 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
       <div id="villaList"></div>
     </div>
   </div>
-</div>
+    </div><!-- /attDailyWrap -->
+  </div>
 
 <div class="overlay" id="villaOverlay">
   <div class="modal">
@@ -8426,8 +8439,56 @@ function showSection(id){
 }
 
 async function goDirectory(){ showSection('directoryView'); }
+// one line showing where today's attendance came from
+async function attRenderSources(){
+  const box = document.getElementById('attSourceStrip');
+  if(!box) return;
+  const date = (document.getElementById('attDate') || {}).value || new Date().toISOString().slice(0, 10);
+  const proj = (document.getElementById('attProject') || {}).value || '';
+  try{
+    const c = (typeof getSupaClient === 'function') ? getSupaClient() : null;
+    if(!c){ box.innerHTML = ''; return; }
+    const {data, error} = await c.rpc('st_att_list', {p_date: date, p_group: proj || null, p_crew: null});
+    if(error) throw error;
+    const rows = data || [];
+    if(!rows.length){ box.innerHTML = ''; return; }
+    const by = {phone: 0, sheet: 0, office: 0};
+    let present = 0;
+    rows.forEach(r => { by[r.source] = (by[r.source] || 0) + 1; if(r.present) present++; });
+    const ot = rows.filter(r => Number(r.ot) > 0).length;
+    box.innerHTML = `<div style="background:#0a2540;border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:8px 12px;font-size:13px;color:#cfe6ff">
+      <b>${rows.length}</b> marked for ${proj || 'all sites'} on ${date.split('-').reverse().join('/')} —
+      ${present} present · ${rows.length - present} absent
+      ${by.phone ? ` · 📱 ${by.phone} phone` : ''}${by.sheet ? ` · 📄 ${by.sheet} signed sheet` : ''}${by.office ? ` · 💻 ${by.office} office` : ''}
+      ${ot ? ` · ⏱ ${ot} with OT` : ''}</div>`;
+  }catch(e){ box.innerHTML = ''; }
+}
+
+function attShowTab(which){
+  const daily = document.getElementById('attDailyWrap'), sheets = document.getElementById('attSheetsWrap');
+  const bD = document.getElementById('attTabDaily'), bS = document.getElementById('attTabSheets');
+  const isSheets = which === 'sheets';
+  if(daily) daily.style.display = isSheets ? 'none' : '';
+  if(sheets) sheets.style.display = isSheets ? '' : 'none';
+  if(bD) bD.classList.toggle('active', !isSheets);
+  if(bS) bS.classList.toggle('active', isSheets);
+  if(isSheets){
+    const host = document.getElementById('attSheetsHost');
+    const proj = (document.getElementById('attProject') || {}).value || '';
+    if(window.MemcoStores && typeof MemcoStores.openTimeSheets === 'function') MemcoStores.openTimeSheets(host, proj);
+    else host.innerHTML = '<div class="log-empty">Loading…</div>';
+  }
+}
 async function goAttendance(){
   showSection('attendanceView');
+  const bD = document.getElementById('attTabDaily'), bS = document.getElementById('attTabSheets');
+  if(bD && !bD.dataset.wired){ bD.dataset.wired = '1'; bD.onclick = () => attShowTab('daily'); }
+  if(bS && !bS.dataset.wired){ bS.dataset.wired = '1'; bS.onclick = () => attShowTab('sheets'); }
+  attShowTab('daily');
+  attRenderSources();
+  const dEl = document.getElementById('attDate'), pEl = document.getElementById('attProject');
+  if(dEl && !dEl.dataset.srcWired){ dEl.dataset.srcWired = '1'; dEl.addEventListener('change', attRenderSources); }
+  if(pEl && !pEl.dataset.srcWired){ pEl.dataset.srcWired = '1'; pEl.addEventListener('change', attRenderSources); }
   if(!laborDataLoaded){ await loadLaborData(); laborDataLoaded = true; }
   if(!attUIReady){ await loadAttendanceData(); attUIReady = true; }
 }
@@ -15789,7 +15850,7 @@ window.addEventListener('load', safeCreateLucideIcons);
   function build(){
     if(document.getElementById('erpSidebar')) return;
     const sb=el('aside',{id:'erpSidebar','aria-label':'Main navigation'});
-    sb.innerHTML='<div class="erp-brand"><div class="erp-brand-kicker">Company Operations</div><div class="erp-brand-title">MEMCO ERP</div><div class="erp-brand-sub">Al Muhanad Electro-Mechanical Cont. L.L.C.</div></div><div class="erp-nav"></div><div class="erp-footer">Internal management console<br>Dashboard · Workforce · Fleet · HSE</div>';
+    sb.innerHTML='<div class="erp-brand"><div class="erp-brand-kicker">Company Operations</div><div class="erp-brand-title">MEMCO ERP</div><div class="erp-brand-sub">Al Muhanad Electro-Mechanical Cont. L.L.C.</div></div><div class="erp-nav"></div><div class="erp-footer">MEMCO Operations Console · v69<br>Dashboard · Workforce · Fleet · HSE<br><span style="opacity:.85">Built for the company by <b>Muhammad Jamshed</b> — Operations Director</span></div>';
     document.body.appendChild(sb);
     const nav=sb.querySelector('.erp-nav'); let last='';
     NAV.forEach(([sec,label,ico,target])=>{
@@ -18893,7 +18954,6 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     ['hold',     '🔒 Material Hold'],
     ['people',   '👷 With the men'],
     ['mylpo',    '🧾 My LPOs'],
-    ['time',     '🗒 Time sheets'],
     ['issue',    '📤 Issue Voucher'],
     ['transfer', '🚚 Transfers'],
     ['request',  '📨 Requests'],
@@ -19514,7 +19574,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function tabAllowedFor(k){
     const staffOnly = S.access === 'staff';
     if(k === 'admin') return isAdmin();
-    if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'time' && ['timekeeper','foreman','pm','engineer'].some(r => hasRole(r))) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r)))
+    if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r)))
       || (k === 'lpo' && hasRole('procurement')) || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
     if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
     if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -19528,7 +19588,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       if(wsMode) return k === 'workshop';
       if(k === 'workshop') return false;
       if(k === 'admin') return isAdmin();
-      if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'time' && ['timekeeper','foreman','pm','engineer'].some(r => hasRole(r))) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
+      if(staffOnly) return ['tasks','req','mr','items','mylpo'].includes(k) || (k === 'requirements' && hasRole('pm')) || (['hold','adjust'].includes(k) && (hasRole('pm') || hasRole('engineer'))) || (k === 'workshop' && ['pm','engineer','workshop','qc'].some(r => hasRole(r))) || (k === 'lpo' && hasRole('procurement'))
         || (k === 'reports' && (hasRole('procurement') || hasRole('pm')));
       if(S.access === 'viewer') return !['issue','opening','receive','tools','adjust'].includes(k);
       if(k === 'lpo') return ['admin','main'].includes(S.access) || hasRole('procurement');
@@ -20781,9 +20841,25 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   }
   const wsYesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
 
+  let TS_HOST = null, TS_GROUP = null;
+  function tsReload(){
+    if(TS_HOST) return wsTimeSheets(TS_HOST, '', () => {});
+    return tsReload();
+  }
+  // used by the Attendance card: draw the time sheets inside any element
+  async function openTimeSheets(host, group){
+    TS_HOST = host; if(group) TS_GROUP = group;
+    host.innerHTML = '<div class="st-empty">Loading…</div>';
+    try{
+      if(!S.loaded) await loadAll();
+      if(S.access == null) await checkAccess();
+      await wsTimeSheets(host, '', () => {});
+    }catch(e){ host.innerHTML = `<div class="st-note warn">${esc(e.message || e)}</div>`; }
+  }
   async function wsTimeSheets(main, nav, wireNav){
     const groups = wsGroups();
-    const guess = groups.find(g => /workshop/i.test(g)) || groups[0] || '';
+    const guess = (TS_HOST && TS_GROUP && groups.includes(TS_GROUP) ? TS_GROUP : null)
+      || groups.find(g => /workshop/i.test(g)) || groups[0] || '';
     const T = S.tsTab || 'ot';
     main.innerHTML = `<h2>🗒 Time sheets</h2>${nav}
       <div class="dw-sub">
@@ -20803,8 +20879,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       </div>
       <div id="tsBody"><div class="st-empty">Loading…</div></div>`;
     wireNav();
-    main.querySelectorAll('[data-ts]').forEach(b => b.addEventListener('click', () => { S.tsTab = b.dataset.ts; go('workshop', {sub: 'time'}, true); }));
-    $('tsGroup').addEventListener('change', () => { S.tsGroup = $('tsGroup').value; go('workshop', {sub: 'time'}, true); });
+    main.querySelectorAll('[data-ts]').forEach(b => b.addEventListener('click', () => { S.tsTab = b.dataset.ts; tsReload(); }));
+    $('tsGroup').addEventListener('change', () => { S.tsGroup = $('tsGroup').value; tsReload(); });
 
     const group = $('tsGroup').value;
     const people = wsPeople(group);
@@ -20927,7 +21003,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           await rpc('st_crew_save', {p: {group_code: group, name: ($('tsCtrade').value.trim() ? $('tsCtrade').value.trim() + ' — ' : '') + (nm || 'Crew'),
             trade: $('tsCtrade').value.trim(), foreman_hr: hr, foreman_name: nm}});
           toast('Crew added');
-          go('workshop', {sub: 'time'}, true);
+          tsReload();
         }));
         body.querySelectorAll('[data-cassign]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
           const box = body.querySelector(`.tsCadd2[data-crew="${b.dataset.cassign}"]`);
@@ -20938,22 +21014,22 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           if(!list.length) throw new Error('None of those HR numbers is on this site.');
           const r = await rpc('st_crew_assign', {p_crew: b.dataset.cassign, p_people: list});
           toast(`${r.moved} men moved${miss.length ? ' · not on this site: ' + miss.join(', ') : ''}`, !!miss.length);
-          go('workshop', {sub: 'time'}, true);
+          tsReload();
         })));
         body.querySelectorAll('[data-cdel]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
           const [cid, hr] = b.dataset.cdel.split('|');
           await rpc('st_crew_remove', {p_crew: cid, p_hrs: [hr]});
-          go('workshop', {sub: 'time'}, true);
+          tsReload();
         })));
         body.querySelectorAll('[data-coff]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
           const c = crews.find(x => x.id === b.dataset.coff);
           if(!confirm(`Close the crew "${c.name}"? The men go back to "not in any crew".`)) return;
           await rpc('st_crew_save', {p: {id: c.id, group_code: c.group_code, name: c.name, trade: c.trade,
             foreman_hr: c.foreman_hr, foreman_name: c.foreman_name, active: false}});
-          go('workshop', {sub: 'time'}, true);
+          tsReload();
         })));
         body.querySelectorAll('[data-cprint]').forEach(b => b.addEventListener('click', () => {
-          S.tsCrew = b.dataset.cprint; S.tsTab = 'print'; go('workshop', {sub: 'time'}, true);
+          S.tsCrew = b.dataset.cprint; S.tsTab = 'print'; tsReload();
         }));
         if($('tsFreeGo')) $('tsFreeGo').addEventListener('click', e => busy(e.currentTarget, async () => {
           const cid = $('tsFreeCrew').value;
@@ -20963,7 +21039,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           const list = hrs.map(h => people.find(x => x.hr === h)).filter(Boolean).map(p => ({hr: p.hr, name: p.name, trade: p.trade}));
           const r = await rpc('st_crew_assign', {p_crew: cid, p_people: list});
           toast(`${r.moved} men moved`);
-          go('workshop', {sub: 'time'}, true);
+          tsReload();
         }));
       };
       drawCrew();
@@ -21002,19 +21078,19 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         hrs.forEach(h => { const p = people.find(x => x.hr === h); if(p) list.push({hr: p.hr, name: p.name, trade: p.trade}); else miss.push(h); });
         if(!list.length){ toast('None of those HR numbers is on this site.', true); return; }
         if(miss.length) toast('Not on this site: ' + miss.join(', '), true);
-        if(await askSend(list, {date: todayIso()})) go('workshop', {sub: 'time'}, true);
+        if(await askSend(list, {date: todayIso()})) tsReload();
       });
       body.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
         await rpc('st_send_cancel', {p_hrs: [b.dataset.back], p_date: todayIso()});
         toast('Back with his own foreman');
-        go('workshop', {sub: 'time'}, true);
+        tsReload();
       })));
       body.querySelectorAll('[data-tclose]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
         const t = tasks.find(x => x.id === b.dataset.tclose);
         if(!confirm(`Close the job "${t.name}"?`)) return;
         await rpc('st_task_save', {p: {id: t.id, name: t.name, group_code: t.group_code, location: t.location,
           from_date: t.from_date, to_date: t.to_date, status: 'closed'}});
-        go('workshop', {sub: 'time'}, true);
+        tsReload();
       })));
       return;
     }
@@ -21357,7 +21433,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               p_rows: extra.map(x => ({hr: x.hr, name: x.name, trade: x.trade, present: true})), p_source: 'sheet'});
           }
           toast(`Attendance saved — ${s3.present_cnt + extra.length} present, ${s3.absent_cnt} absent`);
-          go('workshop', {sub: 'time'}, true);
+          tsReload();
         }));
       };
       drawRead();
@@ -21494,7 +21570,6 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const nav = `<div class="dw-sub">
       <button type="button" class="st-btn st-ghost st-sm ${sub === 'list' ? 'on' : ''}" data-dw="list">📋 Orders</button>
       ${canRaise ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'new' ? 'on' : ''}" data-dw="new">➕ New duct order</button>` : ''}
-      <button type="button" class="st-btn st-ghost st-sm ${sub === 'time' ? 'on' : ''}" data-dw="time">🗒 Time sheets</button>
       ${me_.boss ? `<button type="button" class="st-btn st-ghost st-sm ${sub === 'admin' ? 'on' : ''}" data-dw="admin">⚙ People, masters &amp; old data</button>` : ''}</div>`;
     const noAccess = !S.access ? `<div class="st-note warn">You do not have workshop access yet. Ask Admin to add you in <b>Duct Workshop › ⚙ People</b>.</div>` : '';
     const wireNav = () => main.querySelectorAll('[data-dw]').forEach(b => b.addEventListener('click', () => go('workshop', {sub: b.dataset.dw})));
@@ -24682,7 +24757,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }, 60000);
     checkAccess();
   }
-  window.MemcoStores = {open, openWorkshop, close, state: S};
+  window.MemcoStores = {open, openWorkshop, openTimeSheets, close, state: S};
   window.MemcoSheet = {readSheet, readXlsx, readCsv, normBrand, num};
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
