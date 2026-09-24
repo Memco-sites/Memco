@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v72 — Al Muhanad</title>
+<title>MEMCO Operations Console v73 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -2363,7 +2363,27 @@ body{
   color:#fff;
   box-shadow:0 8px 22px rgba(14,165,233,.16);
 }
-#attendanceView .att-snapshot{ margin-top:0; margin-bottom:10px; }
+#attendanceView .att-snapshot{ margin-top:0; margin-bottom:6px; }
+#attendanceView .att-onerow{ display:flex !important; flex-wrap:nowrap; gap:8px; align-items:flex-end; margin-bottom:8px; grid-template-columns:none !important; }
+#attendanceView .att-onerow > *{ min-width:0; }
+#attendanceView .att-onerow .att-compact-field{ flex:0 1 auto; }
+#attendanceView .att-onerow .att-compact-project{ flex:1 1 200px; min-width:150px; }
+#attendanceView .att-onerow .att-compact-mode{ padding:8px 12px; font-size:12.5px; flex:0 1 auto; width:auto !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#attendanceView .att-onerow .att-compact-field{ flex:0 0 auto; width:auto; }
+#attendanceView .att-onerow .att-compact-project{ flex:1 1 160px; }
+#attendanceView .att-onerow .att-compact-project select{ width:100%; }
+#attendanceView .att-onerow .att-compact-field{ min-width:0; }
+#attendanceView .att-onerow .att-compact-field input[type=date]{ width:135px; }
+#attendanceView .att-onerow .att-compact-project select{ min-width:130px; }
+@media (max-width:1150px){ #attendanceView .att-onerow .att-compact-mode{ padding:7px 9px; font-size:12px; } }
+#attendanceView .att-sep{ width:1px; align-self:stretch; background:rgba(56,189,248,.28); margin:0 2px; }
+#attendanceView .ot-controls-v6{ padding:8px 10px; margin:6px 0; }
+#attendanceView .ot-v6-grid{ gap:8px; }
+#attendanceView .ot-v6-field label{ font-size:10px; margin-bottom:2px; }
+#attendanceView .ot-v6-status-row{ margin-top:6px; gap:10px; }
+#attendanceView .att-section-head{ margin:6px 0; }
+#attendanceView .dual-date-banner{ margin:6px 0; }
+#attendanceView #laborAttList{ max-height:calc(100vh - 330px) !important; }
 @media (max-width:980px){
   #attendanceView .att-topbar-compact{
     grid-template-columns:1fr 1fr;
@@ -4925,7 +4945,7 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
   </div>
 
   <div id="attendanceView" style="display:none;">
-    <div class="att-topbar-compact">
+    <div class="att-topbar-compact att-onerow">
       <div class="att-compact-field">
         <label for="attDate">Date</label>
         <input type="date" id="attDate">
@@ -4936,13 +4956,11 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
       </div>
       <button class="tab-btn active att-compact-mode" id="attModeLaborBtn">👷 Al Muhanad Labor</button>
       <button class="tab-btn att-compact-mode" id="attModeSubBtn">🏗 Sub-Contractor</button>
+      <span class="att-sep"></span>
+      <button class="tab-btn active att-compact-mode" id="attTabDaily">🗓️ Daily</button>
+      <button class="tab-btn att-compact-mode" id="attTabSheets">🗒 Time sheets</button>
     </div>
-
-    <div class="att-tabs" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px">
-      <button class="tab-btn active" id="attTabDaily">🗓️ Daily attendance</button>
-      <button class="tab-btn" id="attTabSheets">🗒 Time sheets &amp; foreman crews</button>
-    </div>
-    <div id="attSourceStrip" style="margin:0 0 8px"></div>
+    <div id="attSourceStrip" style="margin:0 0 6px"></div>
     <div id="attSheetsWrap" style="display:none">
       <div id="attSheetsHost" class="st-scope"></div>
     </div>
@@ -4964,10 +4982,10 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
     </div>
 
     <div id="attLaborSection">
-      <div class="att-section-head">
-        <h2>Al Muhanad Labor — tap to mark Absent</h2>
+      <div class="att-section-head" style="margin:4px 0">
+        <h2 style="font-size:15px">Al Muhanad Labor — tap to mark Absent</h2>
       </div>
-      <div class="att-summary" id="laborAttSummary"></div>
+      <div class="att-summary" id="laborAttSummary" style="display:none"></div>
 
       <div class="ot-controls ot-controls-v6" id="otControlsBar">
         <div class="ot-v6-grid">
@@ -9487,8 +9505,8 @@ function renderAttSnapshot(){
 
   document.getElementById('attSnapshot').innerHTML = `
     <div class="att-snapshot-row" style="border-bottom:2px solid var(--orange);">
-      <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">TOTAL — ${escapeHtml(project)}</span>
-      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">${grandTotal} people</span>
+      <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">TOTAL — ${escapeHtml(project)} · ${grandTotal} people</span>
+      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">Present ${present} · Absent ${Math.max(0, almTotal - present)}${reasonSummary}</span>
     </div>
     <div class="att-snapshot-row">
       <span class="att-snapshot-label">👷 Total Labor Deployed (Al Muhanad): ${almTotal}</span>
