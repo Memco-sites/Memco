@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v73 — Al Muhanad</title>
+<title>MEMCO Operations Console v76 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -28440,6 +28440,25 @@ document.addEventListener('change', function(ev){
   }
 }, true);
 
+</script>
+
+<script>
+/* show the running version plainly, so an old cached copy is obvious */
+(function(){
+  const V = 'v76';
+  function paint(){
+    document.querySelectorAll('.erp-footer').forEach(f => {
+      if(f.dataset.memcoV) return;
+      f.dataset.memcoV = '1';
+      const t = document.createElement('div');
+      t.style.cssText = 'margin-top:4px;color:#7dd3fc;font-weight:700;letter-spacing:.04em';
+      t.textContent = 'MEMCO ' + V;
+      f.appendChild(t);
+    });
+  }
+  document.addEventListener('DOMContentLoaded', paint);
+  setTimeout(paint, 1200); setTimeout(paint, 3000);
+})();
 </script>
 </body>
 </html>
