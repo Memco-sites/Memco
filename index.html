@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v90 — Al Muhanad</title>
+<title>MEMCO Operations Console v91 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4337,6 +4337,17 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 #attSheetsHost .ts-trade-ticks{display:flex;flex-wrap:wrap;gap:4px 10px;padding:4px 0}
 #attSheetsHost .ts-tick{display:flex;align-items:center;gap:4px;font-size:12px;color:#cfe6ff;cursor:pointer;white-space:nowrap}
 #attSheetsHost .ts-tick input{margin:0}
+</style>
+
+<style>
+/* the group box, the day buttons and Make & print share the top line */
+#attSheetsHost .ts-pickrow{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px}
+#attSheetsHost .ts-pickrow .ts-days{flex:1 1 auto}
+#attSheetsHost .ts-pickrow .ts-print-go{flex:0 0 auto;padding:9px 16px;font-weight:700}
+/* the list keeps clear of the buttons under it */
+#attSheetsHost .ts-print-list{max-height:calc(100vh - 430px);min-height:140px}
+#attSheetsHost .ts-group-tools{margin-top:8px;margin-bottom:6px}
+#attSheetsHost .ts-group-tools .st-btn{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -22314,8 +22325,19 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           }
         }
         picked.clear(); crewMen.forEach(p => picked.add(p.hr));
-        body.innerHTML = `<div class="st-row" style="margin-bottom:8px"><div class="st-field"><label class="st-l">Group (one sheet per foreman)</label>
-            <select id="tsPrintGroup">${crewOptions(crewId)}</select></div></div>
+        body.innerHTML = `<div class="ts-pickrow">
+            <div class="st-field" style="flex:1 1 300px;max-width:52%"><label class="st-l">Group (one sheet per foreman)</label>
+              <select id="tsPrintGroup">${crewOptions(crewId)}</select></div>
+            <div class="st-row ts-days" style="gap:6px;margin:0;align-items:center;flex-wrap:wrap">
+              <span class="ts-days-title">🖨 Sheet for</span>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="1">today</button>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="7">7 days</button>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="10">10 days</button>
+              <button type="button" class="st-btn st-ghost st-sm" data-days="30">1 month</button>
+              <button type="button" class="st-btn st-ghost st-sm" id="tsDaysCustom">✎ Custom…</button>
+            </div>
+            <button type="button" class="st-btn st-ok ts-print-go" id="tsPrintGo">🖨 Make &amp; print</button>
+          </div>
           <div class="st-note">The sheet prints with the OT that is already in the system for <b>the day before</b> the sheet date, so printing never has to wait for tonight's overtime.
             Keep the four black corner squares clean — the phone uses them to read the sheet later. For an absent man the foreman puts a mark in the <b>ABS</b> box.</div>
           <div class="ts-bar">
@@ -22349,7 +22371,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="st-row" style="margin-bottom:8px"><span class="st-muted" id="tsCnt"></span>
             <button type="button" class="st-btn st-ghost st-sm" id="tsPickAll">Select all</button>
             <button type="button" class="st-btn st-ghost st-sm" id="tsPickNone">Select none</button></div>
-          <div class="ts-scroll" style="max-height:44vh"><div class="ts-grid">
+          <div class="ts-scroll ts-print-list"><div class="ts-grid">
             ${crewMen.map(p => `<div class="ts-row" style="grid-template-columns:30px 58px minmax(140px,1fr) 150px">
               <span><input type="checkbox" class="tsP" data-hr="${esc(p.hr)}" ${picked.has(p.hr) ? 'checked' : ''}></span>
               <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('')}
@@ -22362,16 +22384,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             <button type="button" class="st-btn st-ghost st-sm" id="tsGFore">👤 Change foreman</button>
             <span class="st-muted" id="tsGMsg" style="flex:1 1 100%;margin-top:2px"></span>
           </div>
-          <div class="st-row ts-print-actions" style="margin-top:8px;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-            <div class="st-row ts-days" style="gap:6px;margin:0;align-items:center;flex-wrap:wrap">
-              <span class="ts-days-title">🖨 Print the time sheet for</span>
-              <button type="button" class="st-btn st-ghost st-sm" data-days="1">today</button>
-              <button type="button" class="st-btn st-ghost st-sm" data-days="7">7 days</button>
-              <button type="button" class="st-btn st-ghost st-sm" data-days="10">10 days</button>
-              <button type="button" class="st-btn st-ghost st-sm" data-days="30">1 month</button>
-              <button type="button" class="st-btn st-ghost st-sm" id="tsDaysCustom">✎ Custom…</button>
-            </div>
-            <button type="button" class="st-btn st-ok" id="tsPrintGo">🖨 Make &amp; print</button></div>`;
+`;
         $('tsPrintGroup').addEventListener('change', () => { S.tsPickedGroup = $('tsPrintGroup').value; draw(); });
 
         // engineer and supervisor: the name follows the HR number
@@ -22448,6 +22461,19 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           toast('Foreman changed to ' + p.name);
           tsReload();
         }));
+        // the men's list takes the space that is left, so the buttons under it stay in view
+        const fitPrintList = () => {
+          const list = body.querySelector('.ts-print-list');
+          const tools = body.querySelector('.ts-group-tools');
+          if(!list || !tools) return;
+          const top = list.getBoundingClientRect().top;
+          const need = tools.getBoundingClientRect().height + 20;
+          const h = Math.max(120, Math.round(window.innerHeight - top - need));
+          list.style.maxHeight = h + 'px';
+        };
+        setTimeout(fitPrintList, 60); setTimeout(fitPrintList, 400);
+        window.addEventListener('resize', () => { try{ fitPrintList(); }catch(e){} });
+
         if($('tsDaysCustom')) $('tsDaysCustom').addEventListener('click', () => {
           const n = prompt('Print the sheet for how many days?', '3');
           if(n === null) return;
@@ -29161,7 +29187,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v90';
+  const V = 'v91';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
