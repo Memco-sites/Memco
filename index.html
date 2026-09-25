@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v84 — Al Muhanad</title>
+<title>MEMCO Operations Console v86 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -21870,22 +21870,48 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <h3>Not in any group (${free.length})</h3>
           ${free.length ? `<div class="ts-bar"><div class="st-field s" style="flex:0 0 220px"><select id="tsFreeGroup">${crewOptions('', '— choose a group —')}</select></div>
               <button type="button" class="st-btn st-sm" id="tsFreeGo">Move ticked men</button>
-              <span class="st-muted" style="margin-left:auto;align-self:center">tick the men, then move them</span></div>
-            <div class="ts-scroll" style="max-height:44vh"><div class="ts-grid">
-            ${free.map(p => `<div class="ts-row" style="grid-template-columns:30px 58px minmax(140px,1fr) 150px">
-              <span><input type="checkbox" class="tsFree" value="${esc(p.hr)}"></span>
-              <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('')}
+              <div class="st-field s" style="flex:0 0 170px"><label class="st-l">Show only</label>
+                <select id="tsFreeTrade">${['— all trades —','Electrical','Plumbing','HVAC','ELV','Fire Fighting','Civil','Transport','HSE','Store','Other']
+                  .map(t => `<option ${t === (S.tsFreeTrade || '— all trades —') ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+              <div class="st-field" style="flex:1 1 170px"><label class="st-l">Find by name or HR</label>
+                <input id="tsFreeFind" placeholder="🔎 search…" value="${esc(S.tsFreeFind || '')}"></div>
+              <span class="st-muted" id="tsFreeCount" style="align-self:flex-end;padding-bottom:7px;white-space:nowrap"></span></div>
+            <div class="ts-scroll" style="max-height:44vh"><div class="ts-grid" id="tsFreeRows">
             </div></div>` : '<div class="st-empty">Everybody is in a group.</div>'}`;
 
 
 
 
         // the new-crew line belongs up with Group / site, so the men below get the space
+        // show only the men of the trade chosen above, and honour the search box
+        window.tsFreeRowsHtml = function(list){
+          const want = (S.tsFreeTrade && S.tsFreeTrade !== '— all trades —') ? S.tsFreeTrade : '';
+          const q = String(S.tsFreeFind || '').trim().toLowerCase();
+          const rows = (list || []).filter(p => {
+            if(want && tsTradeFamily(p.trade) !== want) return false;
+            if(q && !(String(p.hr).toLowerCase().includes(q) || String(p.name || '').toLowerCase().includes(q))) return false;
+            return true;
+          });
+          const cnt = $('tsFreeCount');
+          if(cnt) cnt.textContent = rows.length + ' of ' + (list || []).length + ' shown';
+          if(!rows.length) return '<div class="st-empty">Nobody here for that trade.</div>';
+          return rows.map(p => `<div class="ts-row" style="grid-template-columns:30px 58px minmax(140px,1fr) 150px">
+            <span><input type="checkbox" class="tsFree" value="${esc(p.hr)}"></span>
+            <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('');
+        };
+        const redrawFree = () => { const host = $('tsFreeRows'); if(host) host.innerHTML = tsFreeRowsHtml(free); };
+        if($('tsFreeTrade')) $('tsFreeTrade').addEventListener('change', e => { S.tsFreeTrade = e.target.value; redrawFree(); });
+        if($('tsFreeFind'))  $('tsFreeFind').addEventListener('input',  e => { S.tsFreeFind  = e.target.value; redrawFree(); });
+        redrawFree();
+
         const slot = $('tsBarSlot'), crewBar = body.querySelector('.ts-crewbar');
+        if(slot) slot.innerHTML = '';          // drop the copies left by the last draw
         if(slot && crewBar && window.innerWidth > 1100){
           while(crewBar.firstChild) slot.appendChild(crewBar.firstChild);
           crewBar.style.display = 'none';
-          const who = $('tsCfWho'); if(who) who.style.margin = '0 0 6px';
+          // the ✔ / ⚠ line goes on its own row right under the boxes, where it is seen
+          const who = $('tsCfWho');
+          if(who){ who.classList.add('ts-who-inbar'); slot.appendChild(who); }
         }
 
         // typing the foreman's HR fills his name and trade by itself
@@ -21978,12 +22004,29 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         body.querySelectorAll('[data-cprint]').forEach(b => b.addEventListener('click', () => {
           S.tsGroup = b.dataset.cprint; S.tsTab = 'print'; tsReload();
         }));
+        // choosing the group shows that group's trade below by itself
+        if($('tsFreeGroup')) $('tsFreeGroup').addEventListener('change', e => {
+          const c = crews.find(x => x.id === e.target.value);
+          if(c && c.trade){
+            S.tsFreeTrade = c.trade;
+            const sel = $('tsFreeTrade');
+            if(sel && [...sel.options].some(o => o.value === c.trade)) sel.value = c.trade;
+            redrawFree();
+          }
+        });
+
         if($('tsFreeGo')) $('tsFreeGo').addEventListener('click', e => busy(e.currentTarget, async () => {
           const cid = $('tsFreeGroup').value;
           if(!cid) throw new Error('Choose the group first.');
           const hrs = [...body.querySelectorAll('.tsFree:checked')].map(i => i.value);
           if(!hrs.length) throw new Error('Tick the men you want to move.');
           const list = hrs.map(h => people.find(x => x.hr === h)).filter(Boolean).map(p => ({hr: p.hr, name: p.name, trade: p.trade}));
+          const crew2 = crews.find(x => x.id === cid);
+          const odd = crew2 && crew2.trade ? list.filter(m => !tsTradeFits(m.trade, crew2.trade)) : [];
+          if(odd.length){
+            const txt = odd.map(m => `${m.hr} ${m.name} — ${m.trade || 'not set'}`).join('\n');
+            if(!confirm(`This group is "${crew2.trade}", but these men are not:\n\n${txt}\n\nMove them anyway?`)) return;
+          }
           const r = await rpc('st_crew_assign', {p_crew: cid, p_people: list});
           toast(`${r.moved} men moved`);
           tsReload();
@@ -28945,7 +28988,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v84';
+  const V = 'v86';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
