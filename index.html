@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v81 — Al Muhanad</title>
+<title>MEMCO Operations Console v83 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4288,12 +4288,23 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 </style>
 
 <style>
-/* Crews — the new-crew fields sit in the top bar, so the lists get the room */
+/* Groups — the new-crew fields sit in the top bar, so the lists get the room */
 #attSheetsHost #tsBarSlot .st-field{margin:0}
 #attSheetsHost #tsBarSlot .st-btn{align-self:flex-end}
 #attSheetsHost .ts-crewbar{margin-bottom:6px}
 #attSheetsHost #tsCfWho{font-size:11.5px}
 #attSheetsHost .tsCaddWho{font-size:11.5px}
+</style>
+
+<style>
+/* Groups — the top line spreads across, no long empty gap in the middle */
+#attSheetsHost .ts-bar{align-items:flex-end}
+#attSheetsHost #tsBarSlot .st-field:first-child{margin-left:6px}
+#attSheetsHost .ts-bar > .st-field:first-child{flex:0 1 200px !important;max-width:200px}
+#attSheetsHost #tsBarSlot .st-field{flex:1 1 auto}
+/* Print sheet — the action row sits right under the men, not far below */
+#attSheetsHost .ts-print-actions{margin-top:8px !important}
+#attSheetsHost #tsBody{padding-bottom:4px}
 </style>
 </head>
 <body>
@@ -21668,7 +21679,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <b class="ts-title">🗒 Time sheets</b>
       </div>` : '<h2>🗒 Time sheets</h2>'}${nav}
       <div class="dw-sub ts-tabs">
-        <button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Crews</button>
+        <button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Groups</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'mark' ? 'on' : ''}" data-ts="mark">✅ Mark attendance</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'moves' ? 'on' : ''}" data-ts="moves">🔁 Loans &amp; jobs</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'ot' ? 'on' : ''}" data-ts="ot">⏱ Overtime</button>
@@ -21702,14 +21713,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const crews = await rpc('st_crew_list', {p_group: group}).catch(() => []) || [];
     const crewOf = hr => crews.find(c => (c.members || []).some(m => m.hr === hr));
     const crewOptions = (sel, allLabel) => `<option value="">${esc(allLabel || 'All men on the site')}</option>`
-      + crews.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.foreman_name || 'Crew')}${c.foreman_name ? ' — ' + esc(c.foreman_name) : ''} (${(c.members || []).length})</option>`).join('');
+      + crews.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.foreman_name || 'Group')}${c.foreman_name ? ' — ' + esc(c.foreman_name) : ''} (${(c.members || []).length})</option>`).join('');
 
     const tasks = await rpc('st_task_list', {p_only_open: true}).catch(() => []) || [];
     // ask "for how long?" and move / lend / send the men
     async function askSend(people, opts){
       opts = opts || {};
       const date = opts.date || todayIso();
-      const crewsFor = crews.filter(c => c.id !== opts.fromCrew);
+      const crewsFor = crews.filter(c => c.id !== opts.fromGroup);
       const w = document.createElement('div');
       w.style.cssText = 'position:fixed;inset:0;z-index:9600;background:rgba(2,10,20,.9);display:flex;align-items:center;justify-content:center;padding:14px';
       w.innerHTML = `<div class="st-card" style="max-width:560px;width:100%;margin:0">
@@ -21773,31 +21784,31 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     /* ---------------- crews: which men are under which foreman ---------------- */
     if(T === 'crew'){
       const body = $('tsBody');
-      const drawCrew = () => {
+      const drawGroup = () => {
         const taken = new Set();
         crews.forEach(c => (c.members || []).forEach(m => taken.add(m.hr)));
         const free = people.filter(p => !taken.has(p.hr));
-        body.innerHTML = `<div class="st-note">Put every man under his foreman. Each crew gets its own sheet, so a foreman only signs for his own men.
-            A man belongs to one crew per site — moving him to another foreman takes him out of the old crew by itself.</div>
+        body.innerHTML = `<div class="st-note">Put every man under his foreman. Each group gets its own sheet, so a foreman only signs for his own men.
+            A man belongs to one group per site — moving him to another foreman takes him out of the old group by itself.</div>
           <div class="ts-bar ts-crewbar">
             <div class="st-field s" style="flex:0 0 110px"><label class="st-l">Foreman HR</label><input id="tsCfHr" placeholder="e.g. 3934"></div>
             <div class="st-field" style="flex:1 1 180px"><label class="st-l">Foreman name</label><input id="tsCfName" placeholder="fills in by itself"></div>
             <div class="st-field s" style="flex:0 0 140px"><label class="st-l">Trade / list</label><input id="tsCtrade" placeholder="Electrical"></div>
-            <button type="button" class="st-btn st-ok st-sm" id="tsCadd">➕ New crew</button>
+            <button type="button" class="st-btn st-ok st-sm" id="tsCadd">➕ New group</button>
           </div>
           <div id="tsCfWho" class="st-muted" style="margin:-2px 0 8px"></div>
           ${crews.map(c => `<div class="st-card">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
-              <div><b>${esc(c.name || 'Crew')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
+              <div><b>${esc(c.name || 'Group')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
                 <div class="st-muted">Foreman: ${esc(c.foreman_name || '—')}${c.foreman_hr ? ' (HR ' + esc(c.foreman_hr) + ')' : ''} · ${(c.members || []).length} men</div></div>
               <div class="st-actions">
                 <button type="button" class="st-btn st-ghost st-sm" data-cprint="${esc(c.id)}">🖨 Sheet</button>
-                <button type="button" class="st-btn st-ghost st-sm" data-coff="${esc(c.id)}">Close crew</button></div>
+                <button type="button" class="st-btn st-ghost st-sm" data-coff="${esc(c.id)}">Close group</button></div>
             </div>
             <div class="st-row" style="margin-top:8px;align-items:flex-end;gap:8px">
               <div class="st-field" style="flex:2 1 320px"><label class="st-l">Add men by HR number (paste a list)</label>
                 <input class="tsCadd2" data-crew="${esc(c.id)}" placeholder="2258, 2305, 2331"></div>
-              <button type="button" class="st-btn st-sm" data-cassign="${esc(c.id)}">Add to this crew</button>
+              <button type="button" class="st-btn st-sm" data-cassign="${esc(c.id)}">Add to this group</button>
             </div>
             <div class="st-muted tsCaddWho" data-crew="${esc(c.id)}" style="margin:2px 0 4px"></div>
             ${(c.members || []).length ? `<div class="ts-scroll" style="margin-top:6px;max-height:210px"><div class="ts-grid">
@@ -21805,15 +21816,43 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                 <span class="td">${esc(m.trade)}</span>
                 <span class="ac"><button type="button" class="st-btn st-ghost st-sm" data-cdel="${esc(c.id)}|${esc(m.hr)}">✕</button></span></div>`).join('')}
             </div></div>` : '<div class="st-empty">No men yet.</div>'}</div>`).join('')}
-          <h3>Not in any crew (${free.length})</h3>
-          ${free.length ? `<div class="ts-bar"><div class="st-field s" style="flex:0 0 220px"><select id="tsFreeCrew">${crewOptions('', '— choose a crew —')}</select></div>
+          <h3>Not in any group (${free.length})</h3>
+          ${free.length ? `<div class="ts-bar"><div class="st-field s" style="flex:0 0 220px"><select id="tsFreeGroup">${crewOptions('', '— choose a group —')}</select></div>
               <button type="button" class="st-btn st-sm" id="tsFreeGo">Move ticked men</button>
               <span class="st-muted" style="margin-left:auto;align-self:center">tick the men, then move them</span></div>
             <div class="ts-scroll" style="max-height:44vh"><div class="ts-grid">
             ${free.map(p => `<div class="ts-row" style="grid-template-columns:30px 58px minmax(140px,1fr) 150px">
               <span><input type="checkbox" class="tsFree" value="${esc(p.hr)}"></span>
               <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('')}
-            </div></div>` : '<div class="st-empty">Everybody is in a crew.</div>'}`;
+            </div></div>` : '<div class="st-empty">Everybody is in a group.</div>'}`;
+
+        // does a man's trade belong to this crew's trade?
+        window.tsTradeFits = function(manTrade, crewTrade){
+          const fam = t => {
+            const x = String(t || '').toLowerCase();
+            if(/driver/.test(x)) return 'transport';
+            if(/cctv|elv/.test(x)) return 'elv';
+            if(/fire/.test(x)) return 'fire';
+            if(/duct|chilled|hvac|welder|\bac\b|a\/c|hdpe|ceiling/.test(x)) return 'hvac';
+            if(/electric/.test(x)) return 'electrical';
+            if(/plumb|pipe/.test(x)) return 'plumbing';
+            if(/mason|carpenter|painter|steel|chipping|aluminium/.test(x)) return 'civil';
+            if(/store/.test(x)) return 'store';
+            if(/security|watchman|hse|safety/.test(x)) return 'hse';
+            return '';
+          };
+          const a = fam(manTrade), b = fam(crewTrade);
+          return !a || !b || a === b;
+        };
+
+        // two spellings of one name (extra words, different order) still count as the same man
+        window.tsSameMan = function(a, b){
+          const norm = x => String(x || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+          const A = norm(a), B = norm(b);
+          if(!A.length || !B.length) return true;
+          const hit = A.filter(w => B.includes(w)).length;
+          return hit >= Math.min(2, Math.min(A.length, B.length));
+        };
 
         // the new-crew line belongs up with Group / site, so the men below get the space
         const slot = $('tsBarSlot'), crewBar = body.querySelector('.ts-crewbar');
@@ -21845,11 +21884,23 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         $('tsCadd').addEventListener('click', e => busy(e.currentTarget, async () => {
           const hr = $('tsCfHr').value.trim();
           const p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
-          const nm = $('tsCfName').value.trim() || (p ? p.name : '');
+          const typed = $('tsCfName').value.trim();
+          const nm = typed || (p ? p.name : '');
           if(!nm && !hr) throw new Error('Enter the foreman HR number or his name.');
-          await rpc('st_crew_save', {p: {group_code: group, name: ($('tsCtrade').value.trim() ? $('tsCtrade').value.trim() + ' — ' : '') + (nm || 'Crew'),
-            trade: $('tsCtrade').value.trim(), foreman_hr: hr, foreman_name: nm}});
-          toast('Crew added');
+
+          // the HR and the name must be the same man
+          if(p && typed && !tsSameMan(typed, p.name)){
+            if(!confirm(`HR ${hr} is ${p.name}.\n\nYou typed "${typed}".\n\nUse the typed name anyway?`)) return;
+          }
+          // a foreman should really be a foreman
+          if(p && !/foreman|chargehand|charge hand|supervisor/i.test(String(p.trade || ''))){
+            if(!confirm(`${p.name} (HR ${hr}) is "${p.trade || 'not set'}", not a foreman.\n\nMake him the foreman of this crew anyway?`)) return;
+          }
+          const tradeTxt = $('tsCtrade').value.trim();
+          const crewName = tradeTxt ? (tradeTxt + ' — ' + (nm || 'Group')) : (nm || 'Group');
+          await rpc('st_crew_save', {p: {group_code: group, name: crewName,
+            trade: tradeTxt, foreman_hr: hr, foreman_name: nm}});
+          toast('Group added');
           tsReload();
         }));
         // as HR numbers are pasted, say who they are before anything is added
@@ -21871,6 +21922,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           const list = [], miss = [];
           hrs.forEach(h => { const p = people.find(x => x.hr === h); if(p) list.push({hr: p.hr, name: p.name, trade: p.trade}); else miss.push(h); });
           if(!list.length) throw new Error('None of those HR numbers is on this site.');
+          // a plumber on an electrical sheet never gets signed for — say so first
+          const crew = crews.find(c => c.id === b.dataset.cassign);
+          const odd = crew && crew.trade ? list.filter(m => !tsTradeFits(m.trade, crew.trade)) : [];
+          if(odd.length){
+            const txt = odd.map(m => `${m.hr} ${m.name} — ${m.trade || 'not set'}`).join('\n');
+            if(!confirm(`This group is "${crew.trade}", but these men are not:\n\n${txt}\n\nAdd them anyway?`)) return;
+          }
           const r = await rpc('st_crew_assign', {p_crew: b.dataset.cassign, p_people: list});
           toast(`${r.moved} men moved${miss.length ? ' · not on this site: ' + miss.join(', ') : ''}`, !!miss.length);
           tsReload();
@@ -21882,17 +21940,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         })));
         body.querySelectorAll('[data-coff]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
           const c = crews.find(x => x.id === b.dataset.coff);
-          if(!confirm(`Close the crew "${c.name}"? The men go back to "not in any crew".`)) return;
+          if(!confirm(`Close the group "${c.name}"? The men go back to "not in any crew".`)) return;
           await rpc('st_crew_save', {p: {id: c.id, group_code: c.group_code, name: c.name, trade: c.trade,
             foreman_hr: c.foreman_hr, foreman_name: c.foreman_name, active: false}});
           tsReload();
         })));
         body.querySelectorAll('[data-cprint]').forEach(b => b.addEventListener('click', () => {
-          S.tsCrew = b.dataset.cprint; S.tsTab = 'print'; tsReload();
+          S.tsGroup = b.dataset.cprint; S.tsTab = 'print'; tsReload();
         }));
         if($('tsFreeGo')) $('tsFreeGo').addEventListener('click', e => busy(e.currentTarget, async () => {
-          const cid = $('tsFreeCrew').value;
-          if(!cid) throw new Error('Choose the crew first.');
+          const cid = $('tsFreeGroup').value;
+          if(!cid) throw new Error('Choose the group first.');
           const hrs = [...body.querySelectorAll('.tsFree:checked')].map(i => i.value);
           if(!hrs.length) throw new Error('Tick the men you want to move.');
           const list = hrs.map(h => people.find(x => x.hr === h)).filter(Boolean).map(p => ({hr: p.hr, name: p.name, trade: p.trade}));
@@ -21901,7 +21959,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           tsReload();
         }));
       };
-      drawCrew();
+      drawGroup();
       return;
     }
 
@@ -21958,7 +22016,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const body = $('tsBody');
       const draw = async () => {
         const date = $('tsDate').value || todayIso();
-        const crewId = S.tsCrew || '';
+        const crewId = S.tsGroup || '';
         const crew = crews.find(c => c.id === crewId);
         let list = crew ? (crew.members || []) : people;
         if(crew){
@@ -21983,18 +22041,18 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <input type="number" class="tsOt" data-hr="${esc(p.hr)}" min="0" max="24" step="0.5" placeholder="OT" value="${ot[p.hr] || ''}" ${mark[p.hr] ? '' : 'disabled'}>
               <button type="button" class="st-btn st-ghost st-sm" data-send="${esc(p.hr)}" title="Lend him / send him to a job">🔁</button>
             </span></div>`).join('')
-            || '<div class="st-empty">Nobody in this crew.</div>';
+            || '<div class="st-empty">Nobody in this group.</div>';
           $('tsMarkRows').querySelectorAll('[data-flip]').forEach(b => b.addEventListener('click', () => { mark[b.dataset.flip] = !mark[b.dataset.flip]; if(!mark[b.dataset.flip]) ot[b.dataset.flip] = 0; drawRows(); }));
           $('tsMarkRows').querySelectorAll('.tsOt').forEach(i => i.addEventListener('change', () => { ot[i.dataset.hr] = num(i.value); }));
           $('tsMarkRows').querySelectorAll('[data-send]').forEach(b => b.addEventListener('click', async () => {
             const p = list.find(x => x.hr === b.dataset.send);
-            if(await askSend([{hr: p.hr, name: p.name, trade: p.trade || ''}], {date, fromCrew: crewId})) draw();
+            if(await askSend([{hr: p.hr, name: p.name, trade: p.trade || ''}], {date, fromGroup: crewId})) draw();
           }));
         };
         body.innerHTML = `<div class="st-note">Mark attendance straight from the phone — for a site where nobody prints a sheet, or to correct what the sheet read.
             Overtime typed here goes to the same place as the Overtime screen, so tomorrow's sheet will already show it.</div>
           <div class="ts-bar">
-            <div class="st-field" style="flex:1 1 220px;max-width:320px"><label class="st-l">Crew</label><select id="tsMarkCrew">${crewOptions(crewId)}</select></div>
+            <div class="st-field" style="flex:1 1 220px;max-width:320px"><label class="st-l">Group</label><select id="tsMarkGroup">${crewOptions(crewId)}</select></div>
             <button type="button" class="st-btn st-ghost st-sm" id="tsAllPresent">All present</button>
             <button type="button" class="st-btn st-sm" id="tsAddMan">➕ Add a man</button>
             <span class="st-muted" id="tsMarkSum" style="margin-left:auto;align-self:center"></span>
@@ -22003,14 +22061,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="ts-head"><span>HR</span><span>Name</span><span>Trade</span><span style="text-align:right">Attendance · OT</span></div>
           <div class="ts-scroll" style="max-height:52vh"><div class="ts-grid" id="tsMarkRows"></div></div>
           <div class="st-row" style="margin-top:10px;justify-content:flex-end"><button type="button" class="st-btn st-ok" id="tsMarkSave">💾 Save attendance</button></div>`;
-        $('tsMarkCrew').addEventListener('change', () => { S.tsCrew = $('tsMarkCrew').value; draw(); });
+        $('tsMarkGroup').addEventListener('change', () => { S.tsGroup = $('tsMarkGroup').value; draw(); });
         $('tsAddMan').addEventListener('click', async () => {
           const hr = prompt('HR number of the man who came today:', '');
           if(hr === null) return;
           const p = people.find(x => x.hr === hr.trim()) || (personByHr(hr.trim()) ? {hr: hr.trim(), name: personByHr(hr.trim()).name, trade: personByHr(hr.trim()).trade || ''} : null);
           if(!p){ toast(`HR ${hr} is not in the staff list.`, true); return; }
-          if(!crewId){ toast('Choose a crew first — then he can be added to it.', true); return; }
-          if(await askSend([{hr: p.hr, name: p.name, trade: p.trade || ''}], {date, fromCrew: null})) draw();
+          if(!crewId){ toast('Choose a group first — then he can be added to it.', true); return; }
+          if(await askSend([{hr: p.hr, name: p.name, trade: p.trade || ''}], {date, fromGroup: null})) draw();
         });
         // men nobody has marked yet today
         try{
@@ -22119,7 +22177,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const body = $('tsBody');
       const picked = new Set(people.map(p => p.hr));
       const draw = async () => {
-        const crewId = S.tsCrew || '';
+        const crewId = S.tsGroup || '';
         const crew = crews.find(c => c.id === crewId);
         let crewMen = crew ? (crew.members || []).map(m => people.find(p => p.hr === m.hr) || m) : people;
         if(crew){
@@ -22129,8 +22187,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           }catch(e){}
         }
         picked.clear(); crewMen.forEach(p => picked.add(p.hr));
-        body.innerHTML = `<div class="st-row" style="margin-bottom:8px"><div class="st-field"><label class="st-l">Crew (one sheet per foreman)</label>
-            <select id="tsPrintCrew">${crewOptions(crewId)}</select></div></div>
+        body.innerHTML = `<div class="st-row" style="margin-bottom:8px"><div class="st-field"><label class="st-l">Group (one sheet per foreman)</label>
+            <select id="tsPrintGroup">${crewOptions(crewId)}</select></div></div>
           <div class="st-note">The sheet prints with the OT that is already in the system for <b>the day before</b> the sheet date, so printing never has to wait for tonight's overtime.
             Keep the four black corner squares clean — the phone uses them to read the sheet later. For an absent man the foreman puts a mark in the <b>ABS</b> box.</div>
           <div class="ts-bar">
@@ -22148,7 +22206,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <span><input type="checkbox" class="tsP" data-hr="${esc(p.hr)}" ${picked.has(p.hr) ? 'checked' : ''}></span>
               <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('')}
           </div></div>
-          <div class="st-row" style="margin-top:10px;justify-content:space-between;align-items:center;gap:8px">
+          <div class="st-row ts-print-actions" style="margin-top:8px;justify-content:space-between;align-items:center;gap:8px">
             <div class="st-row" style="gap:6px;margin:0">
               <span class="st-muted" style="align-self:center">Quick:</span>
               <button type="button" class="st-btn st-ghost st-sm" data-days="1">today</button>
@@ -22157,7 +22215,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <button type="button" class="st-btn st-ghost st-sm" data-days="30">1 month</button>
             </div>
             <button type="button" class="st-btn st-ok" id="tsPrintGo">🖨 Make &amp; print</button></div>`;
-        $('tsPrintCrew').addEventListener('change', () => { S.tsCrew = $('tsPrintCrew').value; draw(); });
+        $('tsPrintGroup').addEventListener('change', () => { S.tsGroup = $('tsPrintGroup').value; draw(); });
         const cnt = () => { $('tsCnt').innerHTML = `<b>${picked.size}</b> of ${crewMen.length} men on the sheet${picked.size > MEMCO_ATT.G.maxRows ? ` — more than ${MEMCO_ATT.G.maxRows} men need a second sheet` : ''}`; };
         body.querySelectorAll('.tsP').forEach(c => c.addEventListener('change', () => { c.checked ? picked.add(c.dataset.hr) : picked.delete(c.dataset.hr); cnt(); }));
         $('tsPickAll').addEventListener('click', () => { crewMen.forEach(p => picked.add(p.hr)); draw(); });
@@ -28857,7 +28915,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v81';
+  const V = 'v83';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
