@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v86 — Al Muhanad</title>
+<title>MEMCO Operations Console v87 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4305,6 +4305,17 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 /* Print sheet — the action row sits right under the men, not far below */
 #attSheetsHost .ts-print-actions{margin-top:8px !important}
 #attSheetsHost #tsBody{padding-bottom:4px}
+</style>
+
+<style>
+/* groups fold up, so the "Not in any group" list is always reachable */
+#attSheetsHost .ts-group{padding:6px 10px;margin-bottom:6px}
+#attSheetsHost .ts-group .ts-gbody{display:none}
+#attSheetsHost .ts-group.open .ts-gbody{display:block}
+#attSheetsHost .ts-group .ts-gcaret{display:inline-block;transition:transform .15s;color:#7dd3fc}
+#attSheetsHost .ts-group.open .ts-gcaret{transform:rotate(90deg)}
+#attSheetsHost .ts-group .ts-ghead:hover{opacity:.9}
+#attSheetsHost h3{margin:10px 0 6px}
 </style>
 </head>
 <body>
@@ -21842,9 +21853,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             <button type="button" class="st-btn st-ok st-sm" id="tsCadd">➕ New group</button>
           </div>
           <div id="tsCfWho" class="st-muted" style="margin:-2px 0 8px"></div>
-          ${crews.map(c => `<div class="st-card">
-            <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
-              <div><b>${esc(c.name || 'Group')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
+          ${crews.map(c => `<div class="st-card ts-group ${S.tsOpenCrew === c.id ? 'open' : ''}" data-gcard="${esc(c.id)}">
+            <div class="ts-ghead" data-gtoggle="${esc(c.id)}" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;cursor:pointer">
+              <div><span class="ts-gcaret">▸</span> <b>${esc(c.name || 'Group')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
                 ${(() => { const bad = (c.members || []).filter(m => c.trade && !tsTradeFits(m.trade, c.trade)).length;
                     return bad ? `<span class="ts-oddtag">⚠ ${bad} not ${esc(c.trade)}</span>` : ''; })()}
                 <div class="st-muted">Foreman: ${esc(c.foreman_name || '—')}${c.foreman_hr ? ' (HR ' + esc(c.foreman_hr) + ')' : ''} · ${(c.members || []).length} men</div></div>
@@ -21852,6 +21863,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                 <button type="button" class="st-btn st-ghost st-sm" data-cprint="${esc(c.id)}">🖨 Sheet</button>
                 <button type="button" class="st-btn st-ghost st-sm" data-coff="${esc(c.id)}">Close group</button></div>
             </div>
+            <div class="ts-gbody">
             <div class="st-row" style="margin-top:8px;align-items:flex-end;gap:8px">
               <div class="st-field" style="flex:2 1 320px"><label class="st-l">Add men by HR number (paste a list)</label>
                 <input class="tsCadd2" data-crew="${esc(c.id)}" placeholder="2258, 2305, 2331"></div>
@@ -21866,7 +21878,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                   <span class="td">${esc(m.trade)}</span>
                   <span class="ac"><button type="button" class="st-btn st-ghost st-sm" data-cdel="${esc(c.id)}|${esc(m.hr)}">✕</button></span></div>`;
                 }).join('')}
-            </div></div>` : '<div class="st-empty">No men yet.</div>'}</div>`).join('')}
+            </div></div>` : '<div class="st-empty">No men yet.</div>'}</div></div>`).join('')}
           <h3>Not in any group (${free.length})</h3>
           ${free.length ? `<div class="ts-bar"><div class="st-field s" style="flex:0 0 220px"><select id="tsFreeGroup">${crewOptions('', '— choose a group —')}</select></div>
               <button type="button" class="st-btn st-sm" id="tsFreeGo">Move ticked men</button>
@@ -21903,6 +21915,16 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if($('tsFreeTrade')) $('tsFreeTrade').addEventListener('change', e => { S.tsFreeTrade = e.target.value; redrawFree(); });
         if($('tsFreeFind'))  $('tsFreeFind').addEventListener('input',  e => { S.tsFreeFind  = e.target.value; redrawFree(); });
         redrawFree();
+
+        // one group open at a time, so the list below stays in view
+        body.querySelectorAll('[data-gtoggle]').forEach(h => h.addEventListener('click', ev => {
+          if(ev.target.closest('button')) return;      // the Sheet / Close buttons still work
+          const id = h.dataset.gtoggle;
+          S.tsOpenCrew = (S.tsOpenCrew === id) ? null : id;
+          body.querySelectorAll('[data-gcard]').forEach(card => {
+            card.classList.toggle('open', card.dataset.gcard === S.tsOpenCrew);
+          });
+        }));
 
         const slot = $('tsBarSlot'), crewBar = body.querySelector('.ts-crewbar');
         if(slot) slot.innerHTML = '';          // drop the copies left by the last draw
@@ -28988,7 +29010,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v86';
+  const V = 'v87';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
