@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v78 — Al Muhanad</title>
+<title>MEMCO Operations Console v81 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4246,6 +4246,55 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 @media (max-width:1250px){ #campsView .camp-btn-row{grid-template-columns:repeat(4,1fr)} }
 @media (max-width:760px){ #campsView .camp-btn-row{grid-template-columns:repeat(2,1fr)} }
 </style>
+
+<style>
+/* Shift Labor — many men at once */
+#shiftLaborOverlay .modal{max-width:760px;width:94vw}
+#shiftLaborOverlay .shift-top{display:flex;gap:8px;flex-wrap:wrap}
+#shiftLaborOverlay .shift-tools{display:flex;align-items:center;gap:8px;margin:8px 0 6px}
+#shiftLaborOverlay .shift-tools .btn{padding:5px 10px;font-size:12px}
+#shiftLaborOverlay .shift-row{display:grid;grid-template-columns:26px 78px minmax(140px,1fr) minmax(150px,auto);
+  align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid rgba(148,163,184,.12);
+  font-size:12.5px;cursor:pointer}
+#shiftLaborOverlay .shift-row:hover{background:rgba(56,189,248,.07)}
+#shiftLaborOverlay .shift-row .sr-hr{font-weight:700;color:#e6f2ff}
+#shiftLaborOverlay .shift-row .sr-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#shiftLaborOverlay .shift-row .sr-loc{color:#9fc0da;font-size:11.5px;text-align:right;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+
+<style>
+/* Add Labor — the "many new men" table */
+#addLaborOverlay .modal{max-width:1020px;width:96vw}
+#addLaborOverlay .al-tabs{display:flex;gap:6px;margin-bottom:10px}
+#addLaborOverlay .al-tab{flex:1;padding:8px 10px;font-size:12.5px}
+#addLaborOverlay .al-tab.on{background:rgba(56,189,248,.20);border-color:#38bdf8;color:#e6f2ff}
+#addLaborOverlay .al-many-top{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+#addLaborOverlay .aln-head,#addLaborOverlay .aln-row{display:grid;
+  grid-template-columns:86px minmax(150px,1.4fr) minmax(120px,1fr) 110px 110px 120px 30px;gap:6px;align-items:center}
+#addLaborOverlay .aln-head{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:#9fc0da;
+  padding:6px 4px;background:rgba(56,189,248,.10);border-radius:6px 6px 0 0;margin-top:4px}
+#addLaborOverlay .aln-rows{max-height:44vh;overflow-y:auto;border:1px solid rgba(56,189,248,.18);
+  border-radius:0 0 8px 8px;padding:4px}
+#addLaborOverlay .aln-row{padding:3px 0}
+#addLaborOverlay .aln-row input,#addLaborOverlay .aln-row select{width:100%;padding:6px 7px;font-size:12.5px}
+#addLaborOverlay .aln-row.aln-bad input{border-color:#f87171}
+#addLaborOverlay .aln-del{background:transparent;border:1px solid rgba(248,113,113,.35);color:#fca5a5;
+  border-radius:6px;cursor:pointer;padding:4px 0;font-size:11px}
+#addLaborOverlay .aln-del:hover{background:rgba(248,113,113,.18)}
+@media (max-width:900px){ #addLaborOverlay .aln-head{display:none}
+  #addLaborOverlay .aln-row{grid-template-columns:1fr 1fr;gap:4px;padding:8px 4px;
+    border-bottom:1px solid rgba(148,163,184,.12)} }
+</style>
+
+<style>
+/* Crews — the new-crew fields sit in the top bar, so the lists get the room */
+#attSheetsHost #tsBarSlot .st-field{margin:0}
+#attSheetsHost #tsBarSlot .st-btn{align-self:flex-end}
+#attSheetsHost .ts-crewbar{margin-bottom:6px}
+#attSheetsHost #tsCfWho{font-size:11.5px}
+#attSheetsHost .tsCaddWho{font-size:11.5px}
+</style>
 </head>
 <body>
 <!-- Plain-HTML/inline-CSS loading screen: shown instantly, before any
@@ -4940,7 +4989,12 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 
   <div class="overlay" id="addLaborOverlay">
     <div class="modal">
-      <h3>Add New Labor to a Camp</h3>
+      <h3>Add Labor to a Camp</h3>
+      <div class="al-tabs">
+        <button type="button" class="btn btn-ghost al-tab on" id="alTabOne">👤 One man already in the system</button>
+        <button type="button" class="btn btn-ghost al-tab" id="alTabMany">➕ New men — add many at once</button>
+      </div>
+      <div id="alOneBlock">
       <div class="field">
         <label>HR Number or name</label>
         <input type="text" id="alHrInput" placeholder="e.g. 4717 — or type a name…">
@@ -4968,6 +5022,30 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
           <input type="checkbox" id="alShowAllRooms"> Also show rooms of other groups
         </label>
       </div>
+      </div><!-- /alOneBlock -->
+
+      <div id="alManyBlock" style="display:none">
+        <div class="al-many-top">
+          <div class="field" style="flex:1 1 200px;margin:0">
+            <label>Camp for these men</label>
+            <select id="alnCamp"></select>
+          </div>
+          <div class="field" style="flex:1 1 200px;margin:0">
+            <label>Room</label>
+            <select id="alnRoom"></select>
+          </div>
+          <button type="button" class="btn btn-ghost" id="alnAddRows" style="flex:0 0 auto">+ 5 more rows</button>
+        </div>
+        <div id="alnRoomInfo" class="st-muted" style="margin:6px 0"></div>
+        <div class="aln-head">
+          <span>HR No *</span><span>Name *</span><span>Designation</span><span>Nationality</span>
+          <span>Religion</span><span>Mobile</span><span></span>
+        </div>
+        <div id="alnRows" class="aln-rows"></div>
+        <div id="alnMsg" class="st-muted" style="margin:8px 0"></div>
+        <button class="btn btn-primary" id="alnSaveBtn" style="width:100%">💾 Save these men into the camp</button>
+      </div>
+
       <div class="modal-actions">
         <div class="right">
           <button class="btn btn-ghost" id="alCloseBtn">Close</button>
@@ -4979,11 +5057,31 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
   <div class="overlay" id="shiftLaborOverlay">
     <div class="modal">
       <h3>Shift Labor</h3>
-      <div class="field">
-        <label>Search worker (name or HR code)</label>
-        <input type="text" id="shiftSearchInput" placeholder="Type to search…">
+      <div class="shift-top">
+        <div class="field" style="flex:1 1 220px;margin:0">
+          <label>From camp</label>
+          <select id="shiftFromCamp"></select>
+        </div>
+        <div class="field" style="flex:2 1 260px;margin:0">
+          <label>Search name or HR code</label>
+          <input type="text" id="shiftSearchInput" placeholder="Type to search…">
+        </div>
       </div>
-      <div id="shiftSearchResults" style="max-height:160px;overflow-y:auto;margin-bottom:10px;"></div>
+      <div class="shift-top" style="margin-top:6px">
+        <div class="field" style="flex:1 1 100%;margin:0">
+          <label>Or paste many HR numbers (2258, 2305, 2331 …)</label>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="shiftHrPaste" placeholder="2258, 2305, 2331" style="flex:1">
+            <button class="btn btn-ghost" id="shiftHrPickBtn" style="flex:0 0 auto">Tick these</button>
+          </div>
+        </div>
+      </div>
+      <div class="shift-tools">
+        <button class="btn btn-ghost btn-sm" id="shiftPickAll">Tick all shown</button>
+        <button class="btn btn-ghost btn-sm" id="shiftPickNone">Untick all</button>
+        <span class="st-muted" id="shiftPickCount" style="margin-left:auto">0 selected</span>
+      </div>
+      <div id="shiftSearchResults" style="max-height:260px;overflow-y:auto;margin-bottom:10px;"></div>
       <div id="shiftSelectedBlock" style="display:none;">
         <div class="att-summary" id="shiftCurrentLocation" style="margin-bottom:10px;"></div>
         <div class="field">
@@ -4994,6 +5092,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
           <label>Move to Room</label>
           <select id="shiftDestRoom"></select>
         </div>
+        <div id="shiftRoomWarn" class="st-muted" style="margin:-4px 0 6px"></div>
         <button class="btn btn-primary" id="shiftConfirmBtn" style="width:100%;margin-top:6px;">Confirm Shift</button>
       </div>
       <div class="modal-actions">
@@ -13617,91 +13716,200 @@ wireCampLaborSearch('campLaborSearchBtn2', 'campLaborSearchInput2', 'campLaborSe
 
 let shiftPick = null;
 
+
+/* ============================================================
+   Shift Labor — pick a camp, tick as many men as you like
+   (or paste a list of HR numbers), then move them all at once.
+   ============================================================ */
+let shiftPicked = new Map();   // key "campId|roomId|code" → {camp, room, occupant}
+
+function shiftKey(m){ return m.camp.id + '|' + m.room.id + '|' + (m.occupant.code || m.occupant.name); }
+
 function openShiftLaborModal(){
-  shiftPick = null;
+  shiftPicked = new Map();
+  const fromSel = document.getElementById('shiftFromCamp');
+  fromSel.innerHTML = '<option value="">— all camps —</option>' +
+    visibleCamps().map(c => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)} (${(c.rooms||[]).reduce((n,r)=>n+((r.occupants||[]).length),0)} men)</option>`).join('');
   document.getElementById('shiftSearchInput').value = '';
-  document.getElementById('shiftSearchResults').innerHTML = '';
+  document.getElementById('shiftHrPaste').value = '';
   document.getElementById('shiftSelectedBlock').style.display = 'none';
   document.getElementById('shiftLaborOverlay').classList.add('open');
+  shiftRenderList();
   document.getElementById('shiftSearchInput').focus();
 }
 
-document.getElementById('shiftSearchInput').addEventListener('input', (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  const resultsEl = document.getElementById('shiftSearchResults');
-  if(!q){ resultsEl.innerHTML = ''; return; }
-  const matches = [];
+// everyone who matches the camp and the search text
+function shiftMatches(){
+  const q = (document.getElementById('shiftSearchInput').value || '').trim().toLowerCase();
+  const campId = document.getElementById('shiftFromCamp').value;
+  const out = [];
   visibleCamps().forEach(camp => {
-    (camp.rooms||[]).forEach(room => {
-      (room.occupants||[]).forEach((o, idx) => {
-        if((o.name && o.name.toLowerCase().includes(q)) || (o.code && String(o.code).toLowerCase().includes(q))){
-          matches.push({ camp, room, occupant: o, idx });
+    if(campId && camp.id !== campId) return;
+    (camp.rooms || []).forEach(room => {
+      (room.occupants || []).forEach((o, idx) => {
+        if(!q || (o.name && o.name.toLowerCase().includes(q)) || (o.code && String(o.code).toLowerCase().includes(q))){
+          out.push({camp, room, occupant: o, idx});
         }
       });
     });
   });
-  if(matches.length === 0){
-    resultsEl.innerHTML = '<div class="log-empty">No matches found.</div>';
-    return;
+  return out;
+}
+
+function shiftRenderList(){
+  const host = document.getElementById('shiftSearchResults');
+  const list = shiftMatches();
+  const campId = document.getElementById('shiftFromCamp').value;
+  const q = (document.getElementById('shiftSearchInput').value || '').trim();
+  if(!campId && !q){
+    // nothing is filtered — show whoever is already ticked, so a pasted list is visible
+    if(shiftPicked.size){
+      host.innerHTML = [...shiftPicked.values()].map(m => `<label class="shift-row">
+        <input type="checkbox" data-sk="${escapeAttr(shiftKey(m))}" checked>
+        <span class="sr-hr">${escapeHtml(m.occupant.code || '—')}</span>
+        <span class="sr-nm">${escapeHtml(m.occupant.name || '')}</span>
+        <span class="sr-loc">${escapeHtml(m.camp.name)} · Room ${escapeHtml(m.room.number)}</span>
+      </label>`).join('');
+      host.querySelectorAll('[data-sk]').forEach(cb => cb.addEventListener('change', () => {
+        if(!cb.checked){ shiftPicked.delete(cb.dataset.sk); shiftRenderList(); }
+      }));
+      shiftUpdateCount(); return;
+    }
+    host.innerHTML = '<div class="log-empty">Choose a camp, or type a name or HR code, or paste a list of HR numbers.</div>';
+    shiftUpdateCount(); return;
   }
-  resultsEl.innerHTML = matches.slice(0,30).map((m,i) => `
-    <div class="log-item" data-pick="${i}" style="cursor:pointer;">
-      <div class="log-top"><span>${escapeHtml(m.occupant.name)}${m.occupant.code ? ' · ' + escapeHtml(m.occupant.code) : ''}</span></div>
-      <div style="font-size:11px;color:var(--ink-faint);">Currently: ${escapeHtml(m.camp.name)} · Room ${escapeHtml(m.room.number)}</div>
-    </div>
-  `).join('');
-  resultsEl.querySelectorAll('[data-pick]').forEach(el => {
-    el.addEventListener('click', () => selectShiftWorker(matches[Number(el.dataset.pick)]));
-  });
-});
+  if(!list.length){ host.innerHTML = '<div class="log-empty">Nobody found.</div>'; shiftUpdateCount(); return; }
+  host.innerHTML = list.slice(0, 400).map(m => {
+    const k = shiftKey(m);
+    return `<label class="shift-row">
+      <input type="checkbox" data-sk="${escapeAttr(k)}" ${shiftPicked.has(k) ? 'checked' : ''}>
+      <span class="sr-hr">${escapeHtml(m.occupant.code || '—')}</span>
+      <span class="sr-nm">${escapeHtml(m.occupant.name || '')}</span>
+      <span class="sr-loc">${escapeHtml(m.camp.name)} · Room ${escapeHtml(m.room.number)}</span>
+    </label>`;
+  }).join('') + (list.length > 400 ? `<div class="st-muted" style="padding:6px">Showing the first 400 of ${list.length}. Narrow the search to see the rest.</div>` : '');
+  const byKey = new Map(list.map(m => [shiftKey(m), m]));
+  host.querySelectorAll('[data-sk]').forEach(cb => cb.addEventListener('change', () => {
+    const m = byKey.get(cb.dataset.sk);
+    if(cb.checked) shiftPicked.set(cb.dataset.sk, m); else shiftPicked.delete(cb.dataset.sk);
+    shiftUpdateCount();
+  }));
+  shiftUpdateCount();
+}
 
-function selectShiftWorker(pick){
-  shiftPick = pick;
-  document.getElementById('shiftSearchResults').innerHTML = '';
-  document.getElementById('shiftSearchInput').value = `${pick.occupant.name}`;
-  document.getElementById('shiftSelectedBlock').style.display = '';
+function shiftUpdateCount(){
+  const n = shiftPicked.size;
+  document.getElementById('shiftPickCount').textContent = n + (n === 1 ? ' selected' : ' selected');
+  const block = document.getElementById('shiftSelectedBlock');
+  block.style.display = n ? '' : 'none';
+  if(!n) return;
+  const first = shiftPicked.values().next().value;
+  const camps = new Set([...shiftPicked.values()].map(m => m.camp.name));
   document.getElementById('shiftCurrentLocation').textContent =
-    `📍 Currently in: ${pick.camp.name} · Room ${pick.room.number}`;
-
+    `📍 ${n} men selected — now in ${[...camps].join(', ')}`;
   const destCampSel = document.getElementById('shiftDestCamp');
-  destCampSel.innerHTML = campRecords.map(c => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)}</option>`).join('');
-  destCampSel.value = pick.camp.id;
-  populateShiftRoomOptions();
+  if(!destCampSel.options.length){
+    destCampSel.innerHTML = campRecords.map(c => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+    destCampSel.value = first.camp.id;
+    populateShiftRoomOptions();
+  }
 }
 
 function populateShiftRoomOptions(){
   const destCampSel = document.getElementById('shiftDestCamp');
   const destRoomSel = document.getElementById('shiftDestRoom');
   const camp = campRecords.find(c => c.id === destCampSel.value);
-  const rooms = camp ? [...(camp.rooms||[])].sort((a,b) => {
+  const rooms = camp ? [...(camp.rooms || [])].sort((a,b) => {
     const ka = roomFloorSortKey(a.number), kb = roomFloorSortKey(b.number);
     if(ka[0] !== kb[0]) return ka[0]-kb[0];
     if(ka[1] !== kb[1]) return ka[1]-kb[1];
     return ka[2] < kb[2] ? -1 : ka[2] > kb[2] ? 1 : 0;
   }) : [];
-  destRoomSel.innerHTML = rooms.map(r => `<option value="${escapeAttr(r.id)}">Room ${escapeHtml(r.number)} (${(r.occupants||[]).length}/${r.capacity})</option>`).join('');
-  if(shiftPick && camp && camp.id === shiftPick.camp.id){
-    destRoomSel.value = shiftPick.room.id;
+  destRoomSel.innerHTML = rooms.map(r => {
+    const used = (r.occupants || []).length, free = (r.capacity || 0) - used;
+    return `<option value="${escapeAttr(r.id)}">Room ${escapeHtml(r.number)} — ${used}/${r.capacity}${free > 0 ? ' · ' + free + ' free' : ' · FULL'}</option>`;
+  }).join('');
+  shiftCheckRoom();
+}
+
+// say plainly whether the chosen room can take everybody
+function shiftCheckRoom(){
+  const warn = document.getElementById('shiftRoomWarn');
+  if(!warn) return;
+  const camp = campRecords.find(c => c.id === document.getElementById('shiftDestCamp').value);
+  const room = camp ? (camp.rooms || []).find(r => r.id === document.getElementById('shiftDestRoom').value) : null;
+  if(!room){ warn.textContent = ''; return; }
+  const moving = [...shiftPicked.values()].filter(m => m.room.id !== room.id).length;
+  const free = (room.capacity || 0) - (room.occupants || []).length;
+  if(moving > free){
+    warn.innerHTML = `<span style="color:#fca5a5">⚠ ${moving} men selected but only ${free} bed(s) free in this room.</span>`;
+  }else{
+    warn.innerHTML = `<span style="color:#86efac">✔ ${free} bed(s) free — room has space for these ${moving} men.</span>`;
   }
 }
+
+document.getElementById('shiftFromCamp').addEventListener('change', shiftRenderList);
+document.getElementById('shiftSearchInput').addEventListener('input', shiftRenderList);
+document.getElementById('shiftPickAll').onclick = () => {
+  shiftMatches().slice(0, 400).forEach(m => shiftPicked.set(shiftKey(m), m));
+  shiftRenderList();
+};
+document.getElementById('shiftPickNone').onclick = () => { shiftPicked = new Map(); shiftRenderList(); };
+
+// tick everybody in a pasted list of HR numbers
+document.getElementById('shiftHrPickBtn').onclick = () => {
+  const raw = (document.getElementById('shiftHrPaste').value || '');
+  const want = raw.split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+  if(!want.length){ showToast('Paste some HR numbers first'); return; }
+  const found = new Set();
+  visibleCamps().forEach(camp => (camp.rooms || []).forEach(room => (room.occupants || []).forEach((o, idx) => {
+    const code = String(o.code || '').toLowerCase();
+    if(code && want.includes(code)){
+      const m = {camp, room, occupant: o, idx};
+      shiftPicked.set(shiftKey(m), m);
+      found.add(code);
+    }
+  })));
+  const missing = want.filter(w => !found.has(w));
+  document.getElementById('shiftFromCamp').value = '';
+  document.getElementById('shiftSearchInput').value = '';
+  shiftRenderList();
+  showToast(missing.length ? `${found.size} found · not found: ${missing.join(', ')}` : `${found.size} men ticked`);
+};
+
 document.getElementById('shiftDestCamp').addEventListener('change', populateShiftRoomOptions);
+document.getElementById('shiftDestRoom').addEventListener('change', shiftCheckRoom);
 
 document.getElementById('shiftConfirmBtn').onclick = () => {
-  if(!shiftPick){ showToast('Search and select a worker first'); return; }
+  if(!shiftPicked.size){ showToast('Tick at least one man first'); return; }
   const destCamp = campRecords.find(c => c.id === document.getElementById('shiftDestCamp').value);
   const destRoom = destCamp ? destCamp.rooms.find(r => r.id === document.getElementById('shiftDestRoom').value) : null;
   if(!destCamp || !destRoom){ showToast('Choose a destination camp and room'); return; }
-  if(destRoom.id === shiftPick.room.id){ showToast('Worker is already in that room'); return; }
+
+  const moving = [...shiftPicked.values()].filter(m => m.room.id !== destRoom.id);
+  if(!moving.length){ showToast('These men are already in that room'); return; }
+  const free = (destRoom.capacity || 0) - (destRoom.occupants || []).length;
+  if(moving.length > free){
+    if(!confirm(`Room ${destRoom.number} has only ${free} free bed(s), but ${moving.length} men are selected.\n\nMove them anyway?`)) return;
+  }
 
   ensureName(async () => {
-    shiftPick.room.occupants.splice(shiftPick.idx, 1);
+    // take each man out of his own room first, highest index first
+    const byRoom = new Map();
+    moving.forEach(m => {
+      const arr = byRoom.get(m.room) || [];
+      arr.push(m); byRoom.set(m.room, arr);
+    });
+    byRoom.forEach((arr, room) => {
+      arr.sort((a,b) => b.idx - a.idx).forEach(m => { room.occupants.splice(m.idx, 1); });
+    });
     destRoom.occupants = destRoom.occupants || [];
-    destRoom.occupants.push(shiftPick.occupant);
+    moving.forEach(m => destRoom.occupants.push(m.occupant));
     await saveCampRecords();
-    showToast(`${shiftPick.occupant.name} shifted to ${destCamp.name} · Room ${destRoom.number}`);
+    showToast(`${moving.length} men shifted to ${destCamp.name} · Room ${destRoom.number}`);
     document.getElementById('shiftLaborOverlay').classList.remove('open');
-    if(currentCampId){ renderRoomsList(); }
-    else{ renderCampsList(); }
+    shiftPicked = new Map();
+    if(currentCampId){ renderRoomsList(); } else { renderCampsList(); }
   });
 };
 document.getElementById('shiftCloseBtn').onclick = () => {
@@ -14014,6 +14222,7 @@ function openAddLaborModal(prefillCode){
   document.getElementById('alGroupBlock').style.display = 'none';
   document.getElementById('alShowAllRooms').checked = false;
   document.getElementById('addLaborOverlay').classList.add('open');
+  alnSwitch('one');
   if(prefillCode) alResolvePerson();   // suggestions ready on open
   else input.focus();
 }
@@ -14124,6 +14333,139 @@ async function alPlaceWorker(campId, roomId){
   if(typeof renderCampsList === 'function') renderCampsList();
   if(typeof renderLaborList === 'function' && document.getElementById('laborSearch')) renderLaborList();
 }
+
+/* ============================================================
+   Add many new men at once — men who are not in the system yet.
+   Each row makes a labour record AND puts him in the chosen room.
+   ============================================================ */
+const ALN_RELIGIONS = ['', 'Muslim', 'Hindu', 'Christian', 'Sikh', 'Buddhist', 'Other'];
+
+function alnSwitch(which){
+  const many = which === 'many';
+  document.getElementById('alOneBlock').style.display  = many ? 'none' : '';
+  document.getElementById('alManyBlock').style.display = many ? '' : 'none';
+  document.getElementById('alTabOne').classList.toggle('on', !many);
+  document.getElementById('alTabMany').classList.toggle('on', many);
+  if(many) alnPrepare();
+}
+
+function alnPrepare(){
+  const campSel = document.getElementById('alnCamp');
+  if(!campSel.options.length){
+    campSel.innerHTML = (typeof visibleCamps === 'function' ? visibleCamps() : campRecords)
+      .map(c => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+  }
+  alnRooms();
+  if(!document.getElementById('alnRows').children.length) alnAddRows(10);
+}
+
+function alnRooms(){
+  const camp = campRecords.find(c => c.id === document.getElementById('alnCamp').value);
+  const sel = document.getElementById('alnRoom');
+  const rooms = camp ? [...(camp.rooms || [])] : [];
+  sel.innerHTML = rooms.map(r => {
+    const used = (r.occupants || []).length, free = (r.capacity || 0) - used;
+    return `<option value="${escapeAttr(r.id)}">Room ${escapeHtml(r.number)} — ${used}/${r.capacity}${free > 0 ? ' · ' + free + ' free' : ' · FULL'}</option>`;
+  }).join('') || '<option value="">— this camp has no rooms —</option>';
+  alnRoomInfo();
+}
+
+function alnRoomInfo(){
+  const box = document.getElementById('alnRoomInfo');
+  const camp = campRecords.find(c => c.id === document.getElementById('alnCamp').value);
+  const room = camp ? (camp.rooms || []).find(r => r.id === document.getElementById('alnRoom').value) : null;
+  if(!room){ box.textContent = ''; return; }
+  const free = (room.capacity || 0) - (room.occupants || []).length;
+  const filled = alnReadRows().length;
+  box.innerHTML = filled > free
+    ? `<span style="color:#fca5a5">⚠ ${filled} men typed but only ${free} bed(s) free in this room.</span>`
+    : `<span style="color:#86efac">✔ ${free} bed(s) free in this room.</span>`;
+}
+
+function alnAddRows(n){
+  const host = document.getElementById('alnRows');
+  for(let i = 0; i < (n || 5); i++){
+    const d = document.createElement('div');
+    d.className = 'aln-row';
+    d.innerHTML = `<input class="aln-hr" placeholder="4820" inputmode="numeric">
+      <input class="aln-name" placeholder="Full name">
+      <input class="aln-desig" placeholder="Electrician">
+      <input class="aln-nat" placeholder="India">
+      <select class="aln-rel">${ALN_RELIGIONS.map(r => `<option value="${r}">${r || '—'}</option>`).join('')}</select>
+      <input class="aln-mob" placeholder="05XXXXXXXX" inputmode="tel">
+      <button type="button" class="aln-del" title="Remove this row">✕</button>`;
+    host.appendChild(d);
+    d.querySelector('.aln-del').addEventListener('click', () => { d.remove(); alnRoomInfo(); });
+    d.querySelectorAll('input').forEach(inp => inp.addEventListener('input', alnRoomInfo));
+  }
+}
+
+function alnReadRows(){
+  return [...document.querySelectorAll('#alnRows .aln-row')].map(r => ({
+    code:  r.querySelector('.aln-hr').value.trim(),
+    name:  r.querySelector('.aln-name').value.trim(),
+    trade: r.querySelector('.aln-desig').value.trim(),
+    nationality: r.querySelector('.aln-nat').value.trim(),
+    religion: r.querySelector('.aln-rel').value,
+    mobile: r.querySelector('.aln-mob').value.trim(),
+    el: r
+  })).filter(x => x.code || x.name);
+}
+
+document.getElementById('alTabOne').onclick  = () => alnSwitch('one');
+document.getElementById('alTabMany').onclick = () => alnSwitch('many');
+document.getElementById('alnCamp').addEventListener('change', alnRooms);
+document.getElementById('alnRoom').addEventListener('change', alnRoomInfo);
+document.getElementById('alnAddRows').onclick = () => alnAddRows(5);
+
+document.getElementById('alnSaveBtn').onclick = () => {
+  const rows = alnReadRows();
+  const msg = document.getElementById('alnMsg');
+  if(!rows.length){ msg.innerHTML = '<span style="color:#fca5a5">Type at least one man.</span>'; return; }
+
+  // every man needs an HR number and a name
+  const bad = rows.filter(r => !r.code || !r.name);
+  if(bad.length){
+    bad.forEach(r => r.el.classList.add('aln-bad'));
+    msg.innerHTML = `<span style="color:#fca5a5">${bad.length} row(s) are missing the HR number or the name.</span>`;
+    return;
+  }
+  // no two the same, and not already in the system
+  const seen = new Set(); const dupes = [];
+  rows.forEach(r => { const k = r.code.toLowerCase(); if(seen.has(k)) dupes.push(r.code); seen.add(k); });
+  if(dupes.length){ msg.innerHTML = `<span style="color:#fca5a5">The same HR number is typed twice: ${dupes.join(', ')}</span>`; return; }
+  const already = rows.filter(r => (laborRecords || []).some(l => String(l.code).toLowerCase() === r.code.toLowerCase())
+                                || (typeof staffRecords !== 'undefined' && (staffRecords || []).some(st => String(st.code).toLowerCase() === r.code.toLowerCase())));
+  if(already.length){
+    already.forEach(r => r.el.classList.add('aln-bad'));
+    msg.innerHTML = `<span style="color:#fca5a5">Already in the system: ${already.map(r => r.code).join(', ')} — use the other tab for them.</span>`;
+    return;
+  }
+
+  const camp = campRecords.find(c => c.id === document.getElementById('alnCamp').value);
+  const room = camp ? (camp.rooms || []).find(r => r.id === document.getElementById('alnRoom').value) : null;
+  if(!camp || !room){ msg.innerHTML = '<span style="color:#fca5a5">Choose a camp and a room.</span>'; return; }
+  const free = (room.capacity || 0) - (room.occupants || []).length;
+  if(rows.length > free && !confirm(`Room ${room.number} has only ${free} free bed(s) but ${rows.length} men are typed.\n\nPut them in anyway?`)) return;
+
+  ensureName(async () => {
+    room.occupants = room.occupants || [];
+    rows.forEach(r => {
+      laborRecords.push({ code: r.code, name: r.name, trade: r.trade || '', site: '',
+                          mobile: r.mobile || '', nationality: r.nationality || '', religion: r.religion || '' });
+      room.occupants.push({ code: r.code, name: r.name, trade: r.trade || '',
+                            nationality: r.nationality || '', religion: r.religion || '' });
+    });
+    try{ await saveLaborRecords(); }catch(e){}
+    await saveCampRecords();
+    showToast(`${rows.length} new men added to ${camp.name} · Room ${room.number}`);
+    document.getElementById('alnRows').innerHTML = '';
+    alnAddRows(10);
+    document.getElementById('addLaborOverlay').classList.remove('open');
+    if(currentCampId){ renderRoomsList(); } else { renderCampsList(); }
+  });
+};
+
 document.getElementById('addLaborBtn').addEventListener('click', () => ensureName(() => openAddLaborModal()));
 document.getElementById('alCloseBtn').addEventListener('click', () => {
   document.getElementById('addLaborOverlay').classList.remove('open');
@@ -21339,6 +21681,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <input type="date" id="tsDate" value="${T === 'ot' ? wsYesterday() : todayIso()}" max="${todayIso()}"></div>`}
         ${T === 'print' ? `<div class="st-field s"><label class="st-l">Up to date (for several days)</label><input type="date" id="tsDate2" value="${todayIso()}"></div>
           <div class="st-field s"><label class="st-l">Shift</label><select id="tsShift"><option>1st</option><option>2nd</option></select></div>` : ''}
+        <span id="tsBarSlot" style="display:contents"></span>
       </div>
       <div id="tsBody"><div class="st-empty">Loading…</div></div>`;
     wireNav();
@@ -21436,12 +21779,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const free = people.filter(p => !taken.has(p.hr));
         body.innerHTML = `<div class="st-note">Put every man under his foreman. Each crew gets its own sheet, so a foreman only signs for his own men.
             A man belongs to one crew per site — moving him to another foreman takes him out of the old crew by itself.</div>
-          <div class="ts-bar">
-            <div class="st-field s" style="flex:0 0 120px"><label class="st-l">Foreman HR</label><input id="tsCfHr" placeholder="e.g. 3934"></div>
-            <div class="st-field" style="flex:1 1 200px"><label class="st-l">Foreman name</label><input id="tsCfName"></div>
-            <div class="st-field s" style="flex:0 0 150px"><label class="st-l">Trade / list</label><input id="tsCtrade" placeholder="Electrical"></div>
+          <div class="ts-bar ts-crewbar">
+            <div class="st-field s" style="flex:0 0 110px"><label class="st-l">Foreman HR</label><input id="tsCfHr" placeholder="e.g. 3934"></div>
+            <div class="st-field" style="flex:1 1 180px"><label class="st-l">Foreman name</label><input id="tsCfName" placeholder="fills in by itself"></div>
+            <div class="st-field s" style="flex:0 0 140px"><label class="st-l">Trade / list</label><input id="tsCtrade" placeholder="Electrical"></div>
             <button type="button" class="st-btn st-ok st-sm" id="tsCadd">➕ New crew</button>
           </div>
+          <div id="tsCfWho" class="st-muted" style="margin:-2px 0 8px"></div>
           ${crews.map(c => `<div class="st-card">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
               <div><b>${esc(c.name || 'Crew')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
@@ -21455,6 +21799,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                 <input class="tsCadd2" data-crew="${esc(c.id)}" placeholder="2258, 2305, 2331"></div>
               <button type="button" class="st-btn st-sm" data-cassign="${esc(c.id)}">Add to this crew</button>
             </div>
+            <div class="st-muted tsCaddWho" data-crew="${esc(c.id)}" style="margin:2px 0 4px"></div>
             ${(c.members || []).length ? `<div class="ts-scroll" style="margin-top:6px;max-height:210px"><div class="ts-grid">
               ${(c.members || []).map(m => `<div class="ts-row"><span class="hr">${esc(m.hr)}</span><span class="nm">${esc(m.name)}</span>
                 <span class="td">${esc(m.trade)}</span>
@@ -21470,6 +21815,33 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('')}
             </div></div>` : '<div class="st-empty">Everybody is in a crew.</div>'}`;
 
+        // the new-crew line belongs up with Group / site, so the men below get the space
+        const slot = $('tsBarSlot'), crewBar = body.querySelector('.ts-crewbar');
+        if(slot && crewBar && window.innerWidth > 1100){
+          while(crewBar.firstChild) slot.appendChild(crewBar.firstChild);
+          crewBar.style.display = 'none';
+          const who = $('tsCfWho'); if(who) who.style.margin = '0 0 6px';
+        }
+
+        // typing the foreman's HR fills his name and trade by itself
+        const cfHr = $('tsCfHr'), cfName = $('tsCfName'), cfTrade = $('tsCtrade'), cfWho = $('tsCfWho');
+        if(cfHr) cfHr.addEventListener('input', () => {
+          const hr = cfHr.value.trim();
+          if(!hr){ cfWho.textContent = ''; return; }
+          const p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
+          if(p){
+            cfWho.innerHTML = `<span style="color:#86efac">✔ ${esc(p.name)}${p.trade ? ' · ' + esc(p.trade) : ''}</span>`;
+            if(!cfName.value.trim()) cfName.value = p.name || '';
+            if(!cfTrade.value.trim() && p.trade){
+              const t = String(p.trade);
+              cfTrade.value = /electric/i.test(t) ? 'Electrical' : /plumb/i.test(t) ? 'Plumbing'
+                : /duct|ac |a\/c|chilled/i.test(t) ? 'HVAC' : /fire/i.test(t) ? 'Fire Fighting' : t;
+            }
+          }else{
+            cfWho.innerHTML = `<span style="color:#fca5a5">✕ HR ${esc(hr)} is not on this site</span>`;
+          }
+        });
+
         $('tsCadd').addEventListener('click', e => busy(e.currentTarget, async () => {
           const hr = $('tsCfHr').value.trim();
           const p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
@@ -21480,6 +21852,18 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           toast('Crew added');
           tsReload();
         }));
+        // as HR numbers are pasted, say who they are before anything is added
+        body.querySelectorAll('.tsCadd2').forEach(box => box.addEventListener('input', () => {
+          const who = body.querySelector(`.tsCaddWho[data-crew="${box.dataset.crew}"]`);
+          if(!who) return;
+          const hrs = box.value.split(/[^0-9A-Za-z]+/).filter(Boolean);
+          if(!hrs.length){ who.textContent = ''; return; }
+          const found = [], miss = [];
+          hrs.forEach(h => { const p = people.find(x => x.hr === h); if(p) found.push(`${h} ${p.name}`); else miss.push(h); });
+          who.innerHTML = (found.length ? `<span style="color:#86efac">✔ ${found.join(' · ')}</span>` : '')
+            + (miss.length ? `<span style="color:#fca5a5">${found.length ? ' &nbsp;|&nbsp; ' : ''}✕ not on this site: ${miss.join(', ')}</span>` : '');
+        }));
+
         body.querySelectorAll('[data-cassign]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
           const box = body.querySelector(`.tsCadd2[data-crew="${b.dataset.cassign}"]`);
           const hrs = box.value.split(/[^0-9A-Za-z]+/).filter(Boolean);
@@ -28473,7 +28857,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v78';
+  const V = 'v81';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
