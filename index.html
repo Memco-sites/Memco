@@ -4169,6 +4169,60 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
   background:rgba(56,189,248,.10);border-radius:6px 6px 0 0}
 #attSheetsHost .ts-scroll{overflow-y:auto;border:1px solid rgba(56,189,248,.18);border-radius:0 0 8px 8px}
 </style>
+
+<style>
+/* department cards on the Labor and Staff screens */
+.memco-dept-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin:6px 0 8px}
+.memco-dept{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;cursor:pointer;
+  background:linear-gradient(180deg,rgba(56,189,248,.10),rgba(56,189,248,.04));
+  border:1px solid rgba(56,189,248,.28);color:#e6f2ff;font:inherit;font-size:13px;text-align:left}
+.memco-dept:hover{border-color:#38bdf8;background:rgba(56,189,248,.16)}
+.memco-dept.on{border-color:#38bdf8;background:rgba(56,189,248,.22);box-shadow:0 0 0 1px rgba(56,189,248,.35) inset}
+.memco-dept .md-ico{font-size:16px}
+.memco-dept .md-name{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.memco-dept .md-num{font-weight:700;color:#7dd3fc;background:rgba(2,132,199,.25);border-radius:999px;padding:2px 9px;font-size:12px}
+.memco-dept-open{border:1px solid rgba(56,189,248,.25);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:rgba(3,22,40,.5)}
+.memco-dept-open .md-head{display:flex;align-items:center;gap:8px;color:#cfe6ff;font-size:12.5px;margin-bottom:6px}
+.memco-dept-open .md-close{margin-left:auto;background:transparent;border:1px solid rgba(56,189,248,.3);color:#9fc0da;
+  border-radius:8px;padding:3px 9px;font:inherit;font-size:11.5px;cursor:pointer}
+.memco-dept-open .md-move{margin-left:6px;background:rgba(56,189,248,.18);border:1px solid rgba(56,189,248,.35);
+  color:#e6f2ff;border-radius:6px;padding:0 6px;cursor:pointer;font-size:12px}
+</style>
+
+<style>
+.memco-clear-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:5;
+  background:rgba(148,163,184,.18);border:1px solid rgba(148,163,184,.30);color:#cbd5e1;
+  border-radius:999px;width:20px;height:20px;line-height:1;font-size:11px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.memco-clear-x:hover{background:rgba(248,113,113,.28);border-color:rgba(248,113,113,.5);color:#fff}
+</style>
+
+<style>
+/* ---- Labor screen: less furniture on top, more room for the people ---- */
+#laborView .hero{margin-bottom:6px !important;padding:6px 10px !important}
+#laborView .hero h1{font-size:15px !important}
+#laborView .labor-command-bar{margin-bottom:6px;gap:6px}
+#laborView .labor-status-btn{padding:6px 10px;font-size:12px}
+#laborView #laborReconciliation .rec-grid,
+#laborView #laborReconciliation [class*="grid"]{gap:6px !important}
+#laborView #laborReconciliation [class*="card"],
+#laborView #laborReconciliation [class*="tile"],
+#laborView #laborReconciliation [class*="stat"]{padding:6px 9px !important}
+#laborView #laborReconciliation [class*="card"] [class*="num"],
+#laborView #laborReconciliation [class*="value"],
+#laborView #laborReconciliation b{font-size:19px !important;line-height:1.15 !important}
+#laborView #laborReconciliation{font-size:11.5px}
+#laborView .att-summary{font-size:12px;padding:4px 0}
+#staffView .hero{margin-bottom:6px !important;padding:6px 10px !important}
+#staffView .hero h1{font-size:15px !important}
+/* the site row sits with the buttons above it, as one block */
+.bs-bar-joined{margin-top:-4px}
+</style>
+
+<style>
+/* the Replace buttons exist only for an administrator */
+body:not(.memco-admin) .memco-admin-only{display:none !important}
+</style>
 </head>
 <body>
 <!-- Plain-HTML/inline-CSS loading screen: shown instantly, before any
@@ -5109,13 +5163,12 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
       <button class="btn btn-ghost labor-status-btn labor-status-ann" id="laborAnnLeaveBtn">
         <span class="labor-status-icon">▣</span><span>Annual / Vacation</span><b id="laborAnnLeaveCount">0</b>
       </button>
+      <button class="btn btn-ghost" id="laborClearFiltersBtn" style="display:none;flex:0 0 auto;">← Back</button>
     </div>
 
-    <button class="btn btn-ghost" id="laborClearFiltersBtn" style="width:100%;margin:8px 0;display:none;">← Back to Trade Summary</button>
-
-    <div id="laborReconciliation" style="margin-bottom:14px;"></div>
-    <div class="att-summary" id="laborResultSummary" style="margin:10px 0;"></div>
-    <div id="laborTradeBreakdown" style="margin-bottom:12px;"></div>
+    <div id="laborReconciliation" style="margin-bottom:8px;"></div>
+    <div class="att-summary" id="laborResultSummary" style="margin:6px 0;"></div>
+    <div id="laborTradeBreakdown" style="margin-bottom:8px;"></div>
     <div id="laborList"></div>
     <div id="laborPagination" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--ink-dim);"></div>
     <div id="laborWorkerDetail"></div>
@@ -10439,6 +10492,150 @@ document.getElementById('transferConfirmBtn').onclick = () => ensureName(async (
   renderLaborList();
 });
 
+
+/* ============================================================
+   Departments — every trade belongs to one department.
+   Rank inside a department: supervisor → foreman → chargehand
+   → tradesman → helper.  Assistant and Helper count as one.
+   ============================================================ */
+const MEMCO_DEPTS = [
+  {key:'electrical', label:'Electrical',    icon:'⚡'},
+  {key:'plumbing',   label:'Plumbing',      icon:'🔧'},
+  {key:'hvac',       label:'HVAC',          icon:'❄️'},
+  {key:'elv',        label:'ELV',           icon:'📡'},
+  {key:'fire',       label:'Fire Fighting', icon:'🔥'},
+  {key:'civil',      label:'Civil',         icon:'🧱'},
+  {key:'transport',  label:'Transport',     icon:'🚚'},
+  {key:'hse',        label:'HSE & Security',icon:'🦺'},
+  {key:'store',      label:'Store',         icon:'📦'},
+  {key:'office',     label:'Office / Admin',icon:'🏢'},
+  {key:'other',      label:'Other',         icon:'❓'}
+];
+const MEMCO_DEPT_LABEL = MEMCO_DEPTS.reduce((a,d) => (a[d.key]=d.label, a), {});
+
+// manual moves the user makes from the "Other" card
+let MEMCO_DEPT_OVERRIDE = {};
+try{ MEMCO_DEPT_OVERRIDE = JSON.parse(localStorage.getItem('memcoDeptOverride') || '{}'); }catch(e){ MEMCO_DEPT_OVERRIDE = {}; }
+function memcoSaveDeptOverride(){
+  try{ localStorage.setItem('memcoDeptOverride', JSON.stringify(MEMCO_DEPT_OVERRIDE)); }catch(e){}
+}
+
+
+/* ---------- department cards, and the trades inside one ---------- */
+let MEMCO_OPEN_DEPT = null;
+function memcoDeptHtml(list, caption, kind){
+  const g = memcoByDept(list);
+  const openKey = MEMCO_OPEN_DEPT;
+  const cards = MEMCO_DEPTS.filter(d => g[d.key] && g[d.key].total)
+    .sort((a,b) => (g[b.key].total - g[a.key].total))
+    .map(d => `<button type="button" class="memco-dept ${openKey === d.key ? 'on' : ''}" data-dept="${d.key}">
+        <span class="md-ico">${d.icon}</span>
+        <span class="md-name">${escapeHtml(d.label)}</span>
+        <span class="md-num">${g[d.key].total}</span></button>`).join('');
+  let inner = '';
+  if(openKey && g[openKey]){
+    const trades = Object.entries(g[openKey].trades)
+      .sort((a,b) => (memcoTradeRank(a[0]) - memcoTradeRank(b[0])) || (b[1] - a[1]) || a[0].localeCompare(b[0]));
+    inner = `<div class="memco-dept-open">
+      <div class="md-head"><b>${escapeHtml(MEMCO_DEPT_LABEL[openKey])}</b> — ${g[openKey].total} people
+        <button type="button" class="md-close" data-dept-close="1">✕ close</button></div>
+      <div class="trade-chip-grid">
+        ${trades.map(([t,c]) => `<span class="trade-chip" ${kind === 'staff' ? 'data-desig' : 'data-trade'}="${escapeAttr(t.replace(' / Helper',''))}"><b>${c}</b>${escapeHtml(t)}
+          ${openKey === 'other' ? `<button type="button" class="md-move" data-move-trade="${escapeAttr(t)}" title="Put this trade in a department">⇄</button>` : ''}</span>`).join('')}
+      </div></div>`;
+  }
+  return `<div class="trade-breakdown-label">${caption} — tap a department, then a trade</div>
+    <div class="memco-dept-grid">${cards}</div>${inner}`;
+}
+
+function memcoWireDeptCards(root, list, kind){
+  root.querySelectorAll('[data-dept]').forEach(b => b.addEventListener('click', () => {
+    MEMCO_OPEN_DEPT = (MEMCO_OPEN_DEPT === b.dataset.dept) ? null : b.dataset.dept;
+    root.innerHTML = memcoDeptHtml(list, root.querySelector('.trade-breakdown-label')
+      ? root.querySelector('.trade-breakdown-label').textContent.split(' — tap')[0] : '', kind);
+    memcoWireDeptCards(root, list, kind);
+  }));
+  const closeBtn = root.querySelector('[data-dept-close]');
+  if(closeBtn) closeBtn.addEventListener('click', () => {
+    MEMCO_OPEN_DEPT = null;
+    root.innerHTML = memcoDeptHtml(list, root.querySelector('.trade-breakdown-label')
+      ? root.querySelector('.trade-breakdown-label').textContent.split(' — tap')[0] : '', kind);
+    memcoWireDeptCards(root, list, kind);
+  });
+  // move a trade out of "Other" into a real department
+  root.querySelectorAll('[data-move-trade]').forEach(b => b.addEventListener('click', ev => {
+    ev.stopPropagation();
+    const trade = b.dataset.moveTrade;
+    const names = MEMCO_DEPTS.filter(d => d.key !== 'other').map((d, i) => `${i + 1}. ${d.label}`).join('\n');
+    const pick = prompt(`Put "${trade}" in which department?\n\n${names}\n\nType the number:`, '');
+    if(pick === null) return;
+    const idx = parseInt(pick, 10) - 1;
+    const list2 = MEMCO_DEPTS.filter(d => d.key !== 'other');
+    if(!(idx >= 0 && idx < list2.length)){ alert('Type one of the numbers shown.'); return; }
+    MEMCO_DEPT_OVERRIDE[String(trade).toLowerCase().replace(' / helper','').trim()] = list2[idx].key;
+    // the original trade text too, so both spellings match
+    MEMCO_DEPT_OVERRIDE[String(trade).toLowerCase().trim()] = list2[idx].key;
+    memcoSaveDeptOverride();
+    MEMCO_OPEN_DEPT = list2[idx].key;
+    if(kind === 'staff' && typeof renderStaffList === 'function') renderStaffList();
+    else if(typeof renderLaborResults === 'function') renderLaborResults();
+    else { root.innerHTML = memcoDeptHtml(list, '', kind); memcoWireDeptCards(root, list, kind); }
+  }));
+  if(kind === 'staff'){ if(typeof wireStaffDesigChips === 'function') wireStaffDesigChips(); }
+  else wireTradeChips();
+}
+
+function memcoDeptOf(trade){
+  const t = String(trade || '').toLowerCase().trim();
+  if(!t) return 'other';
+  if(MEMCO_DEPT_OVERRIDE[t]) return MEMCO_DEPT_OVERRIDE[t];
+  // a driver is transport, whatever else his title says
+  if(/\bdriver\b/.test(t)) return 'transport';
+  if(/cctv|\belv\b/.test(t)) return 'elv';
+  if(/fire\s*fight/.test(t)) return 'fire';
+  if(/chilled\s*water|duct|ducting|\bac\b|a\/c|hvac|welder|hdpe|ceiling/.test(t)) return 'hvac';
+  if(/electric/.test(t)) return 'electrical';
+  if(/plumb|pipe\s*fitter/.test(t)) return 'plumbing';
+  if(/mason|carpenter|painter|steel\s*fixer|chipping|chiping|cutting|aluminium|aluminum|boom\s*loader|tower\s*crane|scaffold/.test(t)) return 'civil';
+  if(/security|watchman|hse|safety/.test(t)) return 'hse';
+  if(/store/.test(t)) return 'store';
+  if(/reception|data\s*entry|document|office\s*boy|time\s*keeper|cleaner|camp\s*bo|facility|clerk|qc\b/.test(t)) return 'office';
+  return 'other';
+}
+
+// rank a trade inside its department, so officers sit above workers
+function memcoTradeRank(trade){
+  const t = String(trade || '').toLowerCase();
+  if(/supervisor/.test(t)) return 1;
+  if(/foreman/.test(t))    return 2;
+  if(/chargehand|charge\s*hand/.test(t)) return 3;
+  if(/assistant|asst|helper/.test(t)) return 6;
+  if(/technician|operator/.test(t)) return 4;
+  return 5;
+}
+// Assistant and Helper are the same thing
+function memcoTradeLabel(trade){
+  let t = String(trade || '').trim();
+  // Assistant, Asst and Helper all mean the same job, so they share one line
+  t = t.replace(/\b(assistants?|asst\.?|helpers?)\b/gi, '\u0001');
+  t = t.replace(/(\u0001[\s\/]*)+/g, '\u0001').replace(/\u0001/g, 'Assistant / Helper');
+  return t.replace(/\s{2,}/g, ' ').replace(/\s*\.\s*$/, '').trim();
+}
+
+// group a list of people into departments → trades
+function memcoByDept(list){
+  const out = {};
+  (list || []).forEach(p => {
+    const tr = (p.trade || p.designation || '').trim() || 'Not set';
+    const d = memcoDeptOf(tr);
+    (out[d] = out[d] || {total: 0, trades: {}});
+    out[d].total++;
+    const key = memcoTradeLabel(tr);
+    out[d].trades[key] = (out[d].trades[key] || 0) + 1;
+  });
+  return out;
+}
+
 function tradeBreakdown(records){
   const counts = {};
   records.forEach(l => {
@@ -10797,14 +10994,8 @@ function renderLaborList(){
 
   if(!q && !siteFilter && !laborLeaveFilter){
     summaryEl.textContent = 'Type a name, HR code, or trade — or pick a site — to see workers.';
-    const overall = tradeBreakdown(laborRecords);
-    breakdownEl.innerHTML = `
-      <div class="trade-breakdown-label">Labor by Trade / Category — all sites (${laborRecords.length} labor) — tap any trade to view workers</div>
-      <div class="trade-chip-grid">
-        ${overall.map(([t,c]) => `<span class="trade-chip" data-trade="${escapeAttr(t)}"><b>${c}</b>${escapeHtml(t)}</span>`).join('')}
-      </div>
-    `;
-    wireTradeChips();
+    breakdownEl.innerHTML = memcoDeptHtml(laborRecords, `All sites — ${laborRecords.length} labor`);
+    memcoWireDeptCards(breakdownEl, laborRecords);
     listEl.innerHTML = '';
     document.getElementById('laborPagination').innerHTML = '';
     laborLastFilterKey = null;
@@ -10814,14 +11005,8 @@ function renderLaborList(){
     return;
   }
 
-  const breakdown = tradeBreakdown(results);
-  breakdownEl.innerHTML = `
-    <div class="trade-breakdown-label">${siteFilter ? escapeHtml(siteFilter) : 'Search results'} — Labor by Trade / Category</div>
-    <div class="trade-chip-grid">
-      ${breakdown.map(([t,c]) => `<span class="trade-chip" data-trade="${escapeAttr(t)}"><b>${c}</b>${escapeHtml(t)}</span>`).join('')}
-    </div>
-  `;
-  wireTradeChips();
+  breakdownEl.innerHTML = memcoDeptHtml(results, `${siteFilter ? escapeHtml(siteFilter) : 'Search results'} — ${results.length} labor`);
+  memcoWireDeptCards(breakdownEl, results);
 
   // Reset to page 1 whenever the active site/search filter changes, so a
   // fresh search or a newly-picked site always starts at the top of its own
@@ -11168,14 +11353,8 @@ function renderStaffList(){
 
   if(!q && !siteFilter){
     summaryEl.textContent = 'Type a name, ID, or designation — or pick a site — to see staff.';
-    const overall = staffDesigBreakdown(scopedStaff);
-    breakdownEl.innerHTML = `
-      <div class="trade-breakdown-label">Overall totals — all sites (${scopedStaff.length} staff) — tap a designation to see everyone</div>
-      <div class="trade-chip-grid">
-        ${overall.map(([d,c]) => `<span class="trade-chip" data-desig="${escapeAttr(d)}"><b>${c}</b>${escapeHtml(d)}</span>`).join('')}
-      </div>
-    `;
-    wireStaffDesigChips();
+    breakdownEl.innerHTML = memcoDeptHtml(scopedStaff, `All sites — ${scopedStaff.length} staff`);
+    memcoWireDeptCards(breakdownEl, scopedStaff, 'staff');
     listEl.innerHTML = '';
     return;
   }
@@ -26812,15 +26991,13 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     const f = (cls, icon, text, k, mode, title) =>
       `<label class="bs-b ${cls}" title="${esc(title)}"><span class="bs-i">${icon}</span><span>${esc(text)}</span>
          <input type="file" data-bs-file="${k}" data-bs-mode="${mode}" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>`;
+    // "Both" is gone: labour is updated on the Labor screen, staff on the Staff screen.
+    // Replace wipes whatever is not in the file, so only an admin may see it.
     return `<div class="bs-bar">
         <button class="bs-b bs-info" title="What the columns must look like" data-bs-format="${kind}">
           <span class="bs-i">📋</span><span>Format</span></button>
-        ${one ? `<button class="bs-b bs-info" title="One file holding both lists" data-bs-format="both">
-          <span class="bs-i">🗂️</span><span>Both format</span></button>` : ''}
         ${f('bs-go', '📥', kind === 'labor' ? 'Update labor' : 'Update staff', kind, 'update', 'Update from an Excel file — nothing is deleted')}
-        ${one ? f('bs-go', '👥', 'Update both', 'both', 'update', 'One file with labor and staff together') : ''}
-        ${f('bs-warn', '♻', one ? 'Replace list' : 'Replace staff', kind, 'replace', 'The list becomes exactly what the file says')}
-        ${one ? f('bs-warn', '♻', 'Replace both', 'both', 'replace', 'Both lists become exactly what the file says') : ''}
+        ${f('bs-warn memco-admin-only', '♻', one ? 'Replace list' : 'Replace staff', kind, 'replace', 'ADMIN ONLY — the list becomes exactly what the file says')}
       </div>
       <div id="${boxId}" style="display:none"></div>`;
   }
@@ -27070,7 +27247,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   function panelHtml(){
     const n = waitingLabor().length + waitingStaff().length;
     return `
-      <div class="bs-bar bs-bar-site">
+      <div class="bs-bar bs-bar-site bs-bar-joined">
         <select id="ssSite" class="bs-sel">
           <option value="">📍 Site for the next sheet…</option>
           ${sites().map(s => `<option>${esc(s)}</option>`).join('')}
@@ -28182,6 +28359,87 @@ window.addEventListener('appinstalled', () => {
 if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
   window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
 }
+</script>
+<script>
+
+/* ============================================================
+   A ✕ inside every search box — one click clears it.
+   Esc does the same.  Works everywhere, including the Stores
+   and Time sheets screens that are drawn later.
+   ============================================================ */
+(function(){
+  const LOOKS_LIKE_SEARCH = el => {
+    if(!el || el.tagName !== 'INPUT') return false;
+    const t = (el.type || 'text').toLowerCase();
+    if(!['text','search',''].includes(t)) return false;
+    const hay = ((el.id || '') + ' ' + (el.className || '') + ' ' + (el.placeholder || '') + ' ' + (el.name || '')).toLowerCase();
+    return /search|find|filter|q$|lookup|🔎|🔍/.test(hay);
+  };
+  function attach(el){
+    if(!el || el.dataset.memcoClear) return;
+    el.dataset.memcoClear = '1';
+    const host = el.parentElement;
+    if(!host) return;
+    if(getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'memco-clear-x';
+    btn.textContent = '✕';
+    btn.title = 'Clear (Esc)';
+    btn.style.display = el.value ? '' : 'none';
+    host.appendChild(btn);
+    const fire = () => {
+      el.value = '';
+      ['input','keyup','change','search'].forEach(t => el.dispatchEvent(new Event(t, {bubbles: true})));
+      btn.style.display = 'none';
+      el.focus();
+    };
+    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fire(); });
+    el.addEventListener('input', () => { btn.style.display = el.value ? '' : 'none'; });
+    el.addEventListener('keydown', e => { if(e.key === 'Escape' && el.value){ e.preventDefault(); fire(); } });
+  }
+  function scan(root){
+    (root || document).querySelectorAll('input').forEach(el => { if(LOOKS_LIKE_SEARCH(el)) attach(el); });
+  }
+  window.memcoScanSearchBoxes = scan;
+  document.addEventListener('DOMContentLoaded', () => scan(document));
+  // screens are drawn as the user moves around, so keep watching
+  const mo = new MutationObserver(ms => {
+    for(const m of ms){
+      for(const n of m.addedNodes){
+        if(n.nodeType === 1){
+          if(n.tagName === 'INPUT' && LOOKS_LIKE_SEARCH(n)) attach(n);
+          else if(n.querySelectorAll) scan(n);
+        }
+      }
+    }
+  });
+  try{ mo.observe(document.documentElement, {childList: true, subtree: true}); }catch(e){}
+  setTimeout(() => scan(document), 1500);
+})();
+
+</script>
+<script>
+
+/* Replace wipes everyone who is not in the file, so only an admin may use it. */
+function memcoIsAdmin(){
+  try{ return !!(currentUser && /admin/i.test(String(currentUser.role || ''))); }catch(e){ return false; }
+}
+function memcoMarkAdminBody(){
+  try{ document.body.classList.toggle('memco-admin', memcoIsAdmin()); }catch(e){}
+}
+setInterval(memcoMarkAdminBody, 1200);
+document.addEventListener('DOMContentLoaded', memcoMarkAdminBody);
+document.addEventListener('change', function(ev){
+  const el = ev.target;
+  if(el && el.dataset && el.dataset.bsMode === 'replace' && !memcoIsAdmin()){
+    el.value = '';
+    alert('Only an administrator can replace the whole list.');
+    ev.stopPropagation();
+    ev.preventDefault();
+  }
+}, true);
+
 </script>
 </body>
 </html>
