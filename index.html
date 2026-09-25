@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v83 — Al Muhanad</title>
+<title>MEMCO Operations Console v84 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -10631,6 +10631,51 @@ document.getElementById('transferConfirmBtn').onclick = () => ensureName(async (
    Rank inside a department: supervisor → foreman → chargehand
    → tradesman → helper.  Assistant and Helper count as one.
    ============================================================ */
+
+/* ---- shared helpers: trade families and name matching ---- */
+// the group name for a man's trade
+window.tsTradeFamily = function(trade){
+  const t = String(trade || '');
+  if(/driver/i.test(t)) return 'Transport';
+  if(/cctv|elv/i.test(t)) return 'ELV';
+  if(/fire/i.test(t)) return 'Fire Fighting';
+  if(/duct|chilled|hvac|welder|\bac\b|a\/c|hdpe|ceiling/i.test(t)) return 'HVAC';
+  if(/electric/i.test(t)) return 'Electrical';
+  if(/plumb|pipe/i.test(t)) return 'Plumbing';
+  if(/mason|carpenter|painter|steel|chipping|aluminium/i.test(t)) return 'Civil';
+  if(/store/i.test(t)) return 'Store';
+  if(/security|watchman|hse|safety/i.test(t)) return 'HSE';
+  return t;
+};
+
+// does a man's trade belong to this group's trade?
+window.tsTradeFits = function(manTrade, crewTrade){
+  const fam = t => {
+    const x = String(t || '').toLowerCase();
+    if(/driver/.test(x)) return 'transport';
+    if(/cctv|elv/.test(x)) return 'elv';
+    if(/fire/.test(x)) return 'fire';
+    if(/duct|chilled|hvac|welder|\bac\b|a\/c|hdpe|ceiling/.test(x)) return 'hvac';
+    if(/electric/.test(x)) return 'electrical';
+    if(/plumb|pipe/.test(x)) return 'plumbing';
+    if(/mason|carpenter|painter|steel|chipping|aluminium/.test(x)) return 'civil';
+    if(/store/.test(x)) return 'store';
+    if(/security|watchman|hse|safety/.test(x)) return 'hse';
+    return '';
+  };
+  const a = fam(manTrade), b = fam(crewTrade);
+  return !a || !b || a === b;
+};
+
+// two spellings of one name (extra words, different order) still count as the same man
+window.tsSameMan = function(a, b){
+  const norm = x => String(x || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+  const A = norm(a), B = norm(b);
+  if(!A.length || !B.length) return true;
+  const hit = A.filter(w => B.includes(w)).length;
+  return hit >= Math.min(2, Math.min(A.length, B.length));
+};
+
 const MEMCO_DEPTS = [
   {key:'electrical', label:'Electrical',    icon:'⚡'},
   {key:'plumbing',   label:'Plumbing',      icon:'🔧'},
@@ -21800,6 +21845,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           ${crews.map(c => `<div class="st-card">
             <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
               <div><b>${esc(c.name || 'Group')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
+                ${(() => { const bad = (c.members || []).filter(m => c.trade && !tsTradeFits(m.trade, c.trade)).length;
+                    return bad ? `<span class="ts-oddtag">⚠ ${bad} not ${esc(c.trade)}</span>` : ''; })()}
                 <div class="st-muted">Foreman: ${esc(c.foreman_name || '—')}${c.foreman_hr ? ' (HR ' + esc(c.foreman_hr) + ')' : ''} · ${(c.members || []).length} men</div></div>
               <div class="st-actions">
                 <button type="button" class="st-btn st-ghost st-sm" data-cprint="${esc(c.id)}">🖨 Sheet</button>
@@ -21812,9 +21859,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             </div>
             <div class="st-muted tsCaddWho" data-crew="${esc(c.id)}" style="margin:2px 0 4px"></div>
             ${(c.members || []).length ? `<div class="ts-scroll" style="margin-top:6px;max-height:210px"><div class="ts-grid">
-              ${(c.members || []).map(m => `<div class="ts-row"><span class="hr">${esc(m.hr)}</span><span class="nm">${esc(m.name)}</span>
-                <span class="td">${esc(m.trade)}</span>
-                <span class="ac"><button type="button" class="st-btn st-ghost st-sm" data-cdel="${esc(c.id)}|${esc(m.hr)}">✕</button></span></div>`).join('')}
+              ${(c.members || []).map(m => {
+                  const odd = c.trade && !tsTradeFits(m.trade, c.trade);
+                  return `<div class="ts-row${odd ? ' ts-odd' : ''}"${odd ? ` title="This man is ${esc(m.trade || 'not set')}, but the group is ${esc(c.trade)}"` : ''}>
+                  <span class="hr">${esc(m.hr)}</span><span class="nm">${odd ? '⚠ ' : ''}${esc(m.name)}</span>
+                  <span class="td">${esc(m.trade)}</span>
+                  <span class="ac"><button type="button" class="st-btn st-ghost st-sm" data-cdel="${esc(c.id)}|${esc(m.hr)}">✕</button></span></div>`;
+                }).join('')}
             </div></div>` : '<div class="st-empty">No men yet.</div>'}</div>`).join('')}
           <h3>Not in any group (${free.length})</h3>
           ${free.length ? `<div class="ts-bar"><div class="st-field s" style="flex:0 0 220px"><select id="tsFreeGroup">${crewOptions('', '— choose a group —')}</select></div>
@@ -21826,33 +21877,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('')}
             </div></div>` : '<div class="st-empty">Everybody is in a group.</div>'}`;
 
-        // does a man's trade belong to this crew's trade?
-        window.tsTradeFits = function(manTrade, crewTrade){
-          const fam = t => {
-            const x = String(t || '').toLowerCase();
-            if(/driver/.test(x)) return 'transport';
-            if(/cctv|elv/.test(x)) return 'elv';
-            if(/fire/.test(x)) return 'fire';
-            if(/duct|chilled|hvac|welder|\bac\b|a\/c|hdpe|ceiling/.test(x)) return 'hvac';
-            if(/electric/.test(x)) return 'electrical';
-            if(/plumb|pipe/.test(x)) return 'plumbing';
-            if(/mason|carpenter|painter|steel|chipping|aluminium/.test(x)) return 'civil';
-            if(/store/.test(x)) return 'store';
-            if(/security|watchman|hse|safety/.test(x)) return 'hse';
-            return '';
-          };
-          const a = fam(manTrade), b = fam(crewTrade);
-          return !a || !b || a === b;
-        };
 
-        // two spellings of one name (extra words, different order) still count as the same man
-        window.tsSameMan = function(a, b){
-          const norm = x => String(x || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
-          const A = norm(a), B = norm(b);
-          if(!A.length || !B.length) return true;
-          const hit = A.filter(w => B.includes(w)).length;
-          return hit >= Math.min(2, Math.min(A.length, B.length));
-        };
+
 
         // the new-crew line belongs up with Group / site, so the men below get the space
         const slot = $('tsBarSlot'), crewBar = body.querySelector('.ts-crewbar');
@@ -21865,19 +21891,23 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         // typing the foreman's HR fills his name and trade by itself
         const cfHr = $('tsCfHr'), cfName = $('tsCfName'), cfTrade = $('tsCtrade'), cfWho = $('tsCfWho');
         if(cfHr) cfHr.addEventListener('input', () => {
-          const hr = cfHr.value.trim();
-          if(!hr){ cfWho.textContent = ''; return; }
+          // look the boxes up now — a redraw may have replaced them
+          const hrEl = $('tsCfHr'), nameEl = $('tsCfName'), tradeEl = $('tsCtrade'), whoEl = $('tsCfWho');
+          if(!hrEl || !nameEl || !whoEl) return;
+          const hr = hrEl.value.trim();
+          if(!hr){ whoEl.textContent = ''; nameEl.value = ''; return; }
           const p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
           if(p){
-            cfWho.innerHTML = `<span style="color:#86efac">✔ ${esc(p.name)}${p.trade ? ' · ' + esc(p.trade) : ''}</span>`;
-            if(!cfName.value.trim()) cfName.value = p.name || '';
-            if(!cfTrade.value.trim() && p.trade){
-              const t = String(p.trade);
-              cfTrade.value = /electric/i.test(t) ? 'Electrical' : /plumb/i.test(t) ? 'Plumbing'
-                : /duct|ac |a\/c|chilled/i.test(t) ? 'HVAC' : /fire/i.test(t) ? 'Fire Fighting' : t;
-            }
+            // the name and the trade always follow the number that was just typed
+            nameEl.value = p.name || '';
+            if(tradeEl) tradeEl.value = tsTradeFamily(p.trade);
+            const isBoss = /foreman|chargehand|charge hand|supervisor/i.test(String(p.trade || ''));
+            whoEl.innerHTML = isBoss
+              ? `<span style="color:#86efac">✔ ${esc(p.name)} · ${esc(p.trade || '')}</span>`
+              : `<span style="color:#fbbf24">⚠ ${esc(p.name)} is "${esc(p.trade || 'not set')}" — not a foreman</span>`;
           }else{
-            cfWho.innerHTML = `<span style="color:#fca5a5">✕ HR ${esc(hr)} is not on this site</span>`;
+            nameEl.value = '';
+            whoEl.innerHTML = `<span style="color:#fca5a5">✕ HR ${esc(hr)} is not on this site</span>`;
           }
         });
 
@@ -28915,7 +28945,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v83';
+  const V = 'v84';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
