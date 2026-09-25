@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v76 — Al Muhanad</title>
+<title>MEMCO Operations Console v78 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4223,6 +4223,29 @@ body[data-v20-view="adminHubView"] #erpSidebar .erp-nav-btn[data-target="adminHu
 /* the Replace buttons exist only for an administrator */
 body:not(.memco-admin) .memco-admin-only{display:none !important}
 </style>
+
+<style>
+/* the match count and the Back button share one line */
+#laborView .labor-sum-row{display:flex;align-items:center;gap:10px;margin:6px 0}
+#laborView .labor-sum-row .btn{padding:5px 12px;font-size:12px;flex:0 0 auto}
+/* six buttons across the top, all the same size */
+#laborView .bs-bar-six{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;align-items:center}
+#laborView .bs-bar-six .bs-b,
+#laborView .bs-bar-six .bs-sel{width:100%;min-width:0;padding:7px 8px;font-size:12px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;justify-content:center}
+#laborView .bs-bar-six .bs-i{margin-right:4px}
+@media (max-width:1150px){ #laborView .bs-bar-six{grid-template-columns:repeat(3,1fr)} }
+</style>
+
+<style>
+/* Labor Camps — all seven buttons on one line */
+#campsView .camp-btn-row{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:10px}
+#campsView .camp-btn-row .btn{width:100%;min-width:0;padding:8px 6px;font-size:12px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;text-align:center;display:flex;align-items:center;justify-content:center;flex:none}
+#campsView .hero h1{font-size:17px !important}
+@media (max-width:1250px){ #campsView .camp-btn-row{grid-template-columns:repeat(4,1fr)} }
+@media (max-width:760px){ #campsView .camp-btn-row{grid-template-columns:repeat(2,1fr)} }
+</style>
 </head>
 <body>
 <!-- Plain-HTML/inline-CSS loading screen: shown instantly, before any
@@ -4663,15 +4686,13 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <h1 style="font-size:26px;">Labor Camps</h1>
         <p class="hero-sub" id="campsTotalLabel">Loading…</p>
       </div>
-      <div class="att-one-line" style="margin-bottom:10px;">
-        <button class="btn btn-primary" id="addLaborBtn" style="flex:1;">👤 + Add New Labor</button>
-        <button class="btn btn-ghost" id="addCampBtn" style="flex:1;">+ Add New Camp</button>
-        <button class="btn btn-ghost" id="campShiftBtn" style="flex:1;">🔁 Shift Labor</button>
-        <button class="btn btn-ghost" id="campLaborSearchBtn" style="flex:1;">🔍 Search Labor</button>
-      </div>
-      <div class="att-one-line" style="margin-bottom:10px;">
-        <button class="btn btn-ghost" id="campTemplateBtn" style="flex:1;">📄 Download Excel format</button>
-        <label class="btn btn-primary" style="flex:1;cursor:pointer;text-align:center;">📥 Load camps from Excel
+      <div class="camp-btn-row" id="campBtnRow">
+        <button class="btn btn-primary" id="addLaborBtn">👤 Add New Labor</button>
+        <button class="btn btn-ghost" id="addCampBtn">+ Add New Camp</button>
+        <button class="btn btn-ghost" id="campShiftBtn">🔁 Shift Labor</button>
+        <button class="btn btn-ghost" id="campLaborSearchBtn">🔍 Search Labor</button>
+        <button class="btn btn-ghost" id="campTemplateBtn">📄 Excel format</button>
+        <label class="btn btn-primary" style="cursor:pointer;text-align:center;">📥 Load from Excel
           <input type="file" id="campImportFile" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
       </div>
       <div id="campImportBox" style="display:none;margin-bottom:10px;"></div>
@@ -5163,11 +5184,13 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       <button class="btn btn-ghost labor-status-btn labor-status-ann" id="laborAnnLeaveBtn">
         <span class="labor-status-icon">▣</span><span>Annual / Vacation</span><b id="laborAnnLeaveCount">0</b>
       </button>
-      <button class="btn btn-ghost" id="laborClearFiltersBtn" style="display:none;flex:0 0 auto;">← Back</button>
     </div>
 
     <div id="laborReconciliation" style="margin-bottom:8px;"></div>
-    <div class="att-summary" id="laborResultSummary" style="margin:6px 0;"></div>
+    <div class="labor-sum-row">
+      <div class="att-summary" id="laborResultSummary" style="margin:0;flex:1;min-width:0;"></div>
+      <button class="btn btn-ghost" id="laborClearFiltersBtn" style="display:none;">← Back</button>
+    </div>
     <div id="laborTradeBreakdown" style="margin-bottom:8px;"></div>
     <div id="laborList"></div>
     <div id="laborPagination" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:12px 0;font-size:12px;color:var(--ink-dim);"></div>
@@ -27028,7 +27051,6 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
       campBtn.dataset.bsWired = '1';
       const b = document.createElement('button');
       b.className = 'btn btn-ghost';
-      b.style.flex = '1';
       b.textContent = '📋 See the format';
       b.setAttribute('data-bs-format', 'camps');
       campBtn.parentNode.insertBefore(b, campBtn);
@@ -28395,7 +28417,9 @@ if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
       el.focus();
     };
     btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); fire(); });
-    el.addEventListener('input', () => { btn.style.display = el.value ? '' : 'none'; });
+    const sync = () => { btn.style.display = el.value ? '' : 'none'; };
+    el.addEventListener('input', sync);
+    el.__memcoSync = sync;   // the value is often set by code, with no event
     el.addEventListener('keydown', e => { if(e.key === 'Escape' && el.value){ e.preventDefault(); fire(); } });
   }
   function scan(root){
@@ -28416,6 +28440,10 @@ if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
   });
   try{ mo.observe(document.documentElement, {childList: true, subtree: true}); }catch(e){}
   setTimeout(() => scan(document), 1500);
+  // a chip or a button can fill a box without firing any event, so keep the ✕ in step
+  setInterval(() => {
+    document.querySelectorAll('input[data-memco-clear]').forEach(el => { if(el.__memcoSync) el.__memcoSync(); });
+  }, 400);
 })();
 
 </script>
@@ -28445,7 +28473,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v76';
+  const V = 'v78';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -28458,6 +28486,23 @@ document.addEventListener('change', function(ev){
   }
   document.addEventListener('DOMContentLoaded', paint);
   setTimeout(paint, 1200); setTimeout(paint, 3000);
+})();
+</script>
+
+<script>
+/* Format · Update labor · Replace list · Site · Load site list · Waiting — one row */
+(function(){
+  function join(){
+    const site = document.querySelector('#ssPanel .bs-bar-site');
+    const main = document.querySelector('#laborView .bs-bar:not(.bs-bar-site)');
+    if(!site || !main || site.dataset.memcoJoined) return;
+    site.dataset.memcoJoined = '1';
+    while(site.firstChild) main.appendChild(site.firstChild);
+    site.style.display = 'none';
+    main.classList.add('bs-bar-six');
+  }
+  setInterval(join, 700);
+  document.addEventListener('DOMContentLoaded', join);
 })();
 </script>
 </body>
