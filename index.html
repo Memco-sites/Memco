@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v88 — Al Muhanad</title>
+<title>MEMCO Operations Console v90 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4316,6 +4316,27 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 #attSheetsHost .ts-group.open .ts-gcaret{transform:rotate(90deg)}
 #attSheetsHost .ts-group .ts-ghead:hover{opacity:.9}
 #attSheetsHost h3{margin:10px 0 6px}
+</style>
+
+<style>
+/* the group's own tools, and a clear heading over the day buttons */
+#attSheetsHost .ts-group-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;
+  padding:8px 10px;border:1px solid rgba(56,189,248,.22);border-radius:10px;background:rgba(56,189,248,.06)}
+#attSheetsHost .ts-group-tools .ts-tools-title{font-weight:700;color:#7dd3fc;font-size:12.5px;margin-right:4px}
+#attSheetsHost .ts-group-tools input{flex:1 1 260px;padding:6px 9px;font-size:12.5px}
+#attSheetsHost .ts-days{background:rgba(148,163,184,.08);border:1px solid rgba(148,163,184,.18);
+  border-radius:10px;padding:6px 10px}
+#attSheetsHost .ts-days-title{font-weight:700;color:#e6f2ff;font-size:12.5px;margin-right:4px}
+</style>
+
+<style>
+/* the line above the foreman: engineer, his trades, and an optional supervisor */
+#attSheetsHost .ts-chain{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px;
+  padding:8px 10px;border:1px solid rgba(125,211,252,.25);border-radius:10px;background:rgba(14,74,125,.18)}
+#attSheetsHost .ts-chain-title{font-weight:700;color:#7dd3fc;font-size:12.5px;align-self:center}
+#attSheetsHost .ts-trade-ticks{display:flex;flex-wrap:wrap;gap:4px 10px;padding:4px 0}
+#attSheetsHost .ts-tick{display:flex;align-items:center;gap:4px;font-size:12px;color:#cfe6ff;cursor:pointer;white-space:nowrap}
+#attSheetsHost .ts-tick input{margin:0}
 </style>
 </head>
 <body>
@@ -21858,7 +21879,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <div><span class="ts-gcaret">▸</span> <b>${esc(c.name || 'Group')}</b> ${c.trade ? `<span class="st-muted">${esc(c.trade)}</span>` : ''}
                 ${(() => { const bad = (c.members || []).filter(m => c.trade && !tsTradeFits(m.trade, c.trade)).length;
                     return bad ? `<span class="ts-oddtag">⚠ ${bad} not ${esc(c.trade)}</span>` : ''; })()}
-                <div class="st-muted">Foreman: ${esc(c.foreman_name || '—')}${c.foreman_hr ? ' (HR ' + esc(c.foreman_hr) + ')' : ''} · ${(c.members || []).length} men</div></div>
+                <div class="st-muted">Foreman: ${esc(c.foreman_name || '—')}${c.foreman_hr ? ' (HR ' + esc(c.foreman_hr) + ')' : ''} · ${(c.members || []).length} men
+                  ${c.engineer_name ? ` · <span style="color:#7dd3fc">Engineer: ${esc(c.engineer_name)}${c.engineer_hr ? ' (' + esc(c.engineer_hr) + ')' : ''}</span>` : ' · <span style="color:#fbbf24">no engineer set</span>'}
+                  ${c.supervisor_name ? ` · Supervisor: ${esc(c.supervisor_name)}` : ''}</div></div>
               <div class="st-actions">
                 <button type="button" class="st-btn st-ghost st-sm" data-cprint="${esc(c.id)}">🖨 Sheet</button>
                 <button type="button" class="st-btn st-ghost st-sm" data-coff="${esc(c.id)}">Close group</button></div>
@@ -22303,6 +22326,26 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             <div class="st-field" style="flex:1 1 150px"><label class="st-l">Foreman</label>
               <input id="tsMFore" value="${esc((crew && crew.foreman_name) ? crew.foreman_name + (crew.foreman_hr ? ' (HR ' + crew.foreman_hr + ')' : '') : (S.tsFore || ''))}"></div>
           </div>
+          <div class="ts-chain">
+            <span class="ts-chain-title">🧭 Above the foreman</span>
+            <div class="st-field s" style="flex:0 0 110px"><label class="st-l">Engineer HR</label>
+              <input id="tsEngHr" value="${esc(crew ? (crew.engineer_hr || '') : '')}" placeholder="2057"></div>
+            <div class="st-field" style="flex:1 1 180px"><label class="st-l">Engineer name</label>
+              <input id="tsEngName" value="${esc(crew ? (crew.engineer_name || '') : '')}" placeholder="fills in by itself"></div>
+            <div class="st-field" style="flex:1 1 260px"><label class="st-l">Engineer also looks after</label>
+              <div class="ts-trade-ticks" id="tsEngTrades">
+                ${['Electrical','Plumbing','HVAC','ELV','Fire Fighting','Civil'].map(t => {
+                    const on = String((crew && crew.engineer_trades) || '').split(',').map(x => x.trim()).includes(t);
+                    return `<label class="ts-tick"><input type="checkbox" value="${t}" ${on ? 'checked' : ''}> ${t}</label>`;
+                  }).join('')}
+              </div></div>
+            <div class="st-field s" style="flex:0 0 110px"><label class="st-l">Supervisor HR</label>
+              <input id="tsSupHr" value="${esc(crew ? (crew.supervisor_hr || '') : '')}" placeholder="optional"></div>
+            <div class="st-field" style="flex:1 1 160px"><label class="st-l">Supervisor name <span class="st-muted">(may stay empty)</span></label>
+              <input id="tsSupName" value="${esc(crew ? (crew.supervisor_name || '') : '')}"></div>
+            <button type="button" class="st-btn st-ok st-sm" id="tsChainSave">💾 Save</button>
+            <span class="st-muted" id="tsChainMsg" style="flex:1 1 100%;margin-top:2px"></span>
+          </div>
           <div class="st-row" style="margin-bottom:8px"><span class="st-muted" id="tsCnt"></span>
             <button type="button" class="st-btn st-ghost st-sm" id="tsPickAll">Select all</button>
             <button type="button" class="st-btn st-ghost st-sm" id="tsPickNone">Select none</button></div>
@@ -22311,16 +22354,110 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <span><input type="checkbox" class="tsP" data-hr="${esc(p.hr)}" ${picked.has(p.hr) ? 'checked' : ''}></span>
               <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}</span></div>`).join('')}
           </div></div>
-          <div class="st-row ts-print-actions" style="margin-top:8px;justify-content:space-between;align-items:center;gap:8px">
-            <div class="st-row" style="gap:6px;margin:0">
-              <span class="st-muted" style="align-self:center">Quick:</span>
+          <div class="ts-group-tools">
+            <span class="ts-tools-title">👷 This group</span>
+            <input id="tsGAdd" placeholder="Add men — paste HR numbers (2258, 2305 …)">
+            <button type="button" class="st-btn st-sm" id="tsGAddBtn">➕ Add to group</button>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsGRemove">✕ Remove ticked men</button>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsGFore">👤 Change foreman</button>
+            <span class="st-muted" id="tsGMsg" style="flex:1 1 100%;margin-top:2px"></span>
+          </div>
+          <div class="st-row ts-print-actions" style="margin-top:8px;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="st-row ts-days" style="gap:6px;margin:0;align-items:center;flex-wrap:wrap">
+              <span class="ts-days-title">🖨 Print the time sheet for</span>
               <button type="button" class="st-btn st-ghost st-sm" data-days="1">today</button>
               <button type="button" class="st-btn st-ghost st-sm" data-days="7">7 days</button>
               <button type="button" class="st-btn st-ghost st-sm" data-days="10">10 days</button>
               <button type="button" class="st-btn st-ghost st-sm" data-days="30">1 month</button>
+              <button type="button" class="st-btn st-ghost st-sm" id="tsDaysCustom">✎ Custom…</button>
             </div>
             <button type="button" class="st-btn st-ok" id="tsPrintGo">🖨 Make &amp; print</button></div>`;
         $('tsPrintGroup').addEventListener('change', () => { S.tsPickedGroup = $('tsPrintGroup').value; draw(); });
+
+        // engineer and supervisor: the name follows the HR number
+        const chainLook = (hrId, nameId, label) => {
+          const hrEl = $(hrId), nameEl = $(nameId), msg = $('tsChainMsg');
+          if(!hrEl) return;
+          hrEl.addEventListener('input', () => {
+            const hr = hrEl.value.trim();
+            if(!hr){ nameEl.value = ''; msg.textContent = ''; return; }
+            const p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
+            if(p){
+              nameEl.value = p.name || '';
+              msg.innerHTML = `<span style="color:#86efac">✔ ${label}: ${esc(p.name)} · ${esc(p.trade || '')}</span>`;
+            }else{
+              nameEl.value = '';
+              msg.innerHTML = `<span style="color:#fca5a5">✕ HR ${esc(hr)} is not on this site</span>`;
+            }
+          });
+        };
+        chainLook('tsEngHr', 'tsEngName', 'Engineer');
+        chainLook('tsSupHr', 'tsSupName', 'Supervisor');
+
+        if($('tsChainSave')) $('tsChainSave').addEventListener('click', e => busy(e.currentTarget, async () => {
+          if(!crew) throw new Error('Choose a group first.');
+          const trades = [...document.querySelectorAll('#tsEngTrades input:checked')].map(i => i.value).join(', ');
+          await rpc('st_crew_save', {p: {id: crew.id, group_code: group,
+            engineer_hr: $('tsEngHr').value.trim(), engineer_name: $('tsEngName').value.trim(),
+            engineer_trades: trades,
+            supervisor_hr: $('tsSupHr').value.trim(), supervisor_name: $('tsSupName').value.trim()}});
+          toast('Engineer and supervisor saved');
+          tsReload();
+        }));
+
+        // the group is permanent — men can be added or taken out right here
+        const gMsg = t => { const m = $('tsGMsg'); if(m) m.innerHTML = t; };
+        if($('tsGAddBtn')) $('tsGAddBtn').addEventListener('click', e => busy(e.currentTarget, async () => {
+          if(!crew) throw new Error('Choose a group first.');
+          const hrs = ($('tsGAdd').value || '').split(/[^0-9A-Za-z]+/).filter(Boolean);
+          if(!hrs.length) throw new Error('Paste the HR numbers first.');
+          const list = [], miss = [];
+          hrs.forEach(h => { const p = people.find(x => x.hr === h); if(p) list.push({hr: p.hr, name: p.name, trade: p.trade}); else miss.push(h); });
+          if(!list.length) throw new Error('None of those HR numbers is on this site.');
+          const odd = crew.trade ? list.filter(m => !tsTradeFits(m.trade, crew.trade)) : [];
+          if(odd.length){
+            const txt = odd.map(m => `${m.hr} ${m.name} — ${m.trade || 'not set'}`).join('\n');
+            if(!confirm(`This group is "${crew.trade}", but these men are not:\n\n${txt}\n\nAdd them anyway?`)) return;
+          }
+          const r = await rpc('st_crew_assign', {p_crew: crew.id, p_people: list});
+          toast(`${r.moved} men added${miss.length ? ' · not on this site: ' + miss.join(', ') : ''}`, !!miss.length);
+          $('tsGAdd').value = '';
+          tsReload();
+        }));
+        if($('tsGRemove')) $('tsGRemove').addEventListener('click', e => busy(e.currentTarget, async () => {
+          if(!crew) throw new Error('Choose a group first.');
+          const off = crewMen.filter(p => !picked.has(p.hr)).map(p => p.hr);
+          if(!off.length) throw new Error('Untick the men you want to take out, then press this.');
+          if(!confirm(`Take ${off.length} man(men) out of this group?\n\n${off.join(', ')}`)) return;
+          await rpc('st_crew_remove', {p_crew: crew.id, p_hrs: off});
+          toast(`${off.length} men taken out of the group`);
+          tsReload();
+        }));
+        if($('tsGFore')) $('tsGFore').addEventListener('click', e => busy(e.currentTarget, async () => {
+          if(!crew) throw new Error('Choose a group first.');
+          const hr = prompt('HR number of the new foreman:', crew.foreman_hr || '');
+          if(hr === null) return;
+          const p = people.find(x => x.hr === String(hr).trim());
+          if(!p) throw new Error('That HR number is not on this site.');
+          if(!/foreman|chargehand|charge hand|supervisor/i.test(String(p.trade || ''))){
+            if(!confirm(`${p.name} is "${p.trade || 'not set'}", not a foreman.\n\nMake him the foreman anyway?`)) return;
+          }
+          await rpc('st_crew_save', {p: {id: crew.id, group_code: group,
+            name: (crew.trade ? crew.trade + ' — ' : '') + p.name, trade: crew.trade || '',
+            foreman_hr: p.hr, foreman_name: p.name}});
+          toast('Foreman changed to ' + p.name);
+          tsReload();
+        }));
+        if($('tsDaysCustom')) $('tsDaysCustom').addEventListener('click', () => {
+          const n = prompt('Print the sheet for how many days?', '3');
+          if(n === null) return;
+          const d = parseInt(n, 10);
+          if(!(d >= 1 && d <= 60)){ alert('Type a number between 1 and 60.'); return; }
+          const from = new Date($('tsDate').value || todayIso());
+          const to = new Date(from); to.setDate(to.getDate() + (d - 1));
+          $('tsDate2').value = to.toISOString().slice(0, 10);
+          toast(`Sheets will print for ${d} day(s)`);
+        });
         const cnt = () => { $('tsCnt').innerHTML = `<b>${picked.size}</b> of ${crewMen.length} men on the sheet${picked.size > MEMCO_ATT.G.maxRows ? ` — more than ${MEMCO_ATT.G.maxRows} men need a second sheet` : ''}`; };
         body.querySelectorAll('.tsP').forEach(c => c.addEventListener('change', () => { c.checked ? picked.add(c.dataset.hr) : picked.delete(c.dataset.hr); cnt(); }));
         $('tsPickAll').addEventListener('click', () => { crewMen.forEach(p => picked.add(p.hr)); draw(); });
@@ -22338,7 +22475,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           S.tsJob = $('tsMJob').value.trim(); S.tsTrade = $('tsMTrade').value.trim();
           S.tsLoc = $('tsMLoc').value.trim(); S.tsFore = $('tsMFore').value.trim();
           const meta = {project: $('tsMProj').value.trim(), job_no: S.tsJob, trade: S.tsTrade || (crew ? crew.trade : ''),
-            location: S.tsLoc, foreman: S.tsFore || (crew ? crew.foreman_name : ''), crew_id: crewId || null};
+            location: S.tsLoc, foreman: S.tsFore || (crew ? crew.foreman_name : ''),
+            engineer: crew && crew.engineer_name ? crew.engineer_name + (crew.engineer_hr ? ' (' + crew.engineer_hr + ')' : '') : '',
+            supervisor: crew && crew.supervisor_name ? crew.supervisor_name + (crew.supervisor_hr ? ' (' + crew.supervisor_hr + ')' : '') : '', crew_id: crewId || null};
           const from = $('tsDate').value || todayIso(), to = $('tsDate2').value || from;
           if(to < from) throw new Error('The "up to" date is before the start date.');
           const men = rows.slice(0, MEMCO_ATT.G.maxRows);
@@ -28680,8 +28819,10 @@ const MEMCO_ATT = (() => {
       ${info(14, 96, 'Job No:', m.job_no || '').replace('class="inf" style="left:14mm;width:96mm"', 'class="inf" style="left:14mm;width:96mm;top:20mm"')}
       ${info(120, 76, 'Foreman:', m.foreman || '').replace('class="inf" style="left:120mm;width:76mm"', 'class="inf" style="left:120mm;width:76mm;top:20mm"')}
       ${info(14, 182, 'Location:', m.location || '').replace('class="inf" style="left:14mm;width:182mm"', 'class="inf" style="left:14mm;width:182mm;top:25mm"')}
-      <div class="ttl">LABOR ATTENDANCE LIST${m.trade ? ' — ' + esc(String(m.trade).toUpperCase()) : ''}</div>
-      <div class="sub">${esc(sheet.sheet_no)} · ${esc(sheet.shift)} shift · OT shown is of ${dmy(sheet.ot_date)} · ${data.length} men on the list</div>
+      ${m.engineer ? info(14, 96, 'Engineer:', m.engineer).replace('class="inf" style="left:14mm;width:96mm"', 'class="inf" style="left:14mm;width:96mm;top:30mm"') : ''}
+      ${m.supervisor ? info(120, 76, 'Supervisor:', m.supervisor).replace('class="inf" style="left:120mm;width:76mm"', 'class="inf" style="left:120mm;width:76mm;top:30mm"') : ''}
+      <div class="ttl"${(m.engineer || m.supervisor) ? ' style="top:34mm"' : ''}>LABOR ATTENDANCE LIST${m.trade ? ' — ' + esc(String(m.trade).toUpperCase()) : ''}</div>
+      <div class="sub"${(m.engineer || m.supervisor) ? ' style="top:41mm"' : ''}>${esc(sheet.sheet_no)} · ${esc(sheet.shift)} shift · OT shown is of ${dmy(sheet.ot_date)} · ${data.length} men on the list</div>
       ${vlines}${hlines}
       <div class="hd">
         ${cell(C.no, C.id - C.no, 'SL NO')}
@@ -29020,7 +29161,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v88';
+  const V = 'v90';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
