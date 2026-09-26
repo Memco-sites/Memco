@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v93 — Al Muhanad</title>
+<title>MEMCO Operations Console v94 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4337,6 +4337,26 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 #attSheetsHost .ts-trade-ticks{display:flex;flex-wrap:wrap;gap:4px 10px;padding:4px 0}
 #attSheetsHost .ts-tick{display:flex;align-items:center;gap:4px;font-size:12px;color:#cfe6ff;cursor:pointer;white-space:nowrap}
 #attSheetsHost .ts-tick input{margin:0}
+#attSheetsHost .ts-hrpick{display:flex;gap:0}
+#attSheetsHost .ts-hrpick input{flex:1 1 auto;min-width:0;border-top-right-radius:0;border-bottom-right-radius:0}
+#attSheetsHost .ts-pickbtn{flex:0 0 30px;border:1px solid rgba(125,211,252,.45);border-left:0;background:rgba(14,74,125,.55);
+  color:#e6f2ff;border-radius:0 8px 8px 0;cursor:pointer;font-size:13px;padding:0}
+#attSheetsHost .ts-pickbtn:hover{background:rgba(56,189,248,.35)}
+.ts-pk-wrap{position:fixed;inset:0;z-index:9600;background:rgba(2,10,20,.8);display:flex;align-items:center;justify-content:center;padding:14px}
+.ts-pk{background:#0b2137;border:1px solid rgba(125,211,252,.3);border-radius:14px;padding:12px;width:100%;max-width:520px;
+  max-height:86vh;display:flex;flex-direction:column;color:#e6f2ff}
+.ts-pk-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.ts-pk-q{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid rgba(148,163,184,.35);
+  background:#06172a;color:#e6f2ff;font-size:14px;margin-bottom:8px}
+.ts-pk-list{overflow:auto;flex:1 1 auto}
+.ts-pk-sec{font-size:11.5px;color:#7dd3fc;font-weight:700;margin:8px 2px 4px;text-transform:uppercase;letter-spacing:.04em}
+.ts-pk-row{display:grid;grid-template-columns:54px 1fr;gap:0 8px;width:100%;text-align:left;background:rgba(148,163,184,.06);
+  border:1px solid rgba(148,163,184,.14);border-radius:8px;padding:6px 8px;margin:0 0 4px;color:#e6f2ff;cursor:pointer;font:inherit}
+.ts-pk-row:hover{background:rgba(56,189,248,.18)}
+.ts-pk-row.on{border-color:#34d399;background:rgba(52,211,153,.14)}
+.ts-pk-row .hr{grid-row:span 2;font-weight:700;color:#fbbf24;align-self:center}
+.ts-pk-row .nm{font-weight:600;font-size:13px}
+.ts-pk-row .td{font-size:11.5px;color:#94a3b8}
 </style>
 
 <style>
@@ -19926,7 +19946,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
 /* same styling when the stores UI is shown inside another page */
 
-#attSheetsHost{position:fixed;inset:0;z-index:9000;display:flex;flex-direction:column;background:#06182b;color:#e6eef7;font-family:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,Arial,sans-serif;font-size:14px}
+#attSheetsHost{position:fixed;inset:0;z-index:9000;display:flex;flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:#06182b;color:#e6eef7;font-family:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,Arial,sans-serif;font-size:14px}
 #attSheetsHost *{box-sizing:border-box}
 #attSheetsHost .st-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:linear-gradient(90deg,#0a2a4a,#06213a);border-bottom:1px solid rgba(56,189,248,.25)}
 #attSheetsHost .st-brand{display:flex;align-items:center;gap:10px}
@@ -21981,6 +22001,52 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     try{ (typeof staffRecords !== 'undefined' ? staffRecords : []).forEach(x => add(x.code || x.hrCode || x.hr, x.name, x.designation || x.trade || x.role, x.site)); }catch(e){}
     return Object.values(out).sort((a, b) => (num(a.hr) - num(b.hr)) || String(a.hr).localeCompare(String(b.hr)));
   }
+  // list of engineers or supervisors to pick from: this site first, then the rest of the company
+  // engineers and supervisors live in the Staff list, which is only read when first needed
+  async function tsEnsureStaff(){
+    try{
+      if(typeof staffDataLoaded !== 'undefined' && !staffDataLoaded && typeof loadStaffData === 'function'){
+        await loadStaffData(); staffDataLoaded = true;
+      }
+    }catch(e){}
+  }
+  async function tsPersonPicker(kind, group, current, onPick){
+    await tsEnsureStaff();
+    const rx = kind === 'engineer' ? /engin|\beng\b/i : /supervi|superviosr|\bsupv?\b/i;
+    const all = wsPeople('').filter(p => rx.test(p.trade || ''));
+    const here = String(group || '').trim();
+    const w = document.createElement('div');
+    w.className = 'ts-pk-wrap';
+    w.innerHTML = `<div class="ts-pk">
+        <div class="ts-pk-head"><b>${kind === 'engineer' ? '👷 Pick the engineer' : '🧑‍🔧 Pick the supervisor'}</b>
+          <button type="button" class="st-btn st-ghost st-sm" data-x>✕</button></div>
+        <input class="ts-pk-q" placeholder="Search name, HR or trade…" autocomplete="off">
+        <div class="ts-pk-list"></div>
+        ${kind === 'supervisor' ? '<button type="button" class="st-btn st-ghost st-sm" data-none style="margin-top:8px">No supervisor (leave empty)</button>' : ''}
+      </div>`;
+    document.body.appendChild(w);
+    const q = w.querySelector('.ts-pk-q'), list = w.querySelector('.ts-pk-list');
+    const row = p => `<button type="button" class="ts-pk-row${String(p.hr) === String(current) ? ' on' : ''}" data-hr="${esc(p.hr)}">
+        <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(p.name)}</span><span class="td">${esc(p.trade)}${p.site && p.site !== here ? ' · ' + esc(p.site) : ''}</span></button>`;
+    const draw = () => {
+      const t = q.value.trim().toLowerCase();
+      const hit = all.filter(p => !t || (p.hr + ' ' + p.name + ' ' + p.trade + ' ' + p.site).toLowerCase().includes(t));
+      const mine = hit.filter(p => here && p.site === here), rest = hit.filter(p => !(here && p.site === here));
+      list.innerHTML = (mine.length ? `<div class="ts-pk-sec">On this site (${mine.length})</div>` + mine.map(row).join('') : '')
+        + (rest.length ? `<div class="ts-pk-sec">${mine.length ? 'Other sites' : 'Whole company'} (${rest.length})</div>` + rest.map(row).join('') : '')
+        + (hit.length ? '' : '<div class="st-muted" style="padding:10px">Nobody matches. You can still type the HR number in the box.</div>');
+    };
+    const close = () => { w.remove(); document.removeEventListener('keydown', esc_); };
+    const esc_ = e => { if(e.key === 'Escape') close(); };
+    document.addEventListener('keydown', esc_);
+    w.addEventListener('click', e => {
+      if(e.target === w || e.target.closest('[data-x]')) return close();
+      if(e.target.closest('[data-none]')){ onPick(''); return close(); }
+      const b = e.target.closest('.ts-pk-row'); if(b){ onPick(b.dataset.hr); close(); }
+    });
+    q.addEventListener('input', draw);
+    draw(); setTimeout(() => q.focus(), 30);
+  }
   function wsGroups(){
     const set = new Set();
     try{ (typeof laborRecords !== 'undefined' ? laborRecords : []).forEach(l => { if(l.site) set.add(String(l.site).trim()); }); }catch(e){}
@@ -22598,8 +22664,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           </div>
           <div class="ts-chain">
             <span class="ts-chain-title">🧭 Above the foreman</span>
-            <div class="st-field s" style="flex:0 0 110px"><label class="st-l">Engineer HR</label>
-              <input id="tsEngHr" value="${esc(crew ? (crew.engineer_hr || '') : '')}" placeholder="2057"></div>
+            <div class="st-field s" style="flex:0 0 138px"><label class="st-l">Engineer HR</label>
+              <div class="ts-hrpick"><input id="tsEngHr" value="${esc(crew ? (crew.engineer_hr || '') : '')}" placeholder="2057" autocomplete="off"><button type="button" class="ts-pickbtn" id="tsEngPick" title="Pick from list">▾</button></div></div>
             <div class="st-field" style="flex:1 1 180px"><label class="st-l">Engineer name</label>
               <input id="tsEngName" value="${esc(crew ? (crew.engineer_name || '') : '')}" placeholder="fills in by itself"></div>
             <div class="st-field" style="flex:1 1 260px"><label class="st-l">Engineer also looks after</label>
@@ -22609,8 +22675,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                     return `<label class="ts-tick"><input type="checkbox" value="${t}" ${on ? 'checked' : ''}> ${t}</label>`;
                   }).join('')}
               </div></div>
-            <div class="st-field s" style="flex:0 0 110px"><label class="st-l">Supervisor HR</label>
-              <input id="tsSupHr" value="${esc(crew ? (crew.supervisor_hr || '') : '')}" placeholder="optional"></div>
+            <div class="st-field s" style="flex:0 0 138px"><label class="st-l">Supervisor HR</label>
+              <div class="ts-hrpick"><input id="tsSupHr" value="${esc(crew ? (crew.supervisor_hr || '') : '')}" placeholder="optional" autocomplete="off"><button type="button" class="ts-pickbtn" id="tsSupPick" title="Pick from list">▾</button></div></div>
             <div class="st-field" style="flex:1 1 160px"><label class="st-l">Supervisor name <span class="st-muted">(may stay empty)</span></label>
               <input id="tsSupName" value="${esc(crew ? (crew.supervisor_name || '') : '')}"></div>
             <button type="button" class="st-btn st-ok st-sm" id="tsChainSave">💾 Save</button>
@@ -22645,7 +22711,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             const p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
             if(p){
               nameEl.value = p.name || '';
-              msg.innerHTML = `<span style="color:#86efac">✔ ${label}: ${esc(p.name)} · ${esc(p.trade || '')}</span>`;
+              msg.innerHTML = `<span style="color:#86efac">✔ ${label}: ${esc(p.name)} · ${esc(p.trade || p.designation || '')}</span>`;
             }else{
               nameEl.value = '';
               msg.innerHTML = `<span style="color:#fca5a5">✕ HR ${esc(hr)} is not on this site</span>`;
@@ -22654,6 +22720,16 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         };
         chainLook('tsEngHr', 'tsEngName', 'Engineer');
         chainLook('tsSupHr', 'tsSupName', 'Supervisor');
+        tsEnsureStaff();
+        // ▾ pick the engineer / supervisor from a list instead of typing the HR
+        const chainPick = (btnId, hrId, kind) => {
+          const btn = $(btnId); if(!btn) return;
+          btn.addEventListener('click', () => tsPersonPicker(kind, group, $(hrId).value.trim(), hr => {
+            const el = $(hrId); el.value = hr; el.dispatchEvent(new Event('input', {bubbles: true}));
+          }));
+        };
+        chainPick('tsEngPick', 'tsEngHr', 'engineer');
+        chainPick('tsSupPick', 'tsSupHr', 'supervisor');
 
         if($('tsChainSave')) $('tsChainSave').addEventListener('click', e => busy(e.currentTarget, async () => {
           if(!crew) throw new Error('Choose a group first.');
@@ -29435,7 +29511,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v93';
+  const V = 'v94';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
