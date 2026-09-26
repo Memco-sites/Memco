@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v95 — Al Muhanad</title>
+<title>MEMCO Operations Console v96 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -5700,8 +5700,10 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       </div>
     </div>
     <div class="field">
-      <label>Category</label>
+      <label>Main trade</label>
       <select id="fCategory"></select>
+      <label style="margin-top:8px">Also works in (tick every other trade)</label>
+      <div id="fCatsMore" class="sc-cat-ticks"></div>
     </div>
     <div class="field">
       <label>Site</label>
@@ -7533,6 +7535,17 @@ document.getElementById('usersCloseBtn').onclick = () => {
 document.getElementById('usersSearchInput').addEventListener('input', renderUsersScreen);
 
 /* ---- Permission Matrix screen (Super Admin only) ---- */
+// rights some roles have by design, whatever the matrix says (the code grants them)
+function builtInPerm(role, key){
+  const R = {
+    openAdminHub: (typeof ADMIN_HUB_ROLES !== 'undefined') ? ADMIN_HUB_ROLES : ['HR', 'Project Manager'],
+    siteAccess: ['HR', 'Project Manager', 'Project Engineer', 'Site Engineer'],
+    bulkPeopleExcel: ['HR'],
+    approveTransfer: ['Project Manager'],
+    siteLocked: (typeof SITE_LOCKED_ROLES !== 'undefined') ? SITE_LOCKED_ROLES : []
+  };
+  return !!(R[key] && R[key].includes(role));
+}
 async function renderPermMatrix(){
   await loadRolePermMatrix();
   const registry = fullPermissionRegistry();
@@ -7569,7 +7582,7 @@ async function renderPermMatrix(){
     list.forEach(p => { if(!groups.includes(p.group)) groups.push(p.group); });
     if(info) info.innerHTML = `<b>${list.length}</b> permission(s) · <b>${roles.length}</b> role(s)`
       + (vertical ? ' · role names are shown sideways so every role fits' : '')
-      + ' · ticking saves at once';
+      + ' · ticking saves at once · <span title="Given to this role by the system — it cannot be taken away here">🔒 = always on for this role</span>';
     if(!list.length){ body.innerHTML = '<div style="padding:18px;text-align:center;color:var(--ink-dim)">Nothing matches this search.</div>'; return; }
     let html = `<table class="pm-t"><thead><tr><th class="pm-first">Permission</th>
       ${roles.map(r => `<th title="${escapeAttr(r)}"><span class="${vertical ? 'pm-vert' : ''}">${escapeHtml(vertical ? shortRole(r) : r)}</span>
@@ -7579,7 +7592,9 @@ async function renderPermMatrix(){
       html += `<tr class="pm-grp"><td class="pm-first">${escapeHtml(g)}</td><td colspan="${roles.length}"></td></tr>`;
       list.filter(p => p.group === g).forEach(p => {
         html += `<tr><td class="pm-first">${escapeHtml(p.label)}</td>
-          ${roles.map(r => `<td><input type="checkbox" data-perm-role="${escapeAttr(r)}" data-perm-key="${escapeAttr(p.key)}" ${has(r, p.key) ? 'checked' : ''}></td>`).join('')}</tr>`;
+          ${roles.map(r => builtInPerm(r, p.key)
+            ? `<td class="pm-lock" title="${escapeAttr(r)} always has this — the system gives it to this role"><input type="checkbox" checked disabled><span class="pm-lk">🔒</span></td>`
+            : `<td><input type="checkbox" data-perm-role="${escapeAttr(r)}" data-perm-key="${escapeAttr(p.key)}" ${has(r, p.key) ? 'checked' : ''}></td>`).join('')}</tr>`;
       });
     });
     body.innerHTML = html + '</tbody></table>';
@@ -7813,6 +7828,14 @@ const CATEGORY_LABEL = {
   "LABOUR SUPPLY":"Labour Supply"
 };
 
+// one contractor may work in several trades: `category` stays his main trade,
+// `categories` lists every trade he works in (main first)
+function contractorCats(d){
+  const out = [];
+  if(d && d.category) out.push(d.category);
+  ((d && d.categories) || []).forEach(c => { if(c && !out.includes(c)) out.push(c); });
+  return out;
+}
 const STORAGE_KEY = "contractors-v1";
 const LOG_KEY = "change-log-v1";
 const USER_NAME_KEY = "user-name-v1";
@@ -8114,7 +8137,7 @@ function buildCategoryChips(){
   all.onclick = () => { activeCategory = ''; render(); };
   categoryChips.appendChild(all);
 
-  const cats = CATEGORY_ORDER.filter(c => data.some(d => d.category === c));
+  const cats = CATEGORY_ORDER.filter(c => data.some(d => contractorCats(d).includes(c)));
   cats.forEach(c => {
     const chip = document.createElement('button');
     chip.className = 'chip' + (activeCategory === c ? ' active' : '');
@@ -8219,7 +8242,7 @@ function matchesFilters(d){
   // doing, a site-restricted user (single OR multiple assigned sites) never
   // sees a record outside their assigned list.
   if(!siteAllowed(d.site)) return false;
-  if(activeCategory && d.category !== activeCategory) return false;
+  if(activeCategory && !contractorCats(d).includes(activeCategory)) return false;
   if(activeSite && d.site !== activeSite) return false;
   if(activeStatus && (d.status || 'working') !== activeStatus) return false;
   if(searchTerm){
@@ -8273,8 +8296,11 @@ function render(){
 
   const groups = {};
   filtered.forEach(d => {
-    const key = d.category || 'UNCATEGORISED';
-    (groups[key] = groups[key] || []).push(d);
+    // a contractor with several trades is listed under each of them
+    let keys = contractorCats(d);
+    if(activeCategory) keys = keys.filter(k => k === activeCategory);
+    if(!keys.length) keys = ['UNCATEGORISED'];
+    keys.forEach(key => { (groups[key] = groups[key] || []).push(d); });
   });
 
   const orderedKeys = CATEGORY_ORDER.filter(c => groups[c]).concat(
@@ -8333,7 +8359,7 @@ function openContractorDetail(id){
   const fields = [
     ['Owner / Contact Person', d.owner || ''],
     ['Phone', phone ? `<a href="tel:+971${phone}">+971 ${phone}</a>` : ''],
-    ['Trade / Category', d.category || ''],
+    ['Trade / Category', contractorCats(d).map(c => CATEGORY_LABEL[c] || c).join(', ')],
     ['Project / Site', d.site || ''],
     ['Status', statusText],
     ['Halted Reason', d.status === 'halted' ? (d.haltedReason || '') : ''],
@@ -8379,6 +8405,7 @@ function cardHtml(d){
       </div>
       <p class="co">${escapeHtml(d.company)}</p>
       <p class="owner">${escapeHtml(d.owner || '—')}</p>
+      ${contractorCats(d).length > 1 ? `<div class="sc-trades">${contractorCats(d).map(c => `<span>${escapeHtml(CATEGORY_LABEL[c] || c)}</span>`).join('')}</div>` : ''}
       <div class="contact-row" style="border-top:none;padding-top:0;justify-content:flex-start;gap:10px;">
         ${phoneHtml}
         ${phone ? `<button class="icon-btn" data-copy="${escapeAttr(phone)}" title="Copy number">⧉</button>` : ''}
@@ -8436,6 +8463,26 @@ function populateCategorySelect(){
   fCategory.innerHTML = CATEGORY_ORDER.map(c =>
     `<option value="${c}">${CATEGORY_LABEL[c]}</option>`
   ).join('');
+  const box = document.getElementById('fCatsMore');
+  if(box && !box.dataset.built){
+    box.innerHTML = CATEGORY_ORDER.map(c => `<label><input type="checkbox" value="${c}"> ${CATEGORY_LABEL[c]}</label>`).join('');
+    box.dataset.built = '1';
+    fCategory.addEventListener('change', syncCatTicks);
+  }
+}
+// the main trade cannot also be ticked as an extra one
+function syncCatTicks(){
+  const box = document.getElementById('fCatsMore'); if(!box) return;
+  box.querySelectorAll('input').forEach(i => {
+    const main = i.value === fCategory.value;
+    i.disabled = main; if(main) i.checked = false;
+    i.parentElement.style.opacity = main ? '.4' : '';
+  });
+}
+function setCatTicks(list){
+  const box = document.getElementById('fCatsMore'); if(!box) return;
+  box.querySelectorAll('input').forEach(i => { i.checked = (list || []).includes(i.value); });
+  syncCatTicks();
 }
 
 function setStatusPick(status){
@@ -8469,6 +8516,7 @@ function openModal(id){
     fOwner.value = d.owner || '';
     fContact.value = d.contact || '';
     fCategory.value = d.category || CATEGORY_ORDER[0];
+    setCatTicks(contractorCats(d).slice(1));
     fSite.value = d.site || '';
     setStatusPick(d.status || 'working');
     fHaltedReason.value = d.haltedReason || '';
@@ -8482,6 +8530,7 @@ function openModal(id){
     fOwner.value = '';
     fContact.value = '';
     fCategory.value = activeCategory || CATEGORY_ORDER[0];
+    setCatTicks([]);
     fSite.value = (lockedSiteList() && lockedSiteList().length === 1 ? lockedSiteList()[0] : activeSite) || '';
     setStatusPick('working');
     fHaltedReason.value = '';
@@ -8515,6 +8564,7 @@ async function doSave(){
     owner: fOwner.value.trim(),
     contact: fContact.value.trim(),
     category: fCategory.value,
+    categories: [fCategory.value].concat([...document.querySelectorAll('#fCatsMore input:checked')].map(i => i.value).filter(v => v !== fCategory.value)),
     site: fSite.value.trim(),
     status: fStatus.value,
     haltedReason: fStatus.value === 'halted' ? fHaltedReason.value.trim() : '',
@@ -18227,6 +18277,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
 /* Permission Matrix table */
 #permMatrixBody table.pm-t{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
+#permMatrixBody .pm-t td.pm-lock{position:relative;background:rgba(251,191,36,.07)}
+#permMatrixBody .pm-t td.pm-lock input{opacity:.55;cursor:not-allowed}
+#permMatrixBody .pm-t td.pm-lock .pm-lk{position:absolute;right:1px;top:1px;font-size:9px;line-height:1}
 #permMatrixBody .pm-t th,#permMatrixBody .pm-t td{padding:6px 6px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
 #permMatrixBody .pm-t thead th{position:sticky;top:0;z-index:3;background:var(--navy-2,#0d2947);vertical-align:bottom}
 #permMatrixBody .pm-t .pm-first{position:sticky;left:0;z-index:2;background:var(--navy-2,#0d2947);text-align:left;white-space:normal;min-width:190px;max-width:320px}
@@ -22051,11 +22104,30 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       }
     }catch(e){}
   }
-  async function tsPersonPicker(kind, group, current, onPick){
+  // trades that belong together, so "Plumbing" also finds "Drainage" and "HVAC" finds "Duct"
+  const TS_TRADE_FAMILIES = [
+    ['plumb', 'drain', 'sanitar', 'water supply'],
+    ['elec', 'light', 'power'],
+    ['elv', 'low current', 'bms', 'cctv', 'fire alarm'],
+    ['hvac', 'mech', 'duct', 'chill', 'a/c', 'ac tech', 'refriger', 'insulat'],
+    ['fire fight', 'firefight', 'fire protect', 'sprinkler'],
+    ['civil', 'mason', 'carpent', 'steel fix']
+  ];
+  function tsTradeKeys(trade){
+    const t = String(trade || '').toLowerCase();
+    if(!t) return [];
+    const keys = [];
+    TS_TRADE_FAMILIES.forEach(f => { if(f.some(k => t.includes(k))) keys.push(...f); });
+    return keys;
+  }
+  async function tsPersonPicker(kind, group, current, trade, onPick){
+    if(typeof trade === 'function'){ onPick = trade; trade = ''; }
     await tsEnsureStaff();
     const rx = kind === 'engineer' ? /engin|\beng\b/i : /supervi|superviosr|\bsupv?\b/i;
     const all = wsPeople('').filter(p => rx.test(p.trade || ''));
     const here = String(group || '').trim();
+    const keys = tsTradeKeys(trade);
+    const sameTrade = p => keys.length > 0 && keys.some(k => String(p.trade || '').toLowerCase().includes(k));
     const w = document.createElement('div');
     w.className = 'ts-pk-wrap';
     w.innerHTML = `<div class="ts-pk">
@@ -22072,9 +22144,16 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const draw = () => {
       const t = q.value.trim().toLowerCase();
       const hit = all.filter(p => !t || (p.hr + ' ' + p.name + ' ' + p.trade + ' ' + p.site).toLowerCase().includes(t));
-      const mine = hit.filter(p => here && p.site === here), rest = hit.filter(p => !(here && p.site === here));
-      list.innerHTML = (mine.length ? `<div class="ts-pk-sec">On this site (${mine.length})</div>` + mine.map(row).join('') : '')
-        + (rest.length ? `<div class="ts-pk-sec">${mine.length ? 'Other sites' : 'Whole company'} (${rest.length})</div>` + rest.map(row).join('') : '')
+      const onSite = p => here && p.site === here;
+      const a = hit.filter(p => onSite(p) && sameTrade(p));
+      const b = hit.filter(p => onSite(p) && !sameTrade(p));
+      const c = hit.filter(p => !onSite(p) && sameTrade(p));
+      const d = hit.filter(p => !onSite(p) && !sameTrade(p));
+      const tName = String(trade || '').trim();
+      const sec = (title, arr) => arr.length ? `<div class="ts-pk-sec">${esc(title)} (${arr.length})</div>` + arr.map(row).join('') : '';
+      list.innerHTML = (keys.length
+          ? sec(`${tName} — this site`, a) + sec('Other trades — this site', b) + sec(`${tName} — other sites`, c) + sec('Everyone else', d)
+          : sec('On this site', a.concat(b)) + sec((a.length + b.length) ? 'Other sites' : 'Whole company', c.concat(d)))
         + (hit.length ? '' : '<div class="st-muted" style="padding:10px">Nobody matches. You can still type the HR number in the box.</div>');
     };
     const close = () => { w.remove(); document.removeEventListener('keydown', esc_); };
@@ -22790,7 +22869,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         // ▾ pick the engineer / supervisor from a list instead of typing the HR
         const chainPick = (btnId, hrId, kind) => {
           const btn = $(btnId); if(!btn) return;
-          btn.addEventListener('click', () => tsPersonPicker(kind, group, $(hrId).value.trim(), hr => {
+          btn.addEventListener('click', () => tsPersonPicker(kind, group, $(hrId).value.trim(), (($('tsMTrade') || {}).value || (crew ? crew.trade : '') || '').trim(), hr => {
             const el = $(hrId); el.value = hr; el.dispatchEvent(new Event('input', {bubbles: true}));
           }));
         };
@@ -22943,10 +23022,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     /* ---------------- read the signed sheet ---------------- */
     const body = $('tsBody');
     let sheets = [];
-    try{ sheets = await rpc('st_att_sheet_list', {p_from: null, p_to: null, p_group: group, p_limit: 60}) || []; }
+    try{ sheets = await rpc('st_att_sheet_list', {p_from: null, p_to: null, p_group: group, p_limit: 200}) || []; }
     catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>26</b> and <b>27</b> (attendance) in Supabase first.</div>`; return; }
     const waiting = sheets.filter(x => x.status === 'printed');
-    body.innerHTML = `<div class="st-note">Take the photo flat over the paper, with the whole sheet and its four black corner squares inside the picture.
+    body.innerHTML = `<div class="st-card ts-scan">
+        <div class="st-row" style="justify-content:space-between;gap:8px;margin:0;align-items:center">
+          <div><b>📄 Many signed sheets at once</b><div class="st-muted">A PDF from the office copier, or several photos together. Each page is matched to its sheet by the little boxes along its top edge.</div></div>
+          <label class="st-btn st-ok" style="cursor:pointer">📄 Choose PDF / photos<input type="file" id="tsScanIn" accept="application/pdf,image/*" multiple style="display:none"></label>
+        </div>
+        <div id="tsQueue"></div>
+      </div>
+      <div class="st-note">Take the photo flat over the paper, with the whole sheet and its four black corner squares inside the picture.
       ${waiting.length ? `<br><b>${waiting.length}</b> printed sheet(s) are still waiting to be read: ${esc(waiting.slice(0, 8).map(x => dmy(x.sheet_date)).join(' · '))}${waiting.length > 8 ? ' …' : ''}` : ''}</div>
       <div class="st-tw"><table class="st-t"><thead><tr><th>Sheet</th><th>Date</th><th>Shift</th><th class="n">Men</th><th>Status</th><th></th></tr></thead><tbody>
         ${sheets.length ? sheets.map(s2 => `<tr><td><b>${esc(s2.sheet_no)}</b><div class="st-muted">${esc(s2.created_name)}</div></td><td>${esc(dmy(s2.sheet_date))}</td><td>${esc(s2.shift)}</td>
@@ -22971,10 +23057,24 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(error) throw error; window.open(data.signedUrl, '_blank');
       }catch(e){ toast(e.message || 'Could not open the photo.', true); }
     }));
-    body.querySelectorAll('[data-ph]').forEach(inp => inp.addEventListener('change', async e => {
-      const file = e.target.files[0]; e.target.value = '';
-      if(!file) return;
-      const sheet = sheets.find(x => x.id === inp.dataset.ph);
+    // keep the signed page with the sheet and post what was read
+    const postRead = async (sheet, file, res, marks, extra) => {
+      let path = '', name = file.name || 'sheet.jpg';
+      try{
+        path = `att/${sheet.sheet_no}/${Date.now()}_${name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
+        const up = await client().storage.from('do-scans').upload(path, file, {contentType: file.type || 'image/jpeg'});
+        if(up.error) throw up.error;
+      }catch(err){ path = ''; toast('The photo could not be kept: ' + (err.message || err), true); }
+      const out = res.rows.map(r => ({hr: r.hr, present: !!marks[r.hr], ink: r.ink}));
+      const s3 = await rpc('st_att_sheet_post', {p_id: sheet.id, p_rows: out, p_scan_path: path, p_scan_name: name});
+      if(extra && extra.length){
+        await rpc('st_att_set', {p_date: sheet.sheet_date, p_group: sheet.group_code,
+          p_crew: (sheet.meta && sheet.meta.crew_id) || null,
+          p_rows: extra.map(x => ({hr: x.hr, name: x.name, trade: x.trade, present: true})), p_source: 'sheet'});
+      }
+      return s3 || {present_cnt: out.filter(x => x.present).length, absent_cnt: out.filter(x => !x.present).length};
+    };
+    const openRead = async (file, sheet, qItem) => {
       const host = $('tsRead');
       host.innerHTML = '<div class="st-empty">Reading the sheet…</div>';
       host.scrollIntoView({behavior: 'smooth', block: 'nearest'});
@@ -23018,25 +23118,105 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         });
         $('tsReadCancel').addEventListener('click', () => { host.innerHTML = ''; });
         $('tsReadSave').addEventListener('click', ev => busy(ev.currentTarget, async () => {
-          let path = '', name = file.name || 'sheet.jpg';
-          try{
-            path = `att/${sheet.sheet_no}/${Date.now()}_${name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
-            const up = await client().storage.from('do-scans').upload(path, file, {contentType: file.type || 'image/jpeg'});
-            if(up.error) throw up.error;
-          }catch(err){ path = ''; toast('The photo could not be kept: ' + (err.message || err), true); }
-          const out = res.rows.map(r => ({hr: r.hr, present: !!marks[r.hr], ink: r.ink}));
-          const s3 = await rpc('st_att_sheet_post', {p_id: sheet.id, p_rows: out, p_scan_path: path, p_scan_name: name});
-          if(extra.length){
-            await rpc('st_att_set', {p_date: sheet.sheet_date, p_group: sheet.group_code,
-              p_crew: (sheet.meta && sheet.meta.crew_id) || null,
-              p_rows: extra.map(x => ({hr: x.hr, name: x.name, trade: x.trade, present: true})), p_source: 'sheet'});
-          }
+          const s3 = await postRead(sheet, file, res, marks, extra);
+          if(qItem){ qItem.status = 'done'; qItem.msg = `${s3.present_cnt + extra.length} present · ${s3.absent_cnt} absent`; }
           toast(`Attendance saved — ${s3.present_cnt + extra.length} present, ${s3.absent_cnt} absent`);
           tsReload();
         }));
       };
       drawRead();
+    };
+    body.querySelectorAll('[data-ph]').forEach(inp => inp.addEventListener('change', e => {
+      const file = e.target.files[0]; e.target.value = '';
+      if(!file) return;
+      openRead(file, sheets.find(x => x.id === inp.dataset.ph));
     }));
+
+    // ---- a pile of pages: split, match, check / save ----
+    if(!S.tsQueue || S.tsQueue.group !== group) S.tsQueue = {group, items: []};
+    const Q = S.tsQueue;
+    const sheetLabel = sh => sh ? `${sh.sheet_no} · ${dmy(sh.sheet_date)}${sh.meta && sh.meta.part ? ' · ' + sh.meta.part : ''}` : '';
+    const drawQueue = () => {
+      const qh = $('tsQueue');
+      if(!qh) return;
+      if(!Q.items.length){ qh.innerHTML = ''; return; }
+      const ready = Q.items.filter(it => it.sheetId && it.status === 'matched').length;
+      const opts = sel => '<option value="">— which sheet is this? —</option>' + sheets.map(sh => `<option value="${esc(sh.id)}" ${sel === sh.id ? 'selected' : ''}>${esc(sheetLabel(sh))}${sh.status === 'posted' ? ' (already saved)' : ''}</option>`).join('');
+      qh.innerHTML = `<div class="st-tw" style="margin-top:8px"><table class="st-t st-compact"><thead><tr><th>Page</th><th>Sheet</th><th>Read</th><th></th></tr></thead><tbody>
+        ${Q.items.map((it, k) => `<tr>
+          <td><b>${esc(it.page)}</b></td>
+          <td>${it.status === 'done' ? `<b>${esc(sheetLabel(sheets.find(x => x.id === it.sheetId)))}</b>`
+                : `<select class="st-in" data-qs="${k}" style="min-width:220px">${opts(it.sheetId)}</select>`}
+              ${it.dup ? '<div class="st-pill p-pending">same sheet as another page</div>' : ''}</td>
+          <td>${it.status === 'done' ? `<span class="st-pill p-live">✔ saved</span> <span class="st-muted">${esc(it.msg || '')}</span>`
+               : it.status === 'error' ? `<span class="st-pill p-rejected">${esc(it.msg || 'not readable')}</span>`
+               : it.status === 'unknown' ? '<span class="st-pill p-pending">number not found — choose the sheet</span>'
+               : it.status === 'reading' ? '<span class="st-muted">reading…</span>'
+               : '<span class="st-pill p-live">matched</span>'}</td>
+          <td>${it.status === 'done' || it.status === 'reading' ? '' : `<button type="button" class="st-btn st-sm" data-qo="${k}" ${it.sheetId ? '' : 'disabled'}>🔍 Check &amp; save</button>`}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="st-row" style="justify-content:flex-end;gap:6px;margin-top:8px">
+        <button type="button" class="st-btn st-ghost st-sm" id="tsQClear">Clear list</button>
+        <button type="button" class="st-btn st-ok st-sm" id="tsQAll" ${ready ? '' : 'disabled'}>💾 Save all ${ready} matched page${ready === 1 ? '' : 's'} as read</button></div>`;
+      qh.querySelectorAll('[data-qs]').forEach(sel => sel.addEventListener('change', () => {
+        const it = Q.items[+sel.dataset.qs]; it.sheetId = sel.value || null; it.status = it.sheetId ? 'matched' : 'unknown'; markDup(); drawQueue();
+      }));
+      qh.querySelectorAll('[data-qo]').forEach(b => b.addEventListener('click', () => {
+        const it = Q.items[+b.dataset.qo]; const sh = sheets.find(x => x.id === it.sheetId);
+        if(sh) openRead(it.file, sh, it);
+      }));
+      $('tsQClear').addEventListener('click', () => { Q.items = []; drawQueue(); });
+      $('tsQAll').addEventListener('click', ev => busy(ev.currentTarget, async () => {
+        const todo = Q.items.filter(it => it.sheetId && it.status === 'matched');
+        if(!confirm(`Save ${todo.length} page(s) exactly as the phone read them, without checking each one?\nPages already saved will be saved again.`)) return;
+        let okN = 0;
+        for(const it of todo){
+          const sh = sheets.find(x => x.id === it.sheetId);
+          try{
+            const res = await MEMCO_ATT.read(it.file, sh);
+            const marks = {}; res.rows.forEach(r => { marks[r.hr] = r.present; });
+            const s3 = await postRead(sh, it.file, res, marks, []);
+            it.status = 'done'; it.msg = `${s3.present_cnt} present · ${s3.absent_cnt} absent`; okN++;
+          }catch(err){ it.status = 'error'; it.msg = err.message || String(err); }
+          drawQueue();
+        }
+        toast(`${okN} page(s) saved`);
+      }));
+    };
+    const markDup = () => {
+      const seen = {};
+      Q.items.forEach(it => { it.dup = false; if(it.sheetId && it.status !== 'error'){ if(seen[it.sheetId]) it.dup = true; seen[it.sheetId] = true; } });
+    };
+    $('tsScanIn').addEventListener('change', async e => {
+      const files = [...e.target.files]; e.target.value = '';
+      if(!files.length) return;
+      const qh = $('tsQueue');
+      const pages = [];
+      try{
+        for(const f of files){
+          if(/pdf$/i.test(f.type) || /\.pdf$/i.test(f.name || '')){
+            qh.innerHTML = '<div class="st-empty">Opening the PDF…</div>';
+            const imgs = await MEMCO_ATT.pdfPages(f, (i, n) => { qh.innerHTML = `<div class="st-empty">Opening the PDF… page ${i} of ${n}</div>`; });
+            imgs.forEach((im, i) => pages.push({file: im, page: `${f.name || 'PDF'} · p${i + 1}`}));
+          } else pages.push({file: f, page: f.name || 'photo'});
+        }
+      }catch(err){ qh.innerHTML = `<div class="st-note warn">${esc(err.message || err)}</div>`; return; }
+      const start = Q.items.length;
+      pages.forEach(pg => Q.items.push({file: pg.file, page: pg.page, sheetId: null, status: 'reading'}));
+      drawQueue();
+      for(let k = start; k < Q.items.length; k++){
+        const it = Q.items[k];
+        try{
+          const r = await MEMCO_ATT.identify(it.file, sheets);
+          if(r.sheet){ it.sheetId = r.sheet.id; it.status = 'matched'; }
+          else it.status = 'unknown';
+        }catch(err){ it.status = 'error'; it.msg = err.message || String(err); }
+        markDup(); drawQueue();
+      }
+      const got = Q.items.slice(start).filter(it => it.status === 'matched').length;
+      toast(`${pages.length} page(s): ${got} matched`);
+    });
+    drawQueue();
   }
 
 
@@ -25187,7 +25367,16 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="st-field"><label class="st-l">User</label><select id="stAdUser"><option value="">— choose —</option>
             ${users.filter(u => u.role !== 'Super Admin').sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${esc(u.authId)}">${esc(u.name)} (${esc(u.username)})${u.hrCode ? ' · HR ' + esc(u.hrCode) : ''}${suggest(u).length ? ' ★' : ''}</option>`).join('')}
           </select></div>
-          <div class="st-field s"><label class="st-l">Position</label><select id="stAdPos">
+          <div class="st-field s"><label class="st-l">App role (what he does)</label><select id="stAdAppRole">
+            <option value="">— keep as it is —</option>
+            ${(typeof ROLE_LIST !== 'undefined' ? ROLE_LIST : []).filter(r => r !== 'Super Admin').map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('')}</select></div>
+          <div class="st-field s" id="stAdSiteBox" style="display:none"><label class="st-l">His site</label><select id="stAdSite">
+            <option value="">— choose —</option>
+            ${[...new Set([].concat(
+                [...((document.getElementById('uSite') || {}).options || [])].map(o => o.value),
+                (typeof laborRecords !== 'undefined' ? laborRecords.map(l => l.site) : [])
+              ).filter(Boolean))].sort().map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></div>
+          <div class="st-field s"><label class="st-l">Store position</label><select id="stAdPos">
             <option value="">— other (set access below) —</option>
             <option value="store_manager">Store Manager — all stores under his store</option>
             <option value="store_incharge">Store Incharge — his store + stores under it</option>
@@ -25210,8 +25399,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <div class="st-muted" style="margin-top:6px">★ = this person's HR number is listed as keeper of a store. Super Admins always have full access. Users are created in the main app under <b>Users</b>.</div>
       </div>
       <h3>People with store access</h3>
-      ${withAccess.length ? `<div class="st-tw"><table class="st-t"><thead><tr><th>Name</th><th>Username</th><th>Position / Access</th><th>Roles</th><th>Stores</th><th>Projects</th></tr></thead><tbody>
-        ${withAccess.map(u => { const a = accMap[u.authId]; return `<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(POSITION_LABEL[a.position] || a.access)}${a.scope === 'tree' ? '<div class="st-muted">+ stores under</div>' : ''}</td>
+      ${withAccess.length ? `<div class="st-tw"><table class="st-t"><thead><tr><th>Name</th><th>Username</th><th>App role</th><th>Position / Access</th><th>Roles</th><th>Stores</th><th>Projects</th></tr></thead><tbody>
+        ${withAccess.map(u => { const a = accMap[u.authId]; return `<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.role || '')}${u.site ? `<div class="st-muted">${esc(u.site)}</div>` : ''}</td><td>${esc(POSITION_LABEL[a.position] || a.access)}${a.scope === 'tree' ? '<div class="st-muted">+ stores under</div>' : ''}</td>
           <td>${(a.roles || []).map(r => esc(r === 'pm' ? 'PM' : r)).join(', ') || '<span class="st-muted">—</span>'}</td>
           <td>${(a.store_ids || []).map(id => esc(storeName(id))).join(', ') || '<span class="st-muted">—</span>'}</td>
           <td>${(a.projects || []).join(', ') || '<span class="st-muted">—</span>'}</td></tr>`; }).join('')}
@@ -25263,6 +25452,32 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const guessRoles = a ? (a.roles || []) : (/engineer|supervisor|foreman/i.test((u && u.role) || '') ? ['engineer'] : (/project manager|\bpm\b/i.test((u && u.role) || '') ? ['pm'] : []));
       $('stAdRoles').querySelectorAll('input').forEach(i => { i.checked = guessRoles.includes(i.value); });
       $('stAdHint').textContent = u ? `${u.role}${u.site ? ' · ' + u.site : ''}${sug.length ? ' · Suggested: ' + suggest(u).join(', ') : ''}${a ? '' : ' · (no store access yet)'}` : '';
+      $('stAdAppRole').value = u && u.role && u.role !== 'Super Admin' ? u.role : '';
+      $('stAdSite').value = u && u.site ? u.site : '';
+      appRoleHint();
+    });
+    // the app role decides the screens; a site-bound role (foreman, timekeeper …) also needs his site
+    const APP_ROLE_NOTE = {
+      'Timekeeper': 'Timekeeper — marks attendance and prints / reads time sheets for his site. No store access needed.',
+      'Foreman': 'Foreman — sees only his own group in attendance (his HR number must be the foreman of a group in Time sheets → Groups). No store access needed.',
+      'Store Manager': 'Store Manager — pick “Store Manager” as the store position too.',
+      'Store Incharge': 'Store Incharge — pick “Store Incharge” as the store position too.',
+      'Storekeeper': 'Storekeeper — pick “Store Keeper” as the store position and tick his store(s).'
+    };
+    function appRoleHint(){
+      const r = $('stAdAppRole').value;
+      const locked = r && typeof isSiteLockedRole === 'function' && isSiteLockedRole(r);
+      $('stAdSiteBox').style.display = locked ? '' : 'none';
+      const note = APP_ROLE_NOTE[r] || '';
+      const base = $('stAdHint').textContent.split(' ‖ ')[0];
+      $('stAdHint').textContent = base + (note ? ' ‖ ' + note : '');
+    }
+    $('stAdAppRole').addEventListener('change', () => {
+      const r = $('stAdAppRole').value;
+      const pos = {'Store Manager': 'store_manager', 'Store Incharge': 'store_incharge', 'Storekeeper': 'store_keeper'}[r];
+      if(pos && !$('stAdPos').value){ $('stAdPos').value = pos; $('stAdPos').dispatchEvent(new Event('change')); }
+      if(['Timekeeper', 'Foreman', 'Worker', 'Driver'].includes(r) && !accMap[userSel.value]) $('stAdAcc').value = '';
+      appRoleHint();
     });
     // which stores this person will really work in
     function treeOf(ids){
@@ -25284,7 +25499,22 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     $('stAdStores').addEventListener('change', showReach);
     $('stAdSave').addEventListener('click', e => busy(e.currentTarget, async () => {
       if(!userSel.value) throw new Error('Choose a user.');
+      // 1) the app role (and site) — the same record Manage Users keeps
+      const appRole = $('stAdAppRole').value;
+      const who = users.find(x => x.authId === userSel.value);
+      if(who && appRole && typeof USERS !== 'undefined' && typeof saveUsers === 'function'){
+        const needSite = typeof isSiteLockedRole === 'function' && isSiteLockedRole(appRole);
+        const site = needSite ? $('stAdSite').value : '';
+        if(needSite && !site) throw new Error(`A ${appRole} works on one site — choose his site.`);
+        if(who.role !== appRole || String(who.site || '') !== String(site || '')){
+          const rec = USERS.find(x => x.authId === who.authId);
+          if(rec){ rec.role = appRole; rec.site = site; await saveUsers(); }
+        }
+      }
       const acc = $('stAdAcc').value;
+      const hadAccess = !!accMap[userSel.value];
+      // a foreman or timekeeper with no store at all: nothing to save on the store side
+      if(!acc && !hadAccess && appRole){ toast(`Saved — ${appRole}.`); go('admin'); return; }
       const stores = [...$('stAdStores').querySelectorAll('input:checked')].map(i => i.value);
       if(['keeper','main'].includes(acc) && !stores.length) throw new Error('Tick at least one store for this user.');
       const roles = [...$('stAdRoles').querySelectorAll('input:checked')].map(i => i.value);
@@ -29198,8 +29428,30 @@ const MEMCO_ATT = (() => {
     box: {left: 8, right: 182},
     // SL | CODE | NAME | DESIGNATION | IN TIME | OT | ABS | SIGNATURE
     cols: {no: 8, id: 18, name: 33, desig: 72, intime: 110, ot: 124, abs: 137, sign: 149, end: 182},
-    maxRows: 24          // what fits between the squares; a longer list prints page 2, 3 …
+    maxRows: 24,         // what fits between the squares; a longer list prints page 2, 3 …
+    // a row of little black/white boxes along the top edge: the sheet's own number,
+    // so a scanned pile of pages can be matched to the right sheets without asking
+    strip: {x: 42, y: 2.2, w: 3.5, gap: 1.5, h: 3, bits: 24}
   };
+  // 20 bits from the sheet id + 4 check bits; never all white, never all black
+  function sheetCode(id){
+    let h = 2166136261;
+    const t = String(id || '');
+    for(let i = 0; i < t.length; i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    let c = (h ^ (h >>> 20)) & 0xFFFFF;
+    if(c === 0) c = 1;
+    if(c === 0xFFFFF) c = 0xFFFFE;
+    let sum = 0;
+    for(let k = 0; k < 5; k++) sum += (c >>> (4 * k)) & 15;
+    return c | ((sum & 15) << 20);
+  }
+  function codeOk(code){
+    const c = code & 0xFFFFF;
+    if(c === 0 || c === 0xFFFFF) return false;
+    let sum = 0;
+    for(let k = 0; k < 5; k++) sum += (c >>> (4 * k)) & 15;
+    return ((code >>> 20) & 15) === (sum & 15);
+  }
   const u = mm => (mm - G.mark.x1) / (G.mark.x2 - G.mark.x1);
   const v = mm => (mm - G.mark.y1) / (G.mark.y2 - G.mark.y1);
 
@@ -29289,11 +29541,14 @@ const MEMCO_ATT = (() => {
     const blanks = Math.max(0, G.maxRows - data.length);
     return `<div class="page">
       ${sq(G.mark.x1, G.mark.y1)}${sq(G.mark.x2, G.mark.y1)}${sq(G.mark.x1, G.mark.y2)}${sq(G.mark.x2, G.mark.y2)}
-      ${kv(14, 9, 86, 'JOB NO:', m.job_no || '')}
-      ${kv(14, 15, 86, 'LOCATION:', m.location || '')}
-      ${kv(104, 6.5, 74, 'ENGINEER:', person(m.engineer))}
-      ${kv(104, 12, 74, 'SUPERVISOR:', person(m.supervisor))}
-      ${kv(104, 17.5, 74, 'FOREMAN:', person(m.foreman))}
+      ${sheet.id ? (() => { const c = sheetCode(sheet.id), S = G.strip; let o = '';
+        for(let k = 0; k < S.bits; k++) if((c >>> k) & 1) o += `<div style="position:absolute;left:${S.x + k * (S.w + S.gap)}mm;top:${S.y}mm;width:0;height:${S.h}mm;border-left:${S.w}mm solid #000"></div>`;
+        return o; })() : ''}
+      ${kv(14, 9.5, 86, 'JOB NO:', m.job_no || '')}
+      ${kv(14, 15.5, 86, 'LOCATION:', m.location || '')}
+      ${kv(104, 8, 74, 'ENGINEER:', person(m.engineer))}
+      ${kv(104, 13.5, 74, 'SUPERVISOR:', person(m.supervisor))}
+      ${kv(104, 19, 74, 'FOREMAN:', person(m.foreman))}
       <div class="ttlrow">
         <div class="l"><span>PROJECT:</span><b>${esc(project)}${m.job_no ? ' · ' + esc(m.job_no) : ''}</b></div>
         <div class="ttl" style="font-size:${tSize}pt">${esc(title)}</div>
@@ -29315,7 +29570,7 @@ const MEMCO_ATT = (() => {
       ${data.map(line).join('')}
       ${Array.from({length: blanks}, (_, k) => blankLine(data.length + k)).join('')}
       <div class="foot"><span>Foreman sign: ______________</span><span>Supervisor sign: ______________</span><span>Engineer sign: ______________</span></div>
-      <div class="no">Absent: put a mark (✗) in the ABS box — do not write in the signature box. Keep the four black squares clean.</div>
+      <div class="no">Absent: put a mark (✗) in the ABS box — do not write in the signature box. Keep the four black squares and the boxes along the top clean.</div>
     </div>`;
   }
 
@@ -29532,10 +29787,73 @@ const MEMCO_ATT = (() => {
       return cc.toDataURL('image/jpeg', 0.6);
     });
 
-    return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr)};
+    // the sheet's own number from the boxes along the top edge (0 = none found)
+    let code = 0;
+    {
+      const S = G.strip, lv = [];
+      for(let k = 0; k < S.bits; k++){
+        const x0 = S.x + k * (S.w + S.gap);
+        let t = 0, n = 0;
+        for(let x = x0 + 0.8; x < x0 + S.w - 0.8; x += 0.3)
+          for(let y = S.y + 0.7; y < S.y + S.h - 0.7; y += 0.3){ t += px(u(x), v(y)); n++; }
+        lv.push(n ? t / n : 255);
+      }
+      const lo = Math.min.apply(null, lv), hi = Math.max.apply(null, lv);
+      if(hi - lo > 40){
+        const mid = (lo + hi) / 2;
+        lv.forEach((g, k) => { if(g < mid) code |= (1 << k); });
+        code = code >>> 0;
+        if(!codeOk(code)) code = 0;
+      }
+    }
+
+    return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr), code};
   }
 
-  return {G, print, printMany, sheetHtml, read, chunk, shortName, person};
+  // which of these sheets is in the picture? (null when the picture has no number)
+  async function identify(file, sheets){
+    const r = await read(file, {rows: []});
+    if(!r.code) return {code: 0, sheet: null};
+    return {code: r.code, sheet: (sheets || []).find(x => x && x.id && sheetCode(x.id) === r.code) || null};
+  }
+
+  // a PDF from the office copier -> one picture per page
+  let pdfLib = null;
+  async function pdfPages(file, onPage){
+    if(!pdfLib){
+      const urls = ['https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/legacy/build/pdf.min.mjs',
+                    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs'];
+      let err = null;
+      for(const url of urls){
+        try{
+          const lib = await import(url);
+          lib.GlobalWorkerOptions.workerSrc = url.replace('pdf.min.mjs', 'pdf.worker.min.mjs');
+          pdfLib = lib; break;
+        }catch(e){ err = e; }
+      }
+      if(!pdfLib) throw new Error('The PDF reader could not be loaded — check the internet and try again.' + (err ? ' (' + (err.message || err) + ')' : ''));
+    }
+    const doc = await pdfLib.getDocument({data: new Uint8Array(await file.arrayBuffer())}).promise;
+    const out = [];
+    for(let i = 1; i <= doc.numPages; i++){
+      const page = await doc.getPage(i);
+      const vp1 = page.getViewport({scale: 1});
+      const scale = Math.min(3, 1800 / Math.max(vp1.width, vp1.height));
+      const vp = page.getViewport({scale});
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      const ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      await page.render({canvasContext: ctx, canvas: cv, viewport: vp}).promise;
+      const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.85));
+      const f = new File([blob], `${(file.name || 'scan').replace(/\.pdf$/i, '')}-page${i}.jpg`, {type: 'image/jpeg'});
+      out.push(f);
+      if(onPage) onPage(i, doc.numPages);
+    }
+    return out;
+  }
+
+  return {G, print, printMany, sheetHtml, read, chunk, shortName, person, identify, pdfPages, sheetCode};
 })();
 
 /* ---- put MEMCO on the phone (PWA) ---- */
@@ -29652,7 +29970,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v95';
+  const V = 'v96';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -29764,6 +30082,14 @@ document.addEventListener('change', function(ev){
 #attSheetsHost .ts-it{ height:32px; padding:0 10px; border-radius:8px; border:1px solid rgba(251,191,36,.45); background:rgba(251,191,36,.08);
   color:#fde68a; font-weight:700; font-size:12.5px; cursor:pointer; }
 #attSheetsHost .ts-it.on{ background:linear-gradient(135deg,#d97706,#b45309); border-color:#fbbf24; color:#fff; }
+</style>
+<style>
+/* v96: several trades per sub-contractor */
+.sc-cat-ticks{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:4px}
+.sc-cat-ticks label{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer;text-transform:none;letter-spacing:0}
+.sc-cat-ticks input{width:auto;margin:0}
+.card .sc-trades{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 6px}
+.card .sc-trades span{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px;background:rgba(56,189,248,.14);border:1px solid rgba(56,189,248,.4);color:#bae6fd}
 </style>
 </body>
 </html>
