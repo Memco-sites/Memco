@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v91 — Al Muhanad</title>
+<title>MEMCO Operations Console v92 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4349,6 +4349,15 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 #attSheetsHost .ts-group-tools{margin-top:8px;margin-bottom:6px}
 #attSheetsHost .ts-group-tools .st-btn{white-space:nowrap}
 </style>
+
+<style>
+/* whose attendance, and the one-tap all-present bar */
+#attendanceView .att-who-field{flex:0 1 240px;min-width:170px}
+#attendanceView .att-who-field select{width:100%}
+#attendanceView .att-quickbar{display:flex;align-items:center;gap:10px;margin:4px 0 6px}
+#attendanceView .att-quickbar .btn{padding:7px 16px;font-size:12.5px;font-weight:700}
+#attendanceView .att-quickbar .st-muted{font-size:12px}
+</style>
 </head>
 <body>
 <!-- Plain-HTML/inline-CSS loading screen: shown instantly, before any
@@ -5227,9 +5236,13 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       </div>
       <button class="tab-btn active att-compact-mode" id="attModeLaborBtn">👷 Al Muhanad Labor</button>
       <button class="tab-btn att-compact-mode" id="attModeSubBtn">🏗 Sub-Contractor</button>
+      <div class="att-compact-field att-who-field">
+        <label for="attWho">Whose attendance?</label>
+        <select id="attWho"></select>
+      </div>
       <span class="att-sep"></span>
-      <button class="tab-btn active att-compact-mode" id="attTabDaily">🗓️ Daily</button>
-      <button class="tab-btn att-compact-mode" id="attTabSheets">🗒 Time sheets</button>
+      <button class="tab-btn active att-compact-mode" id="attTabDaily">🗓️ Attendance</button>
+      <button class="tab-btn att-compact-mode" id="attTabSheets">⚙ Groups &amp; setup</button>
     </div>
     <div id="attSourceStrip" style="margin:0 0 6px"></div>
     <div id="attSheetsWrap" style="display:none">
@@ -5303,6 +5316,10 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 
       <div class="dual-date-banner dual-date-columns-v6" id="dualDateBanner"></div>
       <div id="dateLockBanner" style="display:none;"></div>
+      <div class="att-quickbar">
+        <button type="button" class="btn btn-primary" id="attAllPresent">✅ All present</button>
+        <span class="st-muted" id="attWhoCount"></span>
+      </div>
       <div id="laborAttList" class="labor-att-list-v6" style="max-height:420px;overflow-y:auto;"></div>
     </div>
 
@@ -9144,6 +9161,23 @@ document.getElementById('removeProjectBtn').onclick = async () => {
 
 document.getElementById('attDate').addEventListener('change', onDateOrProjectChange);
 document.getElementById('attProject').addEventListener('change', onDateOrProjectChange);
+
+// whose attendance is on the screen
+document.getElementById('attWho').addEventListener('change', e => {
+  ATT_WHO = e.target.value;
+  if(typeof renderLaborAttChecklist === 'function') renderLaborAttChecklist();
+});
+
+// everybody present in one tap, then untick the few who are away
+document.getElementById('attAllPresent').addEventListener('click', () => {
+  const project = document.getElementById('attProject').value;
+  const men = attWhoMen(laborRecords.filter(l => l.site === project));
+  if(!men.length){ showToast('Nobody on this list'); return; }
+  let cleared = 0;
+  men.forEach(l => { if(currentAbsentMap.hasOwnProperty(l.code)){ delete currentAbsentMap[l.code]; cleared++; } });
+  if(typeof renderLaborAttChecklist === 'function') renderLaborAttChecklist();
+  showToast(cleared ? `${men.length} men present — ${cleared} were marked absent` : `${men.length} men present`);
+});
 document.getElementById('attOtDate').addEventListener('change', refreshOtState);
 document.getElementById('otEnabledToggle').addEventListener('change', onOtSettingChange);
 document.getElementById('otMaxCapSelect').addEventListener('change', onOtSettingChange);
@@ -9158,6 +9192,7 @@ async function onDateOrProjectChange(){
   const date = document.getElementById('attDate').value;
   const project = document.getElementById('attProject').value;
   if(!date || !project) return;
+  try{ await attLoadCrews(project); }catch(e){}
   if(!dailyLaborLoaded){
     try{
       const res = await window.storage.get(DAILY_LABOR_KEY, true);
@@ -9597,6 +9632,84 @@ document.getElementById('addSubRowBtn').onclick = () => {
   renderSubRows();
 };
 
+
+/* ============================================================
+   Whose attendance is on the screen — the whole site, one
+   foreman's group, or the men who are in no group yet.
+   A foreman only ever sees his own group.
+   ============================================================ */
+let ATT_CREWS = [];            // the groups of the site now on screen
+let ATT_WHO = '';              // '' = whole site, 'crew:<id>', 'nogroup'
+
+async function attLoadCrews(project){
+  ATT_CREWS = [];
+  try{
+    const c = (typeof getSupaClient === 'function') ? getSupaClient() : null;
+    if(c){
+      const r = await c.rpc('st_crew_list', {p_group: project});
+      ATT_CREWS = (r && r.data) ? r.data : [];
+    }
+  }catch(e){ ATT_CREWS = []; }
+  attFillWho();
+}
+
+// a foreman is tied to his own group; everyone else may pick
+function attMyCrew(){
+  try{
+    const hr = String((currentUser && (currentUser.hr || currentUser.code)) || '').trim();
+    if(!hr) return null;
+    return ATT_CREWS.find(c => String(c.foreman_hr || '') === hr) || null;
+  }catch(e){ return null; }
+}
+function attIsForemanOnly(){
+  try{
+    const role = String((currentUser && currentUser.role) || '').toLowerCase();
+    if(/admin|director|manager|timekeeper|time keeper|pm\b/.test(role)) return false;
+    return !!attMyCrew();
+  }catch(e){ return false; }
+}
+
+function attFillWho(){
+  const sel = document.getElementById('attWho');
+  if(!sel) return;
+  const mine = attMyCrew();
+  const inAnyCrew = new Set();
+  ATT_CREWS.forEach(c => (c.members || []).forEach(m => inAnyCrew.add(String(m.hr))));
+  const project = (document.getElementById('attProject') || {}).value || '';
+  const siteMen = laborRecords.filter(l => l.site === project);
+  const free = siteMen.filter(l => !inAnyCrew.has(String(l.code))).length;
+
+  if(attIsForemanOnly() && mine){
+    // the foreman sees only his own men, so nothing can go wrong
+    sel.innerHTML = `<option value="crew:${escapeAttr(mine.id)}">${escapeHtml(mine.name || 'My group')} — ${(mine.members || []).length} men</option>`;
+    sel.value = 'crew:' + mine.id;
+    ATT_WHO = sel.value;
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  sel.innerHTML = `<option value="">🏗 Whole site — ${siteMen.length} men</option>`
+    + ATT_CREWS.map(c => `<option value="crew:${escapeAttr(c.id)}">${escapeHtml(c.name || 'Group')} — ${(c.members || []).length} men</option>`).join('')
+    + (free ? `<option value="nogroup">❓ Not in any group — ${free} men</option>` : '');
+  if([...sel.options].some(o => o.value === ATT_WHO)) sel.value = ATT_WHO; else { sel.value = ''; ATT_WHO = ''; }
+}
+
+// the men the chosen line stands for
+function attWhoMen(siteLabor){
+  if(!ATT_WHO) return siteLabor;
+  if(ATT_WHO === 'nogroup'){
+    const inAny = new Set();
+    ATT_CREWS.forEach(c => (c.members || []).forEach(m => inAny.add(String(m.hr))));
+    return siteLabor.filter(l => !inAny.has(String(l.code)));
+  }
+  const id = ATT_WHO.slice(5);
+  const crew = ATT_CREWS.find(c => c.id === id);
+  if(!crew) return siteLabor;
+  const hrs = new Set((crew.members || []).map(m => String(m.hr)));
+  if(crew.foreman_hr) hrs.add(String(crew.foreman_hr));   // the foreman is on his own sheet
+  return siteLabor.filter(l => hrs.has(String(l.code)));
+}
+
 const LATT_REASONS = ['SL','AL','EL','PR','UL','HL','VM','TT','VB','SA','OS'];
 const LATT_REASON_LABELS = {
   SL:'Sick Leave', AL:'Annual Leave', EL:'Emergency Leave', PR:'Passport Renewal',
@@ -9607,7 +9720,7 @@ const LATT_REASON_LABELS = {
 function renderLaborAttChecklist(){
   const project = document.getElementById('attProject').value;
   const q = document.getElementById('laborAttSearch').value.trim().toLowerCase();
-  let siteLabor = laborRecords.filter(l => l.site === project);
+  let siteLabor = attWhoMen(laborRecords.filter(l => l.site === project));
   const total = siteLabor.length;
   const absentCount = Object.keys(currentAbsentMap).filter(code => siteLabor.some(l => l.code === code)).length;
 
@@ -9908,7 +10021,80 @@ function openDailySiteTimesheets(){
   win.document.close();
 }
 
-document.getElementById('attSiteTimesheetBtn').onclick = openDailySiteTimesheets;
+document.getElementById('attSiteTimesheetBtn').onclick = attPrintSignatureSheets;
+
+/* ============================================================
+   One sheet everywhere: the Daily screen prints exactly the
+   same signature sheet the groups print — four corner squares,
+   the ABS box and a line for every man to sign.
+   ============================================================ */
+async function attPrintSignatureSheets(){
+  const date = document.getElementById('attDate').value;
+  const project = document.getElementById('attProject').value;
+  if(!date || !project){ showToast('Pick the site and the date first'); return; }
+  if(typeof MEMCO_ATT === 'undefined' || !MEMCO_ATT.printMany){ showToast('The sheet engine is not ready'); return; }
+
+  const otDate = document.getElementById('attOtDate').value || date;
+  const inAny = new Set();
+  ATT_CREWS.forEach(c => (c.members || []).forEach(m => inAny.add(String(m.hr))));
+
+  // which lists become sheets — one per foreman, as the men are used to
+  let lists = [];
+  if(ATT_WHO && ATT_WHO !== 'nogroup'){
+    const crew = ATT_CREWS.find(c => c.id === ATT_WHO.slice(5));
+    if(crew) lists = [crew];
+  }else if(ATT_WHO === 'nogroup'){
+    lists = [{name: 'Not in any group', trade: '', foreman_name: '', foreman_hr: '', members: null}];
+  }else{
+    lists = ATT_CREWS.slice();
+    const free = laborRecords.filter(l => l.site === project && !inAny.has(String(l.code)));
+    if(free.length) lists.push({name: 'Not in any group', trade: '', foreman_name: '', foreman_hr: '', members: null});
+  }
+  if(!lists.length){ showToast('No men to print'); return; }
+
+  const menOf = crew => {
+    if(crew.members){
+      const hrs = new Set((crew.members || []).map(m => String(m.hr)));
+      if(crew.foreman_hr) hrs.add(String(crew.foreman_hr));
+      return laborRecords.filter(l => l.site === project && hrs.has(String(l.code)));
+    }
+    return laborRecords.filter(l => l.site === project && !inAny.has(String(l.code)));
+  };
+
+  const sheets = [];
+  let n = 0;
+  for(const crew of lists){
+    const men = menOf(crew);
+    if(!men.length) continue;
+    // 27 men fit on one page, so a long list becomes page 1, page 2 …
+    for(let i = 0; i < men.length; i += 27){
+      const part = men.slice(i, i + 27);
+      n++;
+      sheets.push({
+        sheet_no: `ATT-${date.replace(/-/g,'').slice(2)}-${project.replace(/[^A-Za-z0-9]/g,'').slice(0,8).toUpperCase()}-${n}`,
+        sheet_date: date, ot_date: otDate, shift: '1st',
+        group_code: project, group_name: project,
+        meta: {
+          project: project,
+          job_no: (typeof S !== 'undefined' && S.tsJob) ? S.tsJob : '',
+          location: (typeof S !== 'undefined' && S.tsLoc) ? S.tsLoc : '',
+          trade: crew.trade || '',
+          foreman: crew.foreman_name ? crew.foreman_name + (crew.foreman_hr ? ' (HR ' + crew.foreman_hr + ')' : '') : '',
+          engineer: crew.engineer_name ? crew.engineer_name + (crew.engineer_hr ? ' (' + crew.engineer_hr + ')' : '') : '',
+          supervisor: crew.supervisor_name ? crew.supervisor_name + (crew.supervisor_hr ? ' (' + crew.supervisor_hr + ')' : '') : '',
+          part: men.length > 27 ? `page ${Math.floor(i / 27) + 1} of ${Math.ceil(men.length / 27)}` : ''
+        },
+        rows: part.map(l => ({
+          hr: l.code, name: l.name, trade: l.trade || '',
+          ot: (currentOTMap && currentOTMap[l.code]) ? currentOTMap[l.code] : ''
+        }))
+      });
+    }
+  }
+  if(!sheets.length){ showToast('No men to print'); return; }
+  MEMCO_ATT.printMany(sheets);
+  showToast(`${sheets.length} sheet(s) ready`);
+}
 
 document.getElementById('attTodayPrintBtn').onclick = () => {
   const date = document.getElementById('attDate').value;
@@ -29187,7 +29373,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v91';
+  const V = 'v92';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
