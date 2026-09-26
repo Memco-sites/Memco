@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v99 — Al Muhanad</title>
+<title>MEMCO Operations Console v101 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4864,7 +4864,12 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
     <div class="hero" style="margin-bottom:8px;">
       <h1 style="font-size:22px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">Transfer Labor <span class="hero-sub" style="font-size:12px;font-weight:400;margin:0;">Move workers from one project site to another</span></h1>
     </div>
-    <div class="att-one-line" style="margin-bottom:10px;">
+    <div class="att-one-line tr2-top" style="margin-bottom:10px;">
+      <div class="att-inline-row tr2-proj" style="margin-bottom:0;">
+        <label>Project</label>
+        <select id="transferProject"></select>
+        <button type="button" class="btn btn-ghost" id="transferFamiliesBtn" title="Which sites are phases of one project" style="display:none">⚙</button>
+      </div>
       <div class="att-inline-row" style="margin-bottom:0;flex:1;">
         <label>From</label>
         <select id="transferFromSite"></select>
@@ -4874,6 +4879,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <select id="transferToSite"></select>
       </div>
     </div>
+    <div id="transferModeNote" class="tr2-mode"></div>
     <input type="text" id="transferSearch" placeholder="Search worker in From Site…" style="width:100%;background:var(--navy-2);border:1px solid var(--line);color:var(--ink);padding:9px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;margin:10px 0;">
     <div id="transferList" class="tr2-list"></div>
     <div class="tr2-foot">
@@ -5409,6 +5415,8 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       <div id="dateLockBanner" style="display:none;"></div>
       <div class="att-quickbar">
         <button type="button" class="btn btn-primary" id="attAllPresent">✅ All present</button>
+        <button type="button" class="btn btn-ghost att-allabs" id="attAllAbsent">⛔ All absent</button>
+        <button type="button" class="btn btn-ghost att-holi" id="attHoliday">🎉 Holiday</button>
         <span class="st-muted" id="attWhoCount"></span>
       </div>
       <div id="laborAttList" class="labor-att-list-v6" style="max-height:420px;overflow-y:auto;"></div>
@@ -6516,6 +6524,7 @@ const ACTION_PERMISSIONS = [
   { key: 'siteAccess',        label: 'Site Access — who may log in / mark attendance / use the store', group: 'Administration' },
   { key: 'bulkPeopleExcel',   label: 'Load labor / staff / site lists from Excel', group: 'Administration' },
   { key: 'approveTransfer',   label: 'Approve labor transfers (as the PM of a site)', group: 'Administration' },
+  { key: 'movePhases',        label: 'Move labor between phases of the same project (no approval)', group: 'Administration' },
   { key: 'siteLocked',        label: '📍 This role sees only its own site(s) — set the site in Manage Users', group: 'Administration' },
 ];
 // a role is limited to its own site when it is one of the built-in field roles,
@@ -7551,6 +7560,7 @@ function builtInPerm(role, key){
     siteAccess: ['HR', 'Project Manager', 'Project Engineer', 'Site Engineer'],
     bulkPeopleExcel: ['HR'],
     approveTransfer: ['Project Manager'],
+    movePhases: ['Project Manager', 'Project Engineer', 'Site Engineer', 'Site Supervisor'],
     siteLocked: (typeof SITE_LOCKED_ROLES !== 'undefined') ? SITE_LOCKED_ROLES : []
   };
   return !!(R[key] && R[key].includes(role));
@@ -8824,6 +8834,7 @@ let dailyLaborRecords = [];
 let dailyLaborLoaded = false;
 let currentAbsentMap = {}; // code -> reason
 let currentMarkedSet = new Set(); // men whose attendance was marked on the screen (present or absent)
+let currentLeaveAuto = new Set(); // men put 'on leave' by their HR record, until someone marks them back on duty
 let currentOTMap = {}; // code -> OT hours (number, as string while typing), keyed against the selected OT date (see attOtDate), not necessarily the Attendance date
 let currentOtDateAbsentMap = {}; // read-only snapshot: code -> reason, who was Absent ON THE SELECTED OT DATE specifically (may differ from the Attendance-date absentee map above) — used only to disable/zero the OT box for them
 const PROJECT_OT_SETTINGS_KEY = "project-ot-settings-v1";
@@ -9316,11 +9327,39 @@ document.getElementById('attAllPresent').addEventListener('click', () => {
   const men = attWhoMen(laborRecords.filter(l => l.site === project));
   if(!men.length){ showToast('Nobody on this list'); return; }
   let cleared = 0;
-  men.forEach(l => { currentMarkedSet.add(l.code); if(currentAbsentMap.hasOwnProperty(l.code)){ delete currentAbsentMap[l.code]; cleared++; } });
+  men.forEach(l => {
+    if(currentLeaveAuto.has(l.code)) return;            // on leave in HR: stays on leave
+    currentMarkedSet.add(l.code);
+    if(currentAbsentMap.hasOwnProperty(l.code)){ delete currentAbsentMap[l.code]; cleared++; }
+  });
   if(typeof syncOtDateAbsentIfSameDay === 'function') syncOtDateAbsentIfSameDay();
   if(typeof renderLaborAttChecklist === 'function') renderLaborAttChecklist();
   if(typeof renderAttSnapshot === 'function') renderAttSnapshot();
   showToast(cleared ? `${men.length} men present — ${cleared} were marked absent` : `${men.length} men present`);
+});
+document.getElementById('attAllAbsent').addEventListener('click', () => {
+  const project = document.getElementById('attProject').value;
+  const men = attWhoMen(laborRecords.filter(l => l.site === project)).filter(l => !currentLeaveAuto.has(l.code));
+  if(!men.length){ showToast('Nobody on this list'); return; }
+  if(!confirm(`Mark all ${men.length} men ABSENT for ${formatDMY(document.getElementById('attDate').value)}?\n\nThen tap the ones who came.`)) return;
+  men.forEach(l => { currentMarkedSet.add(l.code); currentAbsentMap[l.code] = ''; });
+  if(typeof syncOtDateAbsentIfSameDay === 'function') syncOtDateAbsentIfSameDay();
+  renderLaborAttChecklist(); renderAttSnapshot();
+  showToast(`${men.length} men absent`);
+});
+document.getElementById('attHoliday').addEventListener('click', async () => {
+  const date = document.getElementById('attDate').value;
+  const r = await memcoHolidayDialog(date);
+  if(!r) return;
+  // today's list: everybody not on leave goes on H; who comes to work is tapped to P and gets his OT
+  if(r.dates.includes(date)){
+    const project = document.getElementById('attProject').value;
+    attWhoMen(laborRecords.filter(l => l.site === project)).filter(l => !currentLeaveAuto.has(l.code))
+      .forEach(l => { currentMarkedSet.add(l.code); currentAbsentMap[l.code] = 'H'; });
+    if(typeof syncOtDateAbsentIfSameDay === 'function') syncOtDateAbsentIfSameDay();
+  }
+  refreshOtState();
+  renderLaborAttChecklist(); renderAttSnapshot();
 });
 document.getElementById('attOtDate').addEventListener('change', refreshOtState);
 document.getElementById('otEnabledToggle').addEventListener('change', onOtSettingChange);
@@ -9363,6 +9402,10 @@ async function onDateOrProjectChange(){
       const res = await window.storage.get(HOLIDAYS_KEY, true);
       holidayDates = res && res.value ? JSON.parse(res.value) : [];
     }catch(e){ holidayDates = []; }
+    try{
+      const rn = await window.storage.get('memco-holiday-names', true);
+      if(rn && rn.value) holidayNames = Object.assign({}, holidayNames, JSON.parse(rn.value) || {});
+    }catch(e){}
     holidayDatesLoaded = true;
   }
   const existing = findAttRecord(date, project);
@@ -9380,10 +9423,22 @@ async function onDateOrProjectChange(){
   const dailyExisting = dailyLaborRecords.find(r => r.date === date && r.project === project);
   currentAbsentMap = {};
   currentMarkedSet = new Set();
+  currentLeaveAuto = new Set();
   if(dailyExisting){
     (dailyExisting.absentees || []).forEach(a => { currentAbsentMap[a.code] = a.reason || ''; });
     // a day already saved: everybody on it counts as marked
     laborRecords.filter(l => l.site === project).forEach(l => currentMarkedSet.add(l.code));
+    laborRecords.filter(l => l.site === project && hrIsOnLeave(l.status) && currentAbsentMap.hasOwnProperty(l.code)).forEach(l => currentLeaveAuto.add(l.code));
+  } else {
+    const siteMen = laborRecords.filter(l => l.site === project);
+    // a man on leave in HR stays on leave, day after day, until he is marked back on duty
+    siteMen.filter(l => hrIsOnLeave(l.status)).forEach(l => {
+      currentAbsentMap[l.code] = leaveReasonFor(l.status); currentMarkedSet.add(l.code); currentLeaveAuto.add(l.code);
+    });
+    // a public holiday: everybody starts on H; whoever comes to work is tapped to P
+    if(holidayDates.includes(date)){
+      siteMen.filter(l => !currentLeaveAuto.has(l.code)).forEach(l => { currentAbsentMap[l.code] = 'H'; currentMarkedSet.add(l.code); });
+    }
   }
 
   const otDateInput = document.getElementById('attOtDate');
@@ -9412,14 +9467,15 @@ function refreshOtState(){
     if(otDateRecord){
       currentOTMap = { ...(otDateRecord.otHours || {}) };
       if(otDateRecord.attendanceTaken){
-        (otDateRecord.absentees || []).forEach(a => { currentOtDateAbsentMap[a.code] = a.reason || ''; });
+        (otDateRecord.absentees || []).forEach(a => { if(a.reason !== 'H') currentOtDateAbsentMap[a.code] = a.reason || ''; });
       }
     }
     // If the OT date happens to be the same date currently open for
     // Attendance, the live (possibly still-unsaved) Absent map is more
     // current than whatever was last saved, so it wins.
     if(attDateVal === otDate){
-      currentOtDateAbsentMap = { ...currentAbsentMap };
+      currentOtDateAbsentMap = {};
+      Object.keys(currentAbsentMap).forEach(k => { if(currentAbsentMap[k] !== 'H') currentOtDateAbsentMap[k] = currentAbsentMap[k]; });
     }
   }
   // Absence Dependency Check: zero-out any OT already on file for a worker
@@ -9651,6 +9707,65 @@ window.addEventListener('storage', (ev) => {
 });
 startSupabasePolling(PROJECT_OT_SETTINGS_KEY, applyRemoteProjectOtSettingsUpdate);
 
+// 🎉 a public holiday: its name (event) and how many days — kept for the whole company
+const UAE_HOLIDAY_NAMES = ["New Year's Day", 'Eid Al Fitr', 'Arafat Day', 'Eid Al Adha', 'Islamic New Year', "Prophet's Birthday", 'Commemoration Day', 'UAE National Day'];
+function memcoHolidayName(date){ return holidayNames[date] || ''; }
+function memcoHolidayDialog(startDate){
+  return new Promise(resolve => {
+    const w = document.createElement('div');
+    w.className = 'hol-wrap';
+    const today = startDate || new Date().toISOString().slice(0, 10);
+    const upcoming = holidayDates.filter(d => d >= today).sort().slice(0, 8);
+    w.innerHTML = `<div class="hol-box">
+        <div class="hol-head"><b>🎉 Public holiday</b><button type="button" class="hol-x" data-x>✕</button></div>
+        <label>Event</label>
+        <input id="holName" list="holNames" placeholder="e.g. Eid Al Adha" value="${escapeAttr(holidayNames[today] || '')}">
+        <datalist id="holNames">${UAE_HOLIDAY_NAMES.map(n => `<option value="${escapeAttr(n)}">`).join('')}</datalist>
+        <div class="hol-row">
+          <div><label>From</label><input type="date" id="holFrom" value="${escapeAttr(today)}"></div>
+          <div><label>How many days</label><select id="holDays">${[1,2,3,4,5,6,7,8,9,10].map(n => `<option value="${n}">${n} day${n > 1 ? 's' : ''}</option>`).join('')}</select></div>
+        </div>
+        <div class="hol-note">On these days everybody starts on <b>H</b> (paid holiday). Whoever comes to work: tap him to <b>P</b> and write his overtime. Men on leave stay on leave.</div>
+        ${upcoming.length ? `<div class="hol-list"><div class="hol-l">Holidays already set</div>${upcoming.map(d => `<div class="hol-item"><span>${escapeHtml(formatDMY(d))}</span><span>${escapeHtml(holidayNames[d] || 'Public holiday')}</span><button type="button" data-del="${escapeAttr(d)}" title="Remove this day">✕</button></div>`).join('')}</div>` : ''}
+        <div class="hol-foot"><button type="button" class="btn btn-ghost" data-x>Cancel</button><button type="button" class="btn btn-primary" id="holOk">🎉 Set holiday</button></div>
+      </div>`;
+    document.body.appendChild(w);
+    const close = v => { w.remove(); resolve(v); };
+    const saveAll = async () => {
+      try{ await window.storage.set(HOLIDAYS_KEY, JSON.stringify(holidayDates), true); }catch(e){}
+      try{ localStorage.setItem('memco-holiday-names', JSON.stringify(holidayNames)); }catch(e){}
+      try{ await window.storage.set('memco-holiday-names', JSON.stringify(holidayNames), true); }catch(e){}
+    };
+    w.addEventListener('click', async e => {
+      if(e.target === w || e.target.closest('[data-x]')) return close(null);
+      const del = e.target.closest('[data-del]');
+      if(del){
+        const d = del.dataset.del;
+        if(!confirm(`Remove the holiday on ${formatDMY(d)}?`)) return;
+        holidayDates = holidayDates.filter(x => x !== d); delete holidayNames[d];
+        await saveAll(); del.closest('.hol-item').remove(); showToast('Holiday removed');
+      }
+    });
+    w.querySelector('#holOk').addEventListener('click', async () => {
+      const name = w.querySelector('#holName').value.trim();
+      const from = w.querySelector('#holFrom').value;
+      const n = +w.querySelector('#holDays').value || 1;
+      if(!name){ alert('Write the event — for example Eid Al Adha.'); return; }
+      if(!from){ alert('Choose the first day.'); return; }
+      const dates = [];
+      for(let i = 0; i < n; i++){ const x = new Date(from + 'T00:00:00'); x.setDate(x.getDate() + i); dates.push(x.toISOString().slice(0, 10)); }
+      dates.forEach(d => { if(!holidayDates.includes(d)) holidayDates.push(d); holidayNames[d] = name; });
+      holidayDates.sort();
+      await saveAll();
+      showToast(`${name}: ${n} day${n > 1 ? 's' : ''} from ${formatDMY(from)}`);
+      close({name, dates});
+    });
+    setTimeout(() => w.querySelector('#holName').focus(), 30);
+  });
+}
+window.memcoHolidayDialog = memcoHolidayDialog;
+window.memcoIsHoliday = d => holidayDates.includes(d);
+window.memcoHolidayName = memcoHolidayName;
 async function manageHolidays(){
   if(!can('manageOtSettings')){ showToast('You do not have permission to manage public holidays'); return; }
   const current = holidayDates.join(', ');
@@ -9858,11 +9973,20 @@ function attWhoMen(siteLabor){
 }
 
 const LATT_REASONS = ['SL','AL','EL','PR','UL','HL','VM','TT','VB','SA','OS'];
+// 'H' = public holiday: paid, not absent, overtime still allowed (set by the 🎉 Holiday button)
 const LATT_REASON_LABELS = {
   SL:'Sick Leave', AL:'Annual Leave', EL:'Emergency Leave', PR:'Passport Renewal',
   UL:'Umrah Leave', HL:'Hajj Leave', VM:'Visa Medical', TT:'Taujee Training',
-  VB:'Visa Biometric', SA:'Site Accident', OS:'Other Site'
+  VB:'Visa Biometric', SA:'Site Accident', OS:'Other Site', H:'Public Holiday'
 };
+// the HR leave of a man -> the reason written on the day
+function leaveReasonFor(st){
+  const k = hrStatusShort(st);
+  return {EMG: 'EL', VAC: 'AL', UMR: 'UL', HAJ: 'HL'}[k] || '';
+}
+// holiday names, kept with the holiday dates
+let holidayNames = {};
+try{ holidayNames = JSON.parse(localStorage.getItem('memco-holiday-names') || '{}') || {}; }catch(e){ holidayNames = {}; }
 
 function renderLaborAttChecklist(){
   const project = document.getElementById('attProject').value;
@@ -9872,7 +9996,10 @@ function renderLaborAttChecklist(){
   const absentCount = Object.keys(currentAbsentMap).filter(code => siteLabor.some(l => l.code === code)).length;
   const markedCount = siteLabor.filter(l => currentMarkedSet.has(l.code) || currentAbsentMap.hasOwnProperty(l.code)).length;
   const wc = document.getElementById('attWhoCount');
-  if(wc) wc.innerHTML = total ? `Marked <b>${markedCount}</b> of ${total} · <span style="color:#4ade80">P ${markedCount - absentCount}</span> · <span style="color:#f87171">A ${absentCount}</span>${markedCount < total ? ` · <span style="color:#fbbf24">not marked ${total - markedCount}</span>` : ''}` : '';
+  const holCount = siteLabor.filter(l => currentAbsentMap[l.code] === 'H').length;
+  const lvCount = siteLabor.filter(l => currentLeaveAuto.has(l.code)).length;
+  const absOnly = Math.max(0, absentCount - holCount - lvCount);
+  if(wc) wc.innerHTML = total ? `Marked <b>${markedCount}</b> of ${total} · <span style="color:#4ade80">P ${markedCount - absentCount}</span> · <span style="color:#f87171">A ${absOnly}</span>${holCount ? ` · <span style="color:#fbbf24">H ${holCount}</span>` : ''}${lvCount ? ` · <span style="color:#fb923c">Leave ${lvCount}</span>` : ''}${markedCount < total ? ` · <span style="color:#fbbf24">not marked ${total - markedCount}</span>` : ''}${holidayDates.includes(document.getElementById('attDate').value) ? ` · 🎉 <b style="color:#fbbf24">${escapeHtml(memcoHolidayName(document.getElementById('attDate').value) || 'Public holiday')}</b>` : ''}` : '';
 
   document.getElementById('laborAttSummary').textContent = total === 0
     ? 'No individual labor records loaded for this project yet.'
@@ -9933,17 +10060,21 @@ function renderLaborAttChecklist(){
             (isExempt && !otEnabled ? '🛂 VIP Pass exception — ' : '') +
             (rowCap != null ? `Max ${rowCap} hr(s) for this date` : 'Flexible/no cap for this date')
           )));
-    const state = isAbsent ? 'a' : (isMarked ? 'p' : 'u');
-    const label = state === 'a' ? ('A' + (reason ? ' · ' + escapeHtml(reason) : '')) : (state === 'p' ? 'P' : '—');
+    const onLeave = currentLeaveAuto.has(l.code);
+    const isHol = isAbsent && reason === 'H';
+    const state = onLeave ? 'lv' : (isHol ? 'h' : (isAbsent ? 'a' : (isMarked ? 'p' : 'u')));
+    const label = state === 'lv' ? escapeHtml(hrStatusShort(l.status) || 'LEAVE')
+      : state === 'h' ? 'H'
+      : state === 'a' ? ('A' + (reason ? ' · ' + escapeHtml(reason) : '')) : (state === 'p' ? 'P' : '—');
     return `
       <div class="l2-row">
         <span class="l2-sl">${idx + 1}</span>
         <span class="l2-hr">${escapeHtml(l.code)}</span>
-        <span class="l2-nm" title="${escapeAttr(l.name || '')}">${escapeHtml(two(l.name))}${isExempt && !otEnabled ? ' <span class="latt-vip-badge" title="Overtime Exception List (VIP Pass)">🛂</span>' : ''}${hrIsOnLeave(l.status) ? ` <span class="latt-hr-badge" title="HR record: ${escapeAttr(l.status)}">${escapeHtml(hrStatusShort(l.status))}</span>` : ''}</span>
+        <span class="l2-nm" title="${escapeAttr(l.name || '')}">${escapeHtml(two(l.name))}${isExempt && !otEnabled ? ' <span class="latt-vip-badge" title="Overtime Exception List (VIP Pass)">🛂</span>' : ''}</span>
         <span class="l2-td" title="${escapeAttr(l.trade || '')}">${escapeHtml(l.trade || '')}</span>
-        <button class="l2-tg l2-${state}" data-toggle-code="${escapeAttr(l.code)}" ${attDateLocked ? 'disabled' : ''} title="${attDateLocked ? `${formatDMY(attDateVal)} is locked for editing — request Admin/HR/PM approval above` : (state === 'u' ? 'Not marked yet — tap for Present' : (state === 'p' ? 'Present — tap to mark Absent' : 'Absent — tap to mark Present'))}">${label}</button>
+        <button class="l2-tg l2-${state}" data-toggle-code="${escapeAttr(l.code)}" ${attDateLocked ? 'disabled' : ''} title="${attDateLocked ? `${formatDMY(attDateVal)} is locked for editing — request Admin/HR/PM approval above` : (state === 'lv' ? `On ${escapeAttr(hrStatusLabel(l.status))} in HR — tap when he is back on duty` : state === 'h' ? 'Public holiday — tap if he came to work' : state === 'u' ? 'Not marked yet — tap for Present' : (state === 'p' ? 'Present — tap to mark Absent' : 'Absent — tap to mark Present'))}">${label}</button>
         <input type="number" min="0" ${rowCap != null ? `max="${rowCap}"` : 'max="24"'} step="0.5" class="l2-ot" data-ot-code="${escapeAttr(l.code)}" placeholder="OT" value="${escapeAttr(otVal)}" title="${escapeAttr(otTitle)}" ${otDisabled ? 'disabled' : ''}>
-        ${isAbsent ? `<div class="latt-reasons l2-reasons">${LATT_REASONS.map(r => `<span class="latt-reason-chip ${reason===r?'selected':''}" data-reason-code="${escapeAttr(l.code)}" data-reason="${escapeAttr(r)}" title="${escapeAttr(LATT_REASON_LABELS[r])}">${r}</span>`).join('')}</div>` : ''}
+        ${isAbsent && !isHol && !onLeave ? `<div class="latt-reasons l2-reasons">${LATT_REASONS.map(r => `<span class="latt-reason-chip ${reason===r?'selected':''}" data-reason-code="${escapeAttr(l.code)}" data-reason="${escapeAttr(r)}" title="${escapeAttr(LATT_REASON_LABELS[r])}">${r}</span>`).join('')}</div>` : ''}
       </div>
     `;
   }).join('');
@@ -9952,7 +10083,14 @@ function renderLaborAttChecklist(){
     btn.addEventListener('click', () => {
       if(attDateLocked){ showToast(`${formatDMY(attDateVal)} is locked — request Admin/HR/PM approval above`); return; }
       const code = btn.dataset.toggleCode;
-      if(currentAbsentMap.hasOwnProperty(code)){ delete currentAbsentMap[code]; currentMarkedSet.add(code); }
+      if(currentLeaveAuto.has(code)){
+        // back from leave: he is present, and his HR record goes back to ACTIVE
+        const man = laborRecords.find(x => x.code === code);
+        if(!confirm(`${man ? man.name : 'HR ' + code} is on ${man ? hrStatusLabel(man.status) : 'leave'} in HR.\n\nMark him back on duty (Present) from ${formatDMY(document.getElementById('attDate').value)}?`)) return;
+        currentLeaveAuto.delete(code); delete currentAbsentMap[code]; currentMarkedSet.add(code);
+        if(man){ man.status = 'ACTIVE'; try{ saveLaborRecords(); }catch(e){} }
+      }
+      else if(currentAbsentMap.hasOwnProperty(code)){ delete currentAbsentMap[code]; currentMarkedSet.add(code); }
       else if(!currentMarkedSet.has(code)) currentMarkedSet.add(code);
       else currentAbsentMap[code] = '';
       syncOtDateAbsentIfSameDay();
@@ -9997,7 +10135,8 @@ function syncOtDateAbsentIfSameDay(){
   const attDateVal = document.getElementById('attDate').value;
   const otDate = document.getElementById('attOtDate').value;
   if(attDateVal && attDateVal === otDate){
-    currentOtDateAbsentMap = { ...currentAbsentMap };
+    currentOtDateAbsentMap = {};
+    Object.keys(currentAbsentMap).forEach(k => { if(currentAbsentMap[k] !== 'H') currentOtDateAbsentMap[k] = currentAbsentMap[k]; });
     Object.keys(currentOtDateAbsentMap).forEach(code => { delete currentOTMap[code]; });
   }
 }
@@ -10042,6 +10181,7 @@ function renderAttSnapshot(){
   const absentTotal = Object.values(reasonCounts).reduce((a,b) => a+b, 0);
   const presentMarked = siteLabor.filter(l => currentMarkedSet.has(l.code) && !currentAbsentMap.hasOwnProperty(l.code)).length;
   const notMarked = Math.max(0, almTotal - presentMarked - absentTotal);
+  const holTotal = reasonCounts.H || 0;          // a public holiday is paid, not an absence
   const present = presentMarked;
   const notMarkedTxt = notMarked ? ` · <span style="color:#fbbf24">Not marked ${notMarked}</span>` : '';
   const grandTotal = almTotal + subTotal;
@@ -10052,7 +10192,7 @@ function renderAttSnapshot(){
   document.getElementById('attSnapshot').innerHTML = `
     <div class="att-snapshot-row" style="border-bottom:2px solid var(--orange);">
       <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">TOTAL — ${escapeHtml(project)} · ${grandTotal} people</span>
-      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">Present ${present} · Absent ${absentTotal}${reasonSummary}${notMarkedTxt}</span>
+      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">Present ${present} · Absent ${absentTotal - holTotal}${reasonSummary}${notMarkedTxt}</span>
     </div>
     <div class="att-snapshot-row">
       <span class="att-snapshot-label">👷 Total Labor Deployed (Al Muhanad): ${almTotal}</span>
@@ -10248,6 +10388,7 @@ async function attPrintSignatureSheets(){
           engineer: who(crew.engineer_name, crew.engineer_hr),
           supervisor: who(crew.supervisor_name, crew.supervisor_hr),
           in_time: inTimeOf(crew.id || project),
+          crew_id: crew.id || null,
           first_no: k * MEMCO_ATT.G.maxRows + 1,
           part: parts.length > 1 ? `page ${k + 1} of ${parts.length}` : ''
         },
@@ -10259,7 +10400,25 @@ async function attPrintSignatureSheets(){
     });
   }
   if(!sheets.length){ showToast('No men to print'); return; }
-  MEMCO_ATT.printMany(sheets);
+  // every page is kept as a real sheet (with its number boxes), exactly like Time sheets → Print sheet,
+  // so the signed page can be read back by the phone or from a scanned PDF
+  const made = [];
+  let failed = 0;
+  if(window.MemcoStores && typeof MemcoStores.createSheet === 'function'){
+    showToast(`Making ${sheets.length} sheet(s)…`);
+    for(const sh of sheets){
+      try{
+        const r = await MemcoStores.createSheet({p_date: date, p_shift: '1st', p_group: project, p_group_name: project, p_rows: sh.rows, p_meta: sh.meta});
+        if(r && r.id){
+          made.push(Object.assign(r, {meta: Object.assign({}, r.meta || {}, sh.meta), rows: (r.rows && r.rows.length) ? r.rows : sh.rows}));
+          continue;
+        }
+      }catch(e){}
+      failed++; made.push(sh);
+    }
+  } else { failed = sheets.length; made.push(...sheets); }
+  if(failed) showToast(`${failed} sheet(s) could not be saved — they will print, but cannot be read back`);
+  MEMCO_ATT.printMany(made);
   showToast(`${sheets.length} sheet(s) ready`);
 }
 
@@ -10480,7 +10639,7 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
       let code, ot;
       if(dayInfo && dayInfo.hasRecord){
         code = dayInfo.absentMap[w.code] ? (dayInfo.absentMap[w.code] || 'A') : 'P';
-      }else if(dow === 0){
+      }else if(dow === 0 || holidayDates.includes(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)){
         code = 'H';
       }
       // Synchronized OT Alignment: OT hours are looked up independently of
@@ -10953,18 +11112,146 @@ document.getElementById('laborOutsideBtn').onclick = () => toggleLaborLeaveFilte
 /* ---- Transfer Labor Between Sites ---- */
 let transferSelected = new Set();
 
-function initTransferPanel(){
-  const sites = (unifiedSites && unifiedSites.length) ? unifiedSites : reorderByMaster([...new Set(laborRecords.map(l=>l.site))]);
-  const fromSel = document.getElementById('transferFromSite');
-  const toSel = document.getElementById('transferToSite');
-  fromSel.innerHTML = sites.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
-  toSel.innerHTML = sites.map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
-  transferSelected = new Set();
-  renderTransferList();
+/* ---- project families: the phases of one project (ACRES, THE ACRES PHASE 1, PHASE 2 …) ----
+   Moving men between phases of one project needs no approval; between projects it still does. */
+const FAMILIES_KEY = 'memco-project-families-v1';
+let projectFamilies = null;          // {name: [site, …]} as saved; null = not loaded yet
+function allTransferSites(){
+  return (unifiedSites && unifiedSites.length) ? unifiedSites : reorderByMaster([...new Set(laborRecords.map(l => l.site).filter(Boolean))]);
 }
-document.getElementById('transferFromSite').addEventListener('change', () => {
+// a first guess from the names: drop THE / PHASE / numbers, what is left is the project
+function guessFamilies(sites){
+  const base = x => String(x || '').toUpperCase().replace(/\bTHE\b|\bPHASE\b|\bPH\b|\bPH\.|-|\(|\)|\b\d+\b|\bI{1,3}\b|\bIV\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const by = {};
+  sites.forEach(x => { const k = base(x); if(k) (by[k] = by[k] || []).push(x); });
+  const out = {};
+  Object.keys(by).forEach(k => { if(by[k].length > 1) out[k] = by[k]; });
+  return out;
+}
+async function loadProjectFamilies(){
+  if(projectFamilies) return projectFamilies;
+  let saved = null;
+  try{ const r = await window.storage.get(FAMILIES_KEY, true); if(r && r.value) saved = JSON.parse(r.value); }catch(e){}
+  projectFamilies = saved || guessFamilies(allTransferSites());
+  return projectFamilies;
+}
+function familyOfSite(site){
+  const f = projectFamilies || {};
+  return Object.keys(f).find(k => (f[k] || []).includes(site)) || '';
+}
+function sameFamily(a, b){ const fa = familyOfSite(a); return !!fa && fa === familyOfSite(b); }
+function canMovePhases(fromSite){
+  if(!currentUser) return false;
+  if(currentUser.role === 'Super Admin' || currentUser.superUserBypass || currentUser.role === 'HR') return true;
+  const builtIn = ['Project Manager', 'Project Engineer', 'Site Engineer', 'Site Supervisor'].includes(currentUser.role);
+  if(!builtIn && !can('movePhases')) return false;
+  // a man tied to his own site may only move men inside his own project
+  if(currentUser.site && typeof isSiteLockedRole === 'function' && isSiteLockedRole(currentUser.role)){
+    const fam = familyOfSite(fromSite);
+    return !!fam && (projectFamilies[fam] || []).includes(currentUser.site);
+  }
+  return true;
+}
+function fillTransferSites(){
+  const fam = document.getElementById('transferProject').value;
+  const sites = fam ? (projectFamilies[fam] || []) : allTransferSites();
+  const fromSel = document.getElementById('transferFromSite'), toSel = document.getElementById('transferToSite');
+  const keepF = fromSel.value, keepT = toSel.value;
+  const opts = sites.map(x => `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`).join('');
+  fromSel.innerHTML = opts; toSel.innerHTML = opts;
+  if(sites.includes(keepF)) fromSel.value = keepF;
+  if(sites.includes(keepT) && keepT !== fromSel.value) toSel.value = keepT;
+  else if(sites.length > 1 && toSel.value === fromSel.value) toSel.value = sites.find(x => x !== fromSel.value);
+}
+function renderTransferMode(){
+  const el = document.getElementById('transferModeNote'); if(!el) return;
+  const f = document.getElementById('transferFromSite').value, t = document.getElementById('transferToSite').value;
+  const btn = document.getElementById('transferConfirmBtn');
+  if(!f || !t || f === t){ el.innerHTML = ''; if(btn) btn.textContent = '⇄ Transfer Selected Labor'; return; }
+  if(sameFamily(f, t)){
+    const ok = canMovePhases(f);
+    el.innerHTML = ok
+      ? `<span class="tr2-same">✅ Same project (${escapeHtml(familyOfSite(f))}) — the men move at once, no approval needed</span>`
+      : `<span class="tr2-ask">Same project — but your role cannot move men between phases, so it goes for approval</span>`;
+    if(btn) btn.textContent = ok ? '⇄ Move now' : '⇄ Send for approval';
+  } else {
+    el.innerHTML = `<span class="tr2-ask">Different projects — the transfer goes to the Project Manager for approval, then to the camp</span>`;
+    if(btn) btn.textContent = '⇄ Send for approval';
+  }
+}
+async function initTransferPanel(){
+  await loadProjectFamilies();
+  const projSel = document.getElementById('transferProject');
+  const fams = Object.keys(projectFamilies || {}).sort();
+  projSel.innerHTML = '<option value="">— All projects —</option>' + fams.map(k => `<option value="${escapeAttr(k)}">${escapeHtml(k)} (${projectFamilies[k].length} phases)</option>`).join('');
+  // a site-bound user starts on his own project
+  if(currentUser && currentUser.site){ const mine = familyOfSite(currentUser.site); if(mine) projSel.value = mine; }
+  const fb = document.getElementById('transferFamiliesBtn');
+  if(fb) fb.style.display = (currentUser && (currentUser.role === 'Super Admin' || can('managePermissions'))) ? '' : 'none';
+  fillTransferSites();
   transferSelected = new Set();
   renderTransferList();
+  renderTransferMode();
+}
+document.getElementById('transferProject').addEventListener('change', () => { fillTransferSites(); transferSelected = new Set(); renderTransferList(); renderTransferMode(); });
+// ⚙ which sites belong together
+document.getElementById('transferFamiliesBtn').addEventListener('click', async () => {
+  await loadProjectFamilies();
+  const sites = allTransferSites();
+  const fams = JSON.parse(JSON.stringify(projectFamilies || {}));
+  const w = document.createElement('div');
+  w.className = 'hol-wrap';
+  const card = (k, list) => `<div class="fam-card"><div class="fam-h"><input class="fam-name" value="${escapeAttr(k)}"><button type="button" data-delfam="1" title="Remove this project">🗑</button></div>
+        <div class="fam-sites">${sites.map(x => `<label><input type="checkbox" value="${escapeAttr(x)}" ${list.includes(x) ? 'checked' : ''}> ${escapeHtml(x)}</label>`).join('')}</div></div>`;
+  const draw = () => {
+    w.innerHTML = `<div class="hol-box" style="max-width:640px">
+      <div class="hol-head"><b>⚙ Projects and their phases</b><button type="button" class="hol-x" data-x>✕</button></div>
+      <div class="hol-note">Tick the sites that are phases of one project. Men move between these at once, without approval.</div>
+      <div id="famCards">${Object.keys(fams).sort().map(k => card(k, fams[k])).join('')}</div>
+      <div class="hol-foot" style="justify-content:space-between"><button type="button" class="btn btn-ghost" id="famAdd">➕ New project</button>
+        <span><button type="button" class="btn btn-ghost" data-x>Cancel</button> <button type="button" class="btn btn-primary" id="famSave">💾 Save</button></span></div></div>`;
+  };
+  // only show the sites of each project first — the full list is long
+  const collect = () => {
+    const out = {};
+    w.querySelectorAll('.fam-card').forEach(card => {
+      const nameEl = card.querySelector('.fam-name');
+      const nm = nameEl.value.trim().toUpperCase();
+      const ticked = [...card.querySelectorAll('input[type=checkbox]:checked')].map(i => i.value);
+      if(nm && ticked.length > 1) out[nm] = ticked;
+    });
+    return out;
+  };
+  draw(); document.body.appendChild(w);
+  w.addEventListener('click', async e => {
+    if(e.target === w || e.target.closest('[data-x]')) return w.remove();
+    const del = e.target.closest('[data-delfam]');
+    if(del){ del.closest('.fam-card').remove(); return; }
+    if(e.target.id === 'famAdd'){
+      const nm = (prompt('Name of the project (e.g. DAMAC LAGOONS):', '') || '').trim().toUpperCase();
+      if(!nm) return;
+      w.querySelector('#famCards').insertAdjacentHTML('beforeend', card(nm, []));
+      return;
+    }
+    if(e.target.id === 'famSave'){
+      const out = collect();
+      const dup = {};
+      Object.keys(out).forEach(k => out[k].forEach(x => { (dup[x] = dup[x] || []).push(k); }));
+      const clash = Object.keys(dup).filter(x => dup[x].length > 1);
+      if(clash.length){ alert('A site can be in one project only:\n\n' + clash.map(x => `${x} → ${dup[x].join(', ')}`).join('\n')); return; }
+      projectFamilies = out;
+      try{ await window.storage.set(FAMILIES_KEY, JSON.stringify(out), true); }catch(err){}
+      showToast('Projects saved');
+      w.remove(); initTransferPanel();
+    }
+  });
+});
+document.getElementById('transferFromSite').addEventListener('change', () => {
+  const f = document.getElementById('transferFromSite'), t = document.getElementById('transferToSite');
+  if(t.value === f.value){ const o = [...t.options].find(x => x.value !== f.value); if(o) t.value = o.value; }
+  transferSelected = new Set();
+  renderTransferList();
+  renderTransferMode();
 });
 document.getElementById('transferSearch').addEventListener('input', renderTransferList);
 
@@ -11019,7 +11306,7 @@ function fitTransferList(){
   list.style.maxHeight = h + 'px';
 }
 window.addEventListener('resize', () => { try{ fitTransferList(); }catch(e){} });
-document.getElementById('transferToSite').addEventListener('change', updateTransferSummary);
+document.getElementById('transferToSite').addEventListener('change', () => { updateTransferSummary(); renderTransferMode(); });
 
 document.getElementById('transferConfirmBtn').onclick = () => ensureName(async () => {
   const fromSite = document.getElementById('transferFromSite').value;
@@ -11029,6 +11316,42 @@ document.getElementById('transferConfirmBtn').onclick = () => ensureName(async (
 
   const picked = laborRecords.filter(l => transferSelected.has(l.code))
     .map(l => ({code: l.code, name: l.name, trade: l.trade || '', nationality: l.nationality || ''}));
+  // phases of one project: straight move, no approval
+  if(sameFamily(fromSite, toSite) && canMovePhases(fromSite)){
+    const list = picked.slice(0, 12).map(p => `${p.code} ${p.name}`).join('\n') + (picked.length > 12 ? `\n… and ${picked.length - 12} more` : '');
+    if(!confirm(`Move ${picked.length} man(men) now?\n\n${fromSite}  →  ${toSite}\n(same project: ${familyOfSite(fromSite)})\n\n${list}`)) return;
+    try{
+      const codes = new Set(picked.map(p => String(p.code)));
+      laborRecords.forEach(l => { if(codes.has(String(l.code))) l.site = toSite; });
+      await saveLaborRecords();
+      // they leave their foreman's group on the old phase
+      try{
+        const c = (typeof getSupaClient === 'function') ? getSupaClient() : null;
+        if(c){
+          const r = await c.rpc('st_crew_list', {p_group: fromSite});
+          for(const crew of ((r && r.data) || [])){
+            const out = (crew.members || []).map(m => String(m.hr)).filter(h => codes.has(h));
+            if(out.length) await c.rpc('st_crew_remove', {p_crew: crew.id, p_hrs: out});
+          }
+        }
+      }catch(e){}
+      // a record of every move: who, when, from where to where
+      try{
+        const key = 'memco-phase-moves-v1';
+        let log = [];
+        try{ const r = await window.storage.get(key, true); if(r && r.value) log = JSON.parse(r.value) || []; }catch(e){}
+        log.push({at: new Date().toISOString(), by: currentUser ? (currentUser.name || currentUser.username) : '', from: fromSite, to: toSite, men: picked.map(p => p.code)});
+        if(log.length > 3000) log = log.slice(-3000);
+        await window.storage.set(key, JSON.stringify(log), true);
+      }catch(e){}
+      await logChange(`moved ${picked.length} labor between phases ${fromSite} to`, { company: toSite, site: toSite });
+      showToast(`${picked.length} man(men) moved to ${toSite}`);
+    }catch(e){ showToast('Could not move — try again'); }
+    transferSelected = new Set();
+    renderTransferList();
+    renderLaborList();
+    return;
+  }
   try{
     if(window.MemcoTransfers){
       const t = await window.MemcoTransfers.createRequest(fromSite, toSite, picked);
@@ -22711,23 +23034,39 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         let saved = [];
         try{ saved = await rpc('st_att_list', {p_date: date, p_group: group, p_crew: crewId || null}) || []; }
         catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>28_memco_crews_attendance.sql</b> in Supabase first.</div>`; return; }
+        // P present · A absent · H public holiday (paid, OT allowed) · LV on leave in HR (until marked back)
         const mark = {}, ot = {};
-        list.forEach(p => { mark[p.hr] = true; });
-        saved.forEach(a => { mark[a.hr] = a.present; ot[a.hr] = num(a.ot); });
+        const hrOf = hr => (typeof hrRecordFor === 'function' ? hrRecordFor(hr) : null) || {};
+        const leaveOf = hr => { const st = hrOf(hr).status; return (typeof hrIsOnLeave === 'function' && hrIsOnLeave(st)) ? st : ''; };
+        const isHol = typeof window.memcoIsHoliday === 'function' && window.memcoIsHoliday(date);
+        list.forEach(p => { mark[p.hr] = leaveOf(p.hr) ? 'LV' : (isHol ? 'H' : 'P'); });
+        saved.forEach(a => { mark[a.hr] = a.reason === 'H' ? 'H' : (a.present ? 'P' : (leaveOf(a.hr) ? 'LV' : 'A')); ot[a.hr] = num(a.ot); });
+        const LBL = {P: 'Present', A: 'Absent', H: 'Holiday'};
         const drawRows = () => {
-          const pres = list.filter(p => mark[p.hr]).length;
-          $('tsMarkSum').innerHTML = `<b>${pres}</b> present · <b>${list.length - pres}</b> absent`;
+          const c = k => list.filter(p => mark[p.hr] === k).length;
+          $('tsMarkSum').innerHTML = `<b>${c('P')}</b> present · <b>${c('A')}</b> absent${c('H') ? ` · <b style="color:#fcd34d">${c('H')}</b> holiday` : ''}${c('LV') ? ` · <b style="color:#fdba74">${c('LV')}</b> on leave` : ''}${isHol ? ` · 🎉 ${esc(window.memcoHolidayName(date) || 'Public holiday')}` : ''}`;
           $('tsMarkRows').innerHTML = list.map(p => `<div class="ts-row" data-hr="${esc(p.hr)}">
             <span class="hr">${esc(p.hr)}</span>
             <span class="nm">${esc(p.name)}${p.kind === 'loan' ? ` <span class="st-pill p-pending">lent in${p.until ? ' · back ' + esc(dmy(p.until)) : ''}</span>` : ''}</span>
             <span class="td">${esc(p.trade || '')}</span>
             <span class="ac">
-              <button type="button" class="st-btn st-sm ${mark[p.hr] ? 'st-ok' : 'st-danger'}" data-flip="${esc(p.hr)}">${mark[p.hr] ? 'Present' : 'Absent'}</button>
-              <input type="number" class="tsOt" data-hr="${esc(p.hr)}" min="0" max="24" step="0.5" placeholder="OT" value="${ot[p.hr] || ''}" ${mark[p.hr] ? '' : 'disabled'}>
+              <button type="button" class="st-btn st-sm ts-mk-${mark[p.hr]}" data-flip="${esc(p.hr)}" title="${mark[p.hr] === 'LV' ? 'On leave in HR — tap when he is back on duty' : mark[p.hr] === 'H' ? 'Public holiday — tap if he came to work' : ''}">${mark[p.hr] === 'LV' ? esc((typeof hrStatusShort === 'function' ? hrStatusShort(leaveOf(p.hr)) : '') || 'LEAVE') : LBL[mark[p.hr]]}</button>
+              <input type="number" class="tsOt" data-hr="${esc(p.hr)}" min="0" max="24" step="0.5" placeholder="OT" value="${ot[p.hr] || ''}" ${mark[p.hr] === 'P' || mark[p.hr] === 'H' ? '' : 'disabled'}>
               <button type="button" class="st-btn st-ghost st-sm" data-send="${esc(p.hr)}" title="Lend him / send him to a job">🔁</button>
             </span></div>`).join('')
             || '<div class="st-empty">Nobody in this group.</div>';
-          $('tsMarkRows').querySelectorAll('[data-flip]').forEach(b => b.addEventListener('click', () => { mark[b.dataset.flip] = !mark[b.dataset.flip]; if(!mark[b.dataset.flip]) ot[b.dataset.flip] = 0; drawRows(); }));
+          $('tsMarkRows').querySelectorAll('[data-flip]').forEach(b => b.addEventListener('click', () => {
+            const hr = b.dataset.flip, cur = mark[hr];
+            if(cur === 'LV'){
+              const man = hrOf(hr);
+              if(!confirm(`${man.name || 'HR ' + hr} is on leave in HR (${man.status || ''}).\n\nMark him back on duty (Present)?`)) return;
+              mark[hr] = 'P';
+              if(man && man.code){ man.status = 'ACTIVE'; try{ saveLaborRecords(); }catch(e){} }
+            }
+            else if(cur === 'P') { mark[hr] = 'A'; ot[hr] = 0; }
+            else mark[hr] = 'P';                       // A or H -> present
+            drawRows();
+          }));
           $('tsMarkRows').querySelectorAll('.tsOt').forEach(i => i.addEventListener('change', () => { ot[i.dataset.hr] = num(i.value); }));
           $('tsMarkRows').querySelectorAll('[data-send]').forEach(b => b.addEventListener('click', async () => {
             const p = list.find(x => x.hr === b.dataset.send);
@@ -22738,7 +23077,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             Overtime typed here goes to the same place as the Overtime screen, so tomorrow's sheet will already show it.</div>
           <div class="ts-bar">
             <div class="st-field" style="flex:1 1 220px;max-width:320px"><label class="st-l">Group</label><select id="tsMarkGroup">${crewOptions(crewId)}</select></div>
-            <button type="button" class="st-btn st-ghost st-sm" id="tsAllPresent">All present</button>
+            <button type="button" class="st-btn st-ok st-sm" id="tsAllPresent">✅ All present</button>
+            <button type="button" class="st-btn st-ghost st-sm ts-allabs" id="tsAllAbsent">⛔ All absent</button>
+            <button type="button" class="st-btn st-ghost st-sm ts-holi" id="tsHoliday">🎉 Holiday</button>
             <button type="button" class="st-btn st-sm" id="tsAddMan">➕ Add a man</button>
             <span class="st-muted" id="tsMarkSum" style="margin-left:auto;align-self:center"></span>
           </div>
@@ -22762,9 +23103,21 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           if(box) box.innerHTML = miss.length ? `<div class="st-note warn" style="margin-bottom:8px">⚠ <b>${miss.length}</b> man/men on this site have no attendance for ${esc(dmy(date))}:
             ${esc(miss.slice(0, 12).map(m => m.hr + (m.crew_name ? ' (' + m.crew_name + ')' : '')).join(', '))}${miss.length > 12 ? ' …' : ''}</div>` : '';
         }catch(e){}
-        $('tsAllPresent').addEventListener('click', () => { list.forEach(p => { mark[p.hr] = true; }); drawRows(); });
+        $('tsAllPresent').addEventListener('click', () => { list.forEach(p => { if(mark[p.hr] !== 'LV') mark[p.hr] = 'P'; }); drawRows(); });
+        $('tsAllAbsent').addEventListener('click', () => {
+          if(!confirm(`Mark all ${list.length} men ABSENT? Then tap the ones who came.`)) return;
+          list.forEach(p => { if(mark[p.hr] !== 'LV'){ mark[p.hr] = 'A'; ot[p.hr] = 0; } }); drawRows();
+        });
+        $('tsHoliday').addEventListener('click', async () => {
+          if(typeof window.memcoHolidayDialog !== 'function') return;
+          const r = await window.memcoHolidayDialog(date);
+          if(!r) return;
+          if(r.dates.includes(date)){ list.forEach(p => { if(mark[p.hr] !== 'LV') mark[p.hr] = 'H'; }); }
+          draw();
+        });
         $('tsMarkSave').addEventListener('click', e => busy(e.currentTarget, async () => {
-          const rows = list.map(p => ({hr: p.hr, name: p.name, trade: p.trade || '', present: !!mark[p.hr], ot: num(ot[p.hr])}));
+          const reasonOf = hr => mark[hr] === 'H' ? 'H' : (mark[hr] === 'LV' ? ((typeof leaveReasonFor === 'function' ? leaveReasonFor(leaveOf(hr)) : '') || 'LV') : '');
+          const rows = list.map(p => ({hr: p.hr, name: p.name, trade: p.trade || '', present: mark[p.hr] === 'P' || mark[p.hr] === 'H', reason: reasonOf(p.hr), ot: num(ot[p.hr])}));
           const r = await rpc('st_att_set', {p_date: date, p_group: group, p_crew: crewId || null, p_rows: rows, p_source: 'phone'});
           toast(`Saved — ${r.marked} men, ${r.ot} with overtime`);
         }));
@@ -26795,7 +27148,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }, 60000);
     checkAccess();
   }
-  window.MemcoStores = {open, openWorkshop, openTimeSheets, close, state: S};
+  // the daily screen makes its sheets through the same place as Time sheets, so they can be read back
+  const createSheet = args => rpc('st_att_sheet_create', args);
+  window.MemcoStores = {open, openWorkshop, openTimeSheets, close, state: S, createSheet};
   window.MemcoSheet = {readSheet, readXlsx, readCsv, normBrand, num};
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
@@ -30179,7 +30534,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v99';
+  const V = 'v101';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -30290,6 +30645,12 @@ document.addEventListener('change', function(ev){
 #attSheetsHost .ts-intime{ display:flex; gap:4px; flex-wrap:wrap; }
 #attSheetsHost .ts-it{ height:32px; padding:0 10px; border-radius:8px; border:1px solid rgba(251,191,36,.45); background:rgba(251,191,36,.08);
   color:#fde68a; font-weight:700; font-size:12.5px; cursor:pointer; }
+#attSheetsHost .ts-mk-P{background:rgba(34,197,94,.2)!important;border-color:rgba(74,222,128,.75)!important;color:#4ade80!important}
+#attSheetsHost .ts-mk-A{background:rgba(239,68,68,.18)!important;border-color:rgba(248,113,113,.75)!important;color:#fca5a5!important}
+#attSheetsHost .ts-mk-H{background:rgba(245,158,11,.18)!important;border-color:rgba(251,191,36,.75)!important;color:#fcd34d!important}
+#attSheetsHost .ts-mk-LV{background:rgba(249,115,22,.16)!important;border-color:rgba(251,146,60,.75)!important;color:#fdba74!important}
+#attSheetsHost .ts-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
+#attSheetsHost .ts-holi{border-color:rgba(251,191,36,.6)!important;color:#fcd34d!important}
 #attSheetsHost .ts-it.on{ background:linear-gradient(135deg,#d97706,#b45309); border-color:#fbbf24; color:#fff; }
 </style>
 <style>
@@ -30359,6 +30720,43 @@ document.addEventListener('change', function(ev){
 #vehiclesView .vc2-active{--vc:#4ade80}
 #vehiclesView .vc2-standby{--vc:#94a3b8}
 #vehiclesView .vc2.vc2-expired{border-color:rgba(248,113,113,.35)}
+</style>
+<style>
+/* v100: holiday and leave states, and the holiday box */
+#attendanceView .l2-tg.l2-h{background:rgba(245,158,11,.18);border-color:rgba(251,191,36,.75);color:#fcd34d}
+#attendanceView .l2-tg.l2-lv{background:rgba(249,115,22,.16);border-color:rgba(251,146,60,.75);color:#fdba74;font-size:11.5px}
+#attendanceView .att-quickbar .att-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
+#attendanceView .att-quickbar .att-holi{border-color:rgba(251,191,36,.6)!important;color:#fcd34d!important}
+#attendanceView .att-quickbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.hol-wrap{position:fixed;inset:0;z-index:9700;background:rgba(2,10,20,.8);display:flex;align-items:center;justify-content:center;padding:14px}
+.hol-box{background:#0b2137;border:1px solid rgba(251,191,36,.35);border-radius:14px;padding:14px 16px;width:100%;max-width:440px;color:#e6f2ff;font-size:13.5px;max-height:90vh;overflow:auto}
+.hol-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:15px}
+.hol-x{background:none;border:1px solid rgba(148,163,184,.4);color:#cbd5e1;border-radius:8px;cursor:pointer;padding:2px 8px}
+.hol-box label{display:block;font-size:11px;font-weight:700;color:#8fb3d1;text-transform:uppercase;letter-spacing:.04em;margin:8px 0 3px}
+.hol-box input,.hol-box select{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid rgba(148,163,184,.35);background:#06172a;color:#e6f2ff;font-size:14px}
+.hol-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hol-note{margin:10px 0;font-size:12.5px;color:#9fb6d3;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:8px 10px}
+.hol-list{margin:6px 0 10px}.hol-l{font-size:11px;color:#8fb3d1;font-weight:700;margin-bottom:4px}
+.hol-item{display:grid;grid-template-columns:90px 1fr 28px;gap:6px;align-items:center;padding:4px 6px;border-bottom:1px solid rgba(148,163,184,.12)}
+.hol-item button{background:none;border:none;color:#fca5a5;cursor:pointer}
+.hol-foot{display:flex;justify-content:flex-end;gap:8px}
+</style>
+<style>
+/* v101: project + phases on Transfer Labor */
+#transferView .tr2-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#transferView .tr2-proj{flex:0 1 330px!important;display:flex;align-items:center;gap:6px}
+#transferView #transferProject{border:1px solid rgba(251,191,36,.6)!important;background:rgba(251,191,36,.08)!important;color:#fef3c7!important;font-weight:700}
+#transferView #transferFamiliesBtn{padding:6px 10px}
+#transferView .tr2-mode{margin:4px 0 0;font-size:12.5px;font-weight:700}
+#transferView .tr2-same{color:#4ade80}
+#transferView .tr2-ask{color:#fbbf24}
+.fam-card{border:1px solid rgba(148,163,184,.25);border-radius:10px;padding:8px 10px;margin:8px 0;background:rgba(6,23,42,.5)}
+.fam-h{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.fam-h .fam-name{flex:1;font-weight:800}
+.fam-h button{background:none;border:1px solid rgba(248,113,113,.5);color:#fca5a5;border-radius:8px;cursor:pointer;padding:4px 8px}
+.fam-sites{display:flex;flex-wrap:wrap;gap:4px 12px;max-height:160px;overflow:auto}
+.fam-sites label{display:flex!important;align-items:center;gap:5px;font-size:12px!important;font-weight:600!important;text-transform:none!important;letter-spacing:0!important;color:#cbd5e1!important;margin:0!important}
+.fam-sites input{width:auto!important}
 </style>
 <script>
 /* v99: a stray ✕, refresh or Back must not throw the user out of the app.
