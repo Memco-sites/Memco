@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v101 — Al Muhanad</title>
+<title>MEMCO Operations Console v102 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -5517,6 +5517,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       <button type="button" class="ah-tab-btn active" data-ah-tab="ot">⏱️ Overtime Control &amp; VIP Pass</button>
       <button type="button" class="ah-tab-btn" data-ah-tab="hr">🎖️ HR Upgrades &amp; Acting Roles</button>
       <button type="button" class="ah-tab-btn" data-ah-tab="access">🗺️ Multi-Project Access</button>
+      <button type="button" class="ah-tab-btn" data-ah-tab="families">🏗 Project Families</button>
       <button type="button" class="ah-tab-btn" data-ah-tab="approvals">✅ Pending Approvals<span class="ah-tab-badge" id="ahApprovalsBadge" style="display:none;">0</span></button>
     </div>
 
@@ -5605,6 +5606,15 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         </div>
         <h3 style="font-size:12.5px;margin:16px 0 6px;color:var(--ink-dim);">Existing accounts</h3>
         <div id="adminBypassList"></div>
+      </div>
+    </div>
+
+    <!-- TAB: Project families (phases of one project) -->
+    <div class="ah-tab-panel" data-ah-panel="families" style="display:none;">
+      <div class="admin-hub-section">
+        <h2>🏗 Project Families — phases of one project</h2>
+        <p class="ahs-desc">Sites that are phases of one project (ACRES, THE ACRES PHASE 1, PHASE 3 …). Men move between them on Transfer Labor at once, without approval.</p>
+        <div id="ahFamiliesHost"></div>
       </div>
     </div>
 
@@ -11121,7 +11131,11 @@ function allTransferSites(){
 }
 // a first guess from the names: drop THE / PHASE / numbers, what is left is the project
 function guessFamilies(sites){
-  const base = x => String(x || '').toUpperCase().replace(/\bTHE\b|\bPHASE\b|\bPH\b|\bPH\.|-|\(|\)|\b\d+\b|\bI{1,3}\b|\bIV\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const base = x => String(x || '').toUpperCase()
+    .replace(/\s+-\s+.*$/, '')                                   // "VICTORIA SCHOOL - AL DHAID" -> "VICTORIA SCHOOL"
+    .replace(/\bTHE\b|\bPHASE\b|\bPH\b|\bPH\.|-|\(|\)|\b\d+[A-Z]?\b|\bI{1,3}\b|\bIV\b/g, ' ')
+    .replace(/\s(ONE|TWO|THREE|FOUR|FIVE|A|B|C|D)\s*$/, ' ')          // CANAL CROWN ONE / TWO
+    .replace(/\s+/g, ' ').trim();
   const by = {};
   sites.forEach(x => { const k = base(x); if(k) (by[k] = by[k] || []).push(x); });
   const out = {};
@@ -11132,7 +11146,7 @@ async function loadProjectFamilies(){
   if(projectFamilies) return projectFamilies;
   let saved = null;
   try{ const r = await window.storage.get(FAMILIES_KEY, true); if(r && r.value) saved = JSON.parse(r.value); }catch(e){}
-  projectFamilies = saved || guessFamilies(allTransferSites());
+  projectFamilies = (saved && Object.keys(saved).length) ? saved : guessFamilies(allTransferSites());
   return projectFamilies;
 }
 function familyOfSite(site){
@@ -11194,57 +11208,62 @@ async function initTransferPanel(){
   renderTransferMode();
 }
 document.getElementById('transferProject').addEventListener('change', () => { fillTransferSites(); transferSelected = new Set(); renderTransferList(); renderTransferMode(); });
-// ⚙ which sites belong together
-document.getElementById('transferFamiliesBtn').addEventListener('click', async () => {
+// ⚙ which sites belong together — used in a pop-up here and as a tab in the Admin Hub
+async function renderFamiliesEditor(host, onDone){
   await loadProjectFamilies();
   const sites = allTransferSites();
   const fams = JSON.parse(JSON.stringify(projectFamilies || {}));
-  const w = document.createElement('div');
-  w.className = 'hol-wrap';
-  const card = (k, list) => `<div class="fam-card"><div class="fam-h"><input class="fam-name" value="${escapeAttr(k)}"><button type="button" data-delfam="1" title="Remove this project">🗑</button></div>
-        <div class="fam-sites">${sites.map(x => `<label><input type="checkbox" value="${escapeAttr(x)}" ${list.includes(x) ? 'checked' : ''}> ${escapeHtml(x)}</label>`).join('')}</div></div>`;
+  const used = () => { const u = new Set(); Object.values(fams).forEach(l => l.forEach(x => u.add(x))); return u; };
   const draw = () => {
-    w.innerHTML = `<div class="hol-box" style="max-width:640px">
-      <div class="hol-head"><b>⚙ Projects and their phases</b><button type="button" class="hol-x" data-x>✕</button></div>
-      <div class="hol-note">Tick the sites that are phases of one project. Men move between these at once, without approval.</div>
-      <div id="famCards">${Object.keys(fams).sort().map(k => card(k, fams[k])).join('')}</div>
-      <div class="hol-foot" style="justify-content:space-between"><button type="button" class="btn btn-ghost" id="famAdd">➕ New project</button>
-        <span><button type="button" class="btn btn-ghost" data-x>Cancel</button> <button type="button" class="btn btn-primary" id="famSave">💾 Save</button></span></div></div>`;
+    const free = sites.filter(x => !used().has(x));
+    host.innerHTML = `
+      <div class="hol-note">Choose the <b>main project</b> from the list and press <b>Add</b>. Then tick its other phases under it. Men move between the phases of one project at once, without approval.</div>
+      <div class="fam-add"><select id="famMain"><option value="">— main project —</option>${free.map(x => `<option value="${escapeAttr(x)}">${escapeHtml(x)}</option>`).join('')}</select>
+        <button type="button" class="btn btn-primary" id="famAdd">➕ Add</button></div>
+      <div id="famCards">${Object.keys(fams).sort().map(k => {
+          const others = sites.filter(x => x !== k && (fams[k].includes(x) || !used().has(x)));
+          return `<div class="fam-card" data-fam="${escapeAttr(k)}"><div class="fam-h"><b>🏗 ${escapeHtml(k)}</b><span class="fam-n">${fams[k].length} site${fams[k].length === 1 ? '' : 's'}</span><button type="button" data-delfam="${escapeAttr(k)}" title="Remove this project">🗑</button></div>
+            <div class="fam-sites">${sites.includes(k) ? `<label class="fam-main"><input type="checkbox" checked disabled> ${escapeHtml(k)} (main)</label>` : ''}
+              ${others.map(x => `<label><input type="checkbox" data-site="${escapeAttr(x)}" ${fams[k].includes(x) ? 'checked' : ''}> ${escapeHtml(x)}</label>`).join('')}</div></div>`;
+        }).join('') || '<div class="st-empty" style="padding:10px;color:#8fb3d1">No project yet — choose the main project above and press Add.</div>'}</div>
+      <div class="hol-foot">${onDone ? '<button type="button" class="btn btn-ghost" data-x>Close</button>' : ''}<button type="button" class="btn btn-primary" id="famSave">💾 Save</button></div>`;
   };
-  // only show the sites of each project first — the full list is long
-  const collect = () => {
-    const out = {};
-    w.querySelectorAll('.fam-card').forEach(card => {
-      const nameEl = card.querySelector('.fam-name');
-      const nm = nameEl.value.trim().toUpperCase();
-      const ticked = [...card.querySelectorAll('input[type=checkbox]:checked')].map(i => i.value);
-      if(nm && ticked.length > 1) out[nm] = ticked;
-    });
-    return out;
+  host.onchange = e => {
+    const c = e.target.closest('input[data-site]'); if(!c) return;
+    const k = c.closest('.fam-card').dataset.fam;
+    const x = c.dataset.site;
+    if(c.checked){ if(!fams[k].includes(x)) fams[k].push(x); } else fams[k] = fams[k].filter(y => y !== x);
+    draw();                        // a site ticked here disappears from the other projects' lists
   };
-  draw(); document.body.appendChild(w);
-  w.addEventListener('click', async e => {
-    if(e.target === w || e.target.closest('[data-x]')) return w.remove();
+  host.onclick = async e => {
     const del = e.target.closest('[data-delfam]');
-    if(del){ del.closest('.fam-card').remove(); return; }
+    if(del){ if(confirm(`Remove the project ${del.dataset.delfam}? (its sites stay, they just stop being phases of one project)`)){ delete fams[del.dataset.delfam]; draw(); } return; }
     if(e.target.id === 'famAdd'){
-      const nm = (prompt('Name of the project (e.g. DAMAC LAGOONS):', '') || '').trim().toUpperCase();
-      if(!nm) return;
-      w.querySelector('#famCards').insertAdjacentHTML('beforeend', card(nm, []));
-      return;
+      const m = host.querySelector('#famMain').value;
+      if(!m){ alert('Choose the main project from the list first.'); return; }
+      fams[m] = [m]; draw(); return;
     }
     if(e.target.id === 'famSave'){
-      const out = collect();
-      const dup = {};
-      Object.keys(out).forEach(k => out[k].forEach(x => { (dup[x] = dup[x] || []).push(k); }));
-      const clash = Object.keys(dup).filter(x => dup[x].length > 1);
-      if(clash.length){ alert('A site can be in one project only:\n\n' + clash.map(x => `${x} → ${dup[x].join(', ')}`).join('\n')); return; }
+      const out = {};
+      Object.keys(fams).forEach(k => { const l = [...new Set([k].concat(fams[k]))].filter(x => sites.includes(x)); if(l.length > 1) out[k] = l; });
+      const lonely = Object.keys(fams).filter(k => !out[k]);
+      if(lonely.length && !confirm(`These have no other phase ticked and will not be kept:\n\n${lonely.join('\n')}\n\nSave anyway?`)) return;
       projectFamilies = out;
       try{ await window.storage.set(FAMILIES_KEY, JSON.stringify(out), true); }catch(err){}
-      showToast('Projects saved');
-      w.remove(); initTransferPanel();
+      showToast(`${Object.keys(out).length} project(s) saved`);
+      if(onDone) onDone(); else draw();
+      try{ if(document.getElementById('transferView').getClientRects().length) initTransferPanel(); }catch(err){}
     }
-  });
+  };
+  draw();
+}
+document.getElementById('transferFamiliesBtn').addEventListener('click', async () => {
+  const w = document.createElement('div');
+  w.className = 'hol-wrap';
+  w.innerHTML = `<div class="hol-box" style="max-width:680px"><div class="hol-head"><b>⚙ Projects and their phases</b><button type="button" class="hol-x" data-x>✕</button></div><div id="famHost"></div></div>`;
+  document.body.appendChild(w);
+  w.addEventListener('click', e => { if(e.target === w || e.target.closest('[data-x]')) w.remove(); });
+  await renderFamiliesEditor(w.querySelector('#famHost'), () => { w.remove(); initTransferPanel(); });
 });
 document.getElementById('transferFromSite').addEventListener('change', () => {
   const f = document.getElementById('transferFromSite'), t = document.getElementById('transferToSite');
@@ -15314,6 +15333,7 @@ function renderAdminHub(){
   renderAdminBypassList();
   renderAdminApprovalsList();
   updateApprovalsBadge();
+  try{ const fh = document.getElementById('ahFamiliesHost'); if(fh && typeof renderFamiliesEditor === 'function') renderFamiliesEditor(fh); }catch(e){}
 }
 function adminHubProjectList(){
   return (unifiedSites && unifiedSites.length) ? unifiedSites : (attProjectsList.length ? attProjectsList : MASTER_SITE_ORDER);
@@ -30534,7 +30554,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v101';
+  const V = 'v102';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -30753,6 +30773,12 @@ document.addEventListener('change', function(ev){
 .fam-card{border:1px solid rgba(148,163,184,.25);border-radius:10px;padding:8px 10px;margin:8px 0;background:rgba(6,23,42,.5)}
 .fam-h{display:flex;gap:6px;align-items:center;margin-bottom:6px}
 .fam-h .fam-name{flex:1;font-weight:800}
+.fam-h b{flex:1;color:#fcd34d;font-size:13.5px}
+.fam-h .fam-n{font-size:11px;color:#8fb3d1}
+.fam-add{display:flex;gap:8px;align-items:center;margin:8px 0}
+.fam-add select{flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(251,191,36,.5);background:#06172a;color:#fef3c7;font-weight:700}
+.fam-sites label.fam-main{color:#fcd34d!important}
+#ahFamiliesHost .fam-card{background:rgba(6,23,42,.55)}
 .fam-h button{background:none;border:1px solid rgba(248,113,113,.5);color:#fca5a5;border-radius:8px;cursor:pointer;padding:4px 8px}
 .fam-sites{display:flex;flex-wrap:wrap;gap:4px 12px;max-height:160px;overflow:auto}
 .fam-sites label{display:flex!important;align-items:center;gap:5px;font-size:12px!important;font-weight:600!important;text-transform:none!important;letter-spacing:0!important;color:#cbd5e1!important;margin:0!important}
