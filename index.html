@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v96 — Al Muhanad</title>
+<title>MEMCO Operations Console v97 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4357,6 +4357,10 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 .ts-pk-row .hr{grid-row:span 2;font-weight:700;color:#fbbf24;align-self:center}
 .ts-pk-row .nm{font-weight:600;font-size:13px}
 .ts-pk-row .td{font-size:11.5px;color:#94a3b8}
+.ts-pk-row.ts-pk-chk{grid-template-columns:22px 54px 1fr;align-items:center}
+.ts-pk-row.ts-pk-chk input{grid-row:span 2;margin:0;width:16px;height:16px}
+.ts-pk-row.ts-pk-chk .hr{grid-row:span 2}
+#attSheetsHost #tsMTrade{width:100%}
 </style>
 
 <style>
@@ -22105,6 +22109,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }catch(e){}
   }
   // trades that belong together, so "Plumbing" also finds "Drainage" and "HVAC" finds "Duct"
+  const TS_TRADE_LIST = ['Electrical', 'Plumbing', 'HVAC', 'Ducting', 'Chilled Water', 'ELV', 'Fire Fighting', 'Drainage', 'Civil', 'Insulation', 'General'];
   const TS_TRADE_FAMILIES = [
     ['plumb', 'drain', 'sanitar', 'water supply'],
     ['elec', 'light', 'power'],
@@ -22120,10 +22125,56 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     TS_TRADE_FAMILIES.forEach(f => { if(f.some(k => t.includes(k))) keys.push(...f); });
     return keys;
   }
+  // tick several men from a list (this trade first) — resolves with their HR numbers, or null
+  function tsMultiPicker(o){
+    return new Promise(resolve => {
+      const keys = tsTradeKeys(o.trade || '');
+      const same = p => keys.length > 0 && keys.some(k => String(p.trade || '').toLowerCase().includes(k));
+      const chosen = new Set();
+      const w = document.createElement('div');
+      w.className = 'ts-pk-wrap';
+      w.innerHTML = `<div class="ts-pk">
+          <div class="ts-pk-head"><b>${esc(o.title || 'Choose men')}</b><button type="button" class="st-btn st-ghost st-sm" data-x>✕</button></div>
+          ${o.note ? `<div class="st-muted" style="margin:-2px 0 8px;font-size:12px">${esc(o.note)}</div>` : ''}
+          <input class="ts-pk-q" placeholder="Search name, HR or trade…" autocomplete="off">
+          <div class="ts-pk-list"></div>
+          <div class="st-row" style="justify-content:space-between;align-items:center;gap:6px;margin-top:8px">
+            <span class="st-muted" data-n>0 ticked</span>
+            <button type="button" class="st-btn ${o.danger ? 'st-danger' : 'st-ok'} st-sm" data-ok disabled>${esc(o.ok || 'OK')}</button></div>
+        </div>`;
+      document.body.appendChild(w);
+      const q = w.querySelector('.ts-pk-q'), list = w.querySelector('.ts-pk-list'), okB = w.querySelector('[data-ok]'), nEl = w.querySelector('[data-n]');
+      const row = p => `<label class="ts-pk-row ts-pk-chk${chosen.has(String(p.hr)) ? ' on' : ''}"><input type="checkbox" data-hr="${esc(p.hr)}" ${chosen.has(String(p.hr)) ? 'checked' : ''}>
+          <span class="hr">${esc(p.hr)}</span><span class="nm">${esc(MEMCO_ATT.shortName(p.name))}</span><span class="td">${esc(p.trade || '')}</span></label>`;
+      const draw = () => {
+        const t = q.value.trim().toLowerCase();
+        const hit = (o.people || []).filter(p => !t || `${p.hr} ${p.name} ${p.trade}`.toLowerCase().includes(t));
+        const a = hit.filter(same), b = hit.filter(p => !same(p));
+        const sec = (title, arr) => arr.length ? `<div class="ts-pk-sec">${esc(title)} (${arr.length})</div>` + arr.slice(0, 400).map(row).join('') : '';
+        list.innerHTML = (keys.length ? sec(o.trade, a) + sec('Other trades', b) : sec('Men', hit))
+          || '<div class="st-muted" style="padding:10px">Nobody matches.</div>';
+      };
+      const upd = () => { nEl.textContent = `${chosen.size} ticked`; okB.disabled = !chosen.size; };
+      const close = v => { w.remove(); document.removeEventListener('keydown', escK); resolve(v); };
+      const escK = e => { if(e.key === 'Escape') close(null); };
+      document.addEventListener('keydown', escK);
+      w.addEventListener('click', e => {
+        if(e.target === w || e.target.closest('[data-x]')) return close(null);
+        if(e.target.closest('[data-ok]')) return close([...chosen]);
+      });
+      list.addEventListener('change', e => {
+        const c = e.target.closest('input[data-hr]'); if(!c) return;
+        c.checked ? chosen.add(c.dataset.hr) : chosen.delete(c.dataset.hr);
+        c.closest('.ts-pk-row').classList.toggle('on', c.checked); upd();
+      });
+      q.addEventListener('input', draw);
+      draw(); upd(); setTimeout(() => q.focus(), 30);
+    });
+  }
   async function tsPersonPicker(kind, group, current, trade, onPick){
     if(typeof trade === 'function'){ onPick = trade; trade = ''; }
     await tsEnsureStaff();
-    const rx = kind === 'engineer' ? /engin|\beng\b/i : /supervi|superviosr|\bsupv?\b/i;
+    const rx = kind === 'engineer' ? /engin|\beng\b/i : (kind === 'foreman' ? /foreman|forman|charge ?hand/i : /supervi|superviosr|\bsupv?\b/i);
     const all = wsPeople('').filter(p => rx.test(p.trade || ''));
     const here = String(group || '').trim();
     const keys = tsTradeKeys(trade);
@@ -22131,7 +22182,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const w = document.createElement('div');
     w.className = 'ts-pk-wrap';
     w.innerHTML = `<div class="ts-pk">
-        <div class="ts-pk-head"><b>${kind === 'engineer' ? '👷 Pick the engineer' : '🧑‍🔧 Pick the supervisor'}</b>
+        <div class="ts-pk-head"><b>${kind === 'engineer' ? '👷 Pick the engineer' : (kind === 'foreman' ? '🦺 Pick the foreman' : '🧑‍🔧 Pick the supervisor')}</b>
           <button type="button" class="st-btn st-ghost st-sm" data-x>✕</button></div>
         <input class="ts-pk-q" placeholder="Search name, HR or trade…" autocomplete="off">
         <div class="ts-pk-list"></div>
@@ -22213,7 +22264,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         ${['read','crew','moves'].includes(T) ? '' : `<div class="st-field s"><label class="st-l">${T === 'ot' ? 'Work date (the day they worked)' : T === 'mark' ? 'Attendance date' : 'Sheet date'}</label>
           <input type="date" id="tsDate" value="${T === 'ot' ? wsYesterday() : todayIso()}" max="${todayIso()}"></div>`}
         ${T === 'print' ? `<div class="st-field s"><label class="st-l">Up to date (for several days)</label><input type="date" id="tsDate2" value="${todayIso()}"></div>
-          <div class="st-field s"><label class="st-l">Shift</label><select id="tsShift"><option>1st</option><option>2nd</option></select></div>` : ''}
+          <div class="st-field s"><label class="st-l" title="Day or night work. It is printed on the sheet and kept apart, so a day sheet and a night sheet for the same group and date never mix.">Shift</label><select id="tsShift"><option value="1st">1st — day</option><option value="2nd">2nd — night</option></select></div>` : ''}
         <span id="tsBarSlot" style="display:contents"></span>
       </div>
       <div id="tsBody"><div class="st-empty">Loading…</div></div>`;
@@ -22777,10 +22828,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           <div class="ts-bar">
             <div class="st-field" style="flex:1 1 170px"><label class="st-l">Project</label><input id="tsMProj" value="${esc(group)}"></div>
             <div class="st-field s" style="flex:0 0 110px"><label class="st-l">Job No</label><input id="tsMJob" value="${esc(S.tsJob || tsSiteInfoGet(group).job || '')}" placeholder="J-313"></div>
-            <div class="st-field s" style="flex:0 0 130px"><label class="st-l">Trade / list</label><input id="tsMTrade" value="${esc((crew && crew.trade) ? crew.trade : (S.tsTrade || ''))}" placeholder="Electrical"></div>
+            <div class="st-field s" style="flex:0 0 150px"><label class="st-l">Trade / list</label>${(() => {
+              const cur = (crew && crew.trade) ? crew.trade : (S.tsTrade || '');
+              const list = TS_TRADE_LIST.slice(); if(cur && !list.some(t => t.toLowerCase() === cur.toLowerCase())) list.push(cur);
+              return `<select id="tsMTrade"><option value="">— choose —</option>${list.map(t => `<option value="${esc(t)}" ${t.toLowerCase() === String(cur).toLowerCase() ? 'selected' : ''}>${esc(t)}</option>`).join('')}<option value="__other">✎ Other…</option></select>`;
+            })()}</div>
             <div class="st-field" style="flex:1 1 200px"><label class="st-l">Location</label><input id="tsMLoc" value="${esc(S.tsLoc || tsSiteInfoGet(group).loc || '')}" placeholder="WADI AL SAFA 7, Dubai"></div>
-            <div class="st-field" style="flex:1 1 150px"><label class="st-l">Foreman</label>
-              <input id="tsMFore" value="${esc((crew && crew.foreman_name) ? crew.foreman_name + (crew.foreman_hr ? ' (HR ' + crew.foreman_hr + ')' : '') : (S.tsFore || ''))}"></div>
+            <div class="st-field" style="flex:1 1 190px"><label class="st-l">Foreman ${crew ? '<span class="st-muted">(▾ to change)</span>' : ''}</label>
+              <div class="ts-hrpick"><input id="tsMFore" value="${esc((crew && crew.foreman_name) ? crew.foreman_name + (crew.foreman_hr ? ' (HR ' + crew.foreman_hr + ')' : '') : (S.tsFore || ''))}" autocomplete="off"><button type="button" class="ts-pickbtn" id="tsForePick" title="Pick the foreman from a list">▾</button></div></div>
             <div class="st-field" style="flex:0 0 auto"><label class="st-l">In time (this group)</label>
               <div class="ts-intime" id="tsInTime">
                 ${['6:00','7:00','8:00'].map(t => `<button type="button" class="ts-it ${tsInTimeGet(crewId || group) === t ? 'on' : ''}" data-it="${t}">${t}</button>`).join('')}
@@ -22818,10 +22873,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           </div></div>
           <div class="ts-group-tools">
             <span class="ts-tools-title">👷 This group</span>
-            <input id="tsGAdd" placeholder="Add men — paste HR numbers (2258, 2305 …)">
-            <button type="button" class="st-btn st-sm" id="tsGAddBtn">➕ Add to group</button>
-            <button type="button" class="st-btn st-ghost st-sm" id="tsGRemove">✕ Remove ticked men</button>
-            <button type="button" class="st-btn st-ghost st-sm" id="tsGFore">👤 Change foreman</button>
+            ${crew ? `<button type="button" class="st-btn st-ok st-sm" id="tsGAddPick">➕ Add men from list…</button>
+            <input id="tsGAdd" placeholder="…or paste HR numbers (2258, 2305 …)">
+            <button type="button" class="st-btn st-sm" id="tsGAddBtn">➕ Add</button>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsGRemove">✕ Take men out…</button>
+            <button type="button" class="st-btn st-ghost st-sm" id="tsGFore">👤 Change foreman</button>`
+            : '<span class="st-muted">Choose a foreman\'s group in “Group (one sheet per foreman)” above to add men, take men out or change the foreman.</span>'}
             <span class="st-muted" id="tsGMsg" style="flex:1 1 100%;margin-top:2px"></span>
           </div>
 `;
@@ -22875,6 +22932,43 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         };
         chainPick('tsEngPick', 'tsEngHr', 'engineer');
         chainPick('tsSupPick', 'tsSupHr', 'supervisor');
+        // the trade of this list; for a group it is kept with the group
+        if($('tsMTrade')) $('tsMTrade').addEventListener('change', async () => {
+          const sel = $('tsMTrade');
+          let t = sel.value;
+          if(t === '__other'){
+            const x = prompt('Trade of this list:', S.tsTrade || '');
+            if(!x || !x.trim()){ sel.value = (crew && crew.trade) || S.tsTrade || ''; return; }
+            t = x.trim();
+            const o = document.createElement('option'); o.value = t; o.textContent = t; sel.insertBefore(o, sel.lastElementChild); sel.value = t;
+          }
+          S.tsTrade = t;
+          if(crew && t && t !== crew.trade){
+            try{
+              await rpc('st_crew_save', {p: {id: crew.id, group_code: group, trade: t,
+                name: t + ' — ' + (crew.foreman_name || '')}});
+              crew.trade = t;
+              toast('Group trade set to ' + t);
+            }catch(err){ toast(err.message || String(err), true); }
+          }
+        });
+        // ▾ foreman: for a group this changes the group's foreman; for a plain list it only fills the name
+        if($('tsForePick')) $('tsForePick').addEventListener('click', () => tsPersonPicker('foreman', group, crew ? String(crew.foreman_hr || '') : '',
+          (($('tsMTrade') || {}).value || (crew ? crew.trade : '') || '').replace('__other', ''), async hr => {
+            if(!hr) return;
+            const p = people.find(x => String(x.hr) === String(hr)) || wsPeople('').find(x => String(x.hr) === String(hr));
+            if(!p) return;
+            if(!crew){ $('tsMFore').value = `${p.name} (HR ${p.hr})`; S.tsFore = $('tsMFore').value; return; }
+            if(String(crew.foreman_hr) === String(p.hr)) return;
+            if(!confirm(`Make ${p.name} (HR ${p.hr}) the foreman of this group?\n\nThe men stay in the group; only the foreman changes.`)) return;
+            try{
+              await rpc('st_crew_save', {p: {id: crew.id, group_code: group,
+                name: (crew.trade ? crew.trade + ' — ' : '') + p.name, trade: crew.trade || '',
+                foreman_hr: p.hr, foreman_name: p.name}});
+              toast('Foreman changed to ' + p.name);
+              tsReload();
+            }catch(err){ toast(err.message || String(err), true); }
+          }));
 
         if($('tsChainSave')) $('tsChainSave').addEventListener('click', e => busy(e.currentTarget, async () => {
           if(!crew) throw new Error('Choose a group first.');
@@ -22906,10 +23000,29 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           $('tsGAdd').value = '';
           tsReload();
         }));
+        if($('tsGAddPick')) $('tsGAddPick').addEventListener('click', async () => {
+          if(!crew) return;
+          const inGroup = new Set(crewMen.map(p => String(p.hr)));
+          const pool = people.filter(p => !inGroup.has(String(p.hr)));
+          const hrs = await tsMultiPicker({title: `➕ Add men to ${crew.foreman_name || 'this group'}`, people: pool,
+            trade: crew.trade || ($('tsMTrade') || {}).value || '', ok: 'Add to group',
+            note: 'Tick the men to add. Men of this trade are at the top. A man already in another group moves to this one.'});
+          if(!hrs || !hrs.length) return;
+          try{
+            const list = hrs.map(h => people.find(x => String(x.hr) === String(h))).filter(Boolean).map(p => ({hr: p.hr, name: p.name, trade: p.trade}));
+            const r = await rpc('st_crew_assign', {p_crew: crew.id, p_people: list});
+            toast(`${(r && r.moved) || list.length} men added`);
+            tsReload();
+          }catch(err){ toast(err.message || String(err), true); }
+        });
         if($('tsGRemove')) $('tsGRemove').addEventListener('click', e => busy(e.currentTarget, async () => {
           if(!crew) throw new Error('Choose a group first.');
-          const off = crewMen.filter(p => !picked.has(p.hr)).map(p => p.hr);
-          if(!off.length) throw new Error('Untick the men you want to take out, then press this.');
+          const men = crewMen.filter(p => String(p.hr) !== String(crew.foreman_hr || ''));
+          if(!men.length) throw new Error('There is nobody in this group to take out.');
+          const off = await tsMultiPicker({title: `✕ Take men out of ${crew.foreman_name || 'this group'}`, people: men,
+            ok: 'Take out of group', danger: true,
+            note: 'Tick the men who leave this group. They stay on the site and can be put in another group.'});
+          if(!off || !off.length) return;
           if(!confirm(`Take ${off.length} man(men) out of this group?\n\n${off.join(', ')}`)) return;
           await rpc('st_crew_remove', {p_crew: crew.id, p_hrs: off});
           toast(`${off.length} men taken out of the group`);
@@ -29970,7 +30083,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v96';
+  const V = 'v97';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
