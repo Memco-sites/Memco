@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v103 — Al Muhanad</title>
+<title>MEMCO Operations Console v105 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -7914,6 +7914,32 @@ function lockedSiteList(){
   if(!lockedSite) return null;
   return Array.isArray(lockedSite) ? lockedSite : [lockedSite];
 }
+// a foreman sees only the men of his own group(s): loaded from the groups (Time sheets → Groups)
+let foremanMen = null;            // null = not a foreman (or no group yet) → no extra filter
+let foremanMenFor = '';
+async function ensureForemanMen(){
+  try{
+    const u = currentUser;
+    const hr = u ? String(u.hrCode || u.hr || '') : '';
+    if(!u || !/^foreman$/i.test(u.role || '') || !hr){ foremanMen = null; foremanMenFor = ''; return null; }
+    if(foremanMenFor === u.authId + '|' + hr && foremanMen) return foremanMen;
+    const c = (typeof getSupaClient === 'function') ? getSupaClient() : null;
+    if(!c) return null;
+    const sites = lockedSiteList() || (u.site ? [u.site] : []);
+    const set = new Set([hr]);
+    let found = false;
+    for(const site of sites){
+      const r = await c.rpc('st_crew_list', {p_group: site});
+      ((r && r.data) || []).filter(cr => String(cr.foreman_hr || '') === hr).forEach(cr => {
+        found = true; (cr.members || []).forEach(m => set.add(String(m.hr)));
+      });
+    }
+    foremanMen = found ? set : null;
+    foremanMenFor = u.authId + '|' + hr;
+    return foremanMen;
+  }catch(e){ return null; }
+}
+function foremanSees(code){ return !foremanMen || foremanMen.has(String(code)); }
 function siteAllowed(site){
   const list = lockedSiteList();
   return !list || list.includes(site);
@@ -9009,6 +9035,7 @@ async function goAttendance(){
   if(!attUIReady){ await loadAttendanceData(); attUIReady = true; }
 }
 async function goLabor(){
+  try{ await ensureForemanMen(); }catch(e){}
   showSection('laborView');
   if(!laborDataLoaded){ await loadLaborData(); laborDataLoaded = true; }
   if(!campsDataLoaded){ await loadCampsData(); campsDataLoaded = true; }
@@ -9192,10 +9219,14 @@ function renderHomeStats(){
   const inMine = x => !mySite || String(x || '') === mySite;
   const labAll = (typeof laborRecords !== 'undefined' && laborRecords.length) ? laborRecords : LABOR_DATA;
   const stfAll = (typeof staffRecords !== 'undefined' && staffRecords.length) ? staffRecords : STAFF_DATA;
-  const myLabor = labAll.filter(l => inMine(l.site)), myStaff = stfAll.filter(x => inMine(x.site));
+  if(foremanMen === null && currentUser && /^foreman$/i.test(currentUser.role || '') && !renderHomeStats._fm){
+    renderHomeStats._fm = true;
+    ensureForemanMen().then(m => { if(m){ renderHomeStats(); try{ if(document.getElementById('laborView').style.display !== 'none') renderLaborList(); }catch(e){} } });
+  }
+  const myLabor = labAll.filter(l => inMine(l.site) && foremanSees(l.code)), myStaff = foremanMen ? [] : stfAll.filter(x => inMine(x.site));
   const myData = data.filter(d => inMine(d.site));
   document.getElementById('homeDirectoryStat').textContent = `${myData.length} Active Entries`;
-  document.getElementById('homeLaborStat').textContent = `${mySite ? myLabor.length : LABOR_DATA.length} Total Workers`;
+  document.getElementById('homeLaborStat').textContent = foremanMen ? `${myLabor.length} men in your group` : `${mySite ? myLabor.length : LABOR_DATA.length} Total Workers`;
 
   // Executive summary strip -- real, live numbers (never hardcoded), mirrors
   // the same figures the module cards below already compute.
@@ -9205,6 +9236,8 @@ function renderHomeStats(){
     projectsEl.textContent = mySite ? 1 : (siteCount || '—');
     const ps = document.getElementById('execProjectsSub');
     if(ps) ps.textContent = mySite ? mySite : 'Across all sites';
+    const ws = document.querySelector('#execWorkforceValue + .et-sub');
+    if(ws) ws.textContent = foremanMen ? 'Your group' : 'Labor + Staff';
   }
   const contractorsEl = document.getElementById('execContractorsValue');
   if(contractorsEl) contractorsEl.textContent = myData.length;
@@ -11856,7 +11889,7 @@ function renderLaborReconciliation(){
   const siteFilterEl = document.getElementById('laborSiteFilter');
   const laborRestrictTo1 = lockedSiteList();
   const siteFilter = (laborRestrictTo1 && laborRestrictTo1.length === 1) ? laborRestrictTo1[0] : (siteFilterEl ? siteFilterEl.value : '');
-  const scopedLabor = siteFilter ? laborRecords.filter(l => l.site === siteFilter) : (laborRestrictTo1 ? laborRecords.filter(l => siteAllowed(l.site)) : laborRecords);
+  const scopedLabor = (siteFilter ? laborRecords.filter(l => l.site === siteFilter) : (laborRestrictTo1 ? laborRecords.filter(l => siteAllowed(l.site)) : laborRecords)).filter(l => foremanSees(l.code));
 
   const housedCodes = new Set();
   campRecords.forEach(c => (c.rooms||[]).forEach(r => (r.occupants||[]).forEach(o => { if(o.code) housedCodes.add(o.code); })));
@@ -11953,6 +11986,10 @@ function renderLaborList(){
   document.getElementById('laborClearFiltersBtn').style.display = (q || laborLeaveFilter || (siteFilter && !laborLockedSingle)) ? '' : 'none';
   let results = laborRestrictTo ? laborRecords.filter(l => siteAllowed(l.site)) : laborRecords;
   if(siteFilter && !laborLockedSingle) results = results.filter(l => l.site === siteFilter);
+  if(foremanMen){
+    results = results.filter(l => foremanSees(l.code));
+    if(totalLabelEl) totalLabelEl.textContent = `${results.length} men in your group`;
+  }
 
   // Leave-group buttons: counts always reflect the site currently in view.
   const leaveScope = results;
@@ -20740,7 +20777,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(!c) throw new Error('Server connection is still loading — try again in a moment.');
     const r = await wait(c.rpc(name, args || {}), 25000);
     if(!r) throw new Error('Server did not respond. Check your internet connection.');
-    if(r.error) throw new Error(cleanErr(r.error.message));
+    if(r.error) throw new Error(cleanErr(r.error.message) + (/permission|not allowed|access/i.test(r.error.message || '') ? ` [${name}]` : ''));
+    // a foreman works only with his own group
+    if(name === 'st_crew_list' && Array.isArray(r.data)){
+      try{
+        const u = (typeof currentUser !== 'undefined') ? currentUser : null;
+        const myHr = u ? String(u.hrCode || u.hr || '') : '';
+        if(u && /^foreman$/i.test(u.role || '') && myHr){
+          return r.data.filter(cr => String(cr.foreman_hr || '') === myHr);
+        }
+      }catch(e){}
+    }
     return r.data;
   }
   async function rpcOptional(name, args){
@@ -22665,6 +22712,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     draw(); setTimeout(() => q.focus(), 30);
   }
   function wsGroups(){
+    try{
+      const u = (typeof currentUser !== 'undefined') ? currentUser : null;
+      if(u && u.site && typeof isSiteLockedRole === 'function' && isSiteLockedRole(u.role)){
+        const fam = (typeof familyOfSite === 'function' && typeof projectFamilies !== 'undefined' && projectFamilies) ? familyOfSite(u.site) : '';
+        return fam ? projectFamilies[fam].slice() : [u.site];
+      }
+    }catch(e){}
     const set = new Set();
     try{ (typeof laborRecords !== 'undefined' ? laborRecords : []).forEach(l => { if(l.site) set.add(String(l.site).trim()); }); }catch(e){}
     try{ (typeof staffRecords !== 'undefined' ? staffRecords : []).forEach(l => { if(l.site) set.add(String(l.site).trim()); }); }catch(e){}
@@ -22682,9 +22736,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     TS_HOST = host; if(group) TS_GROUP = group;
     host.innerHTML = '<div class="st-empty">Loading…</div>';
     try{ if(typeof window.memcoLoadSiteInfo === 'function') await window.memcoLoadSiteInfo(); }catch(e){}
+    // time sheets need no store data: a foreman or timekeeper with no store access still gets in
+    try{ if(!S.loaded) await loadAll(); }catch(e){ S.tsNoStore = true; }
+    try{ if(S.access == null) await checkAccess(); }catch(e){}
     try{
-      if(!S.loaded) await loadAll();
-      if(S.access == null) await checkAccess();
       await wsTimeSheets(host, '', () => {});
     }catch(e){ host.innerHTML = `<div class="st-note warn">${esc(e.message || e)}</div>`; }
   }
@@ -22732,7 +22787,10 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
     const crews = await rpc('st_crew_list', {p_group: group}).catch(() => []) || [];
     const crewOf = hr => crews.find(c => (c.members || []).some(m => m.hr === hr));
-    const crewOptions = (sel, allLabel) => `<option value="">${esc(allLabel || 'All men on the site')}</option>`
+    // a foreman has only his own group: no "all men of the site" for him
+    const tsIsForeman = (typeof currentUser !== 'undefined' && currentUser && /^foreman$/i.test(currentUser.role || ''));
+    if(tsIsForeman && crews.length && !crews.some(c => c.id === S.tsPickedGroup)) S.tsPickedGroup = crews[0].id;
+    const crewOptions = (sel, allLabel) => (tsIsForeman && !allLabel ? '' : `<option value="">${esc(allLabel || 'All men on the site')}</option>`)
       + crews.map(c => `<option value="${esc(c.id)}" ${c.id === sel ? 'selected' : ''}>${esc(c.name || c.foreman_name || 'Group')}${c.foreman_name ? ' — ' + esc(c.foreman_name) : ''} (${(c.members || []).length})</option>`).join('');
 
     const tasks = await rpc('st_task_list', {p_only_open: true}).catch(() => []) || [];
@@ -27676,9 +27734,24 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         S.sites = Array.isArray(sites) ? sites : [];
         $('saSite').innerHTML = '<option value="">All my sites</option>' + S.sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
       }
-      S.rows = await rpc('sa_people', {p_search: $('saQ').value.trim(), p_site: $('saSite').value,
-                                       p_only: $('saOnly').value, p_limit: 1000}) || [];
+      const q = $('saQ').value.trim();
+      const isHr = /^\d{1,6}$/.test(q);
+      // an HR number is looked for on every site and in every list — the filters only get in the way
+      S.rows = await rpc('sa_people', {p_search: q, p_site: isHr ? '' : $('saSite').value,
+                                       p_only: isHr ? '' : $('saOnly').value, p_limit: 1000}) || [];
+      if(isHr && !S.rows.some(r => String(r.hr_code) === q)){
+        // maybe he is staff: try the staff list too
+        try{
+          const st = await rpc('sa_people', {p_search: q, p_site: '', p_only: 'staff', p_limit: 200}) || [];
+          st.forEach(r => { if(!S.rows.some(x => x.hr_code === r.hr_code)) S.rows.push(r); });
+        }catch(e){}
+      }
+      if(isHr){
+        S.rows.sort((a, b) => (String(a.hr_code) === q ? 0 : 1) - (String(b.hr_code) === q ? 0 : 1)
+          || String(a.hr_code).length - String(b.hr_code).length);
+      }
       S.dirty = new Map();
+      S.lastQ = q; S.lastIsHr = isHr;
       draw();
     }catch(e){
       list.innerHTML = `<div style="padding:18px;color:#fca5a5">${esc(e.message)}</div>`;
@@ -27705,8 +27778,12 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   function draw(){
     const rows = S.rows;
     $('saCount').textContent = `${rows.length} person(s)`;
-    if(!rows.length){ $('saList').innerHTML = '<div style="padding:18px;text-align:center;color:#8fb3d1">Nobody found for these filters.</div>'; return; }
-    $('saList').innerHTML = `<table><thead><tr>
+    const missingHr = S.lastIsHr && !rows.some(r => String(r.hr_code) === S.lastQ);
+    const missNote = missingHr ? `<div class="sa-miss">HR <b>${esc(S.lastQ)}</b> is not in the labor or staff list yet${S.scope && !S.scope.all_sites ? ' (or he is on a site you do not manage)' : ''}.
+        Add him first in <b>Labor</b> (or load the new HR Excel list), then he appears here.
+        <button type="button" class="sa-go-labor">👷 Open Labor</button></div>` : '';
+    if(!rows.length){ $('saList').innerHTML = missNote || '<div style="padding:18px;text-align:center;color:#8fb3d1">Nobody found for these filters.</div>'; return; }
+    $('saList').innerHTML = missNote + `<table><thead><tr>
       <th class="c"><input type="checkbox" id="saAll" title="Select all"></th>
       <th>HR</th><th>Name</th><th>Trade</th><th>Site</th>
       <th class="c">Login</th><th class="c">Attendance</th><th class="c">Store</th>
@@ -27787,6 +27864,34 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     try{
       const res = await rpc('sa_set', {p_rows: rows, p_note: ''});
       toast(`Saved ${res.saved} person(s)` + (res.skipped ? ` · ${res.skipped} skipped (not your site)` : ''));
+      // Attendance / Store given here should also open the card for that role —
+      // otherwise the man is allowed but sees nothing on his dashboard
+      try{
+        if(typeof ROLE_PERM_MATRIX !== 'undefined' && typeof saveRolePermMatrix === 'function'){
+          const need = [];
+          rows.forEach(r => {
+            const role = r.site_role || 'Worker';
+            const m = ROLE_PERM_MATRIX[role] || {};
+            if(r.can_attendance && !m.homeAttendanceCard) need.push([role, 'homeAttendanceCard', 'Attendance']);
+            if(r.can_attendance && !m.markAttendance) need.push([role, 'markAttendance', 'Mark attendance']);
+            if(r.can_store && !m.homeStoresCard) need.push([role, 'homeStoresCard', 'Stores']);
+          });
+          const uniq = [...new Map(need.map(x => [x[0] + '|' + x[1], x])).values()];
+          if(uniq.length){
+            const lines = uniq.map(x => `• ${x[0]} → ${x[2]}`).join('\n');
+            const canEdit = (typeof can === 'function' && can('managePermissions')) || (currentUser && currentUser.role === 'Super Admin');
+            if(canEdit){
+              if(confirm(`These people now have the permission, but their ROLE does not show the screen on the dashboard yet:\n\n${lines}\n\nOpen these screens for these roles now (Permission Matrix)?`)){
+                uniq.forEach(([role, key]) => { if(!ROLE_PERM_MATRIX[role]) ROLE_PERM_MATRIX[role] = {}; ROLE_PERM_MATRIX[role][key] = true; });
+                await saveRolePermMatrix();
+                toast('Dashboard screens opened for: ' + [...new Set(uniq.map(x => x[0]))].join(', '));
+              }
+            } else {
+              alert(`Saved. One more step for the Super Admin — in Permissions, tick for these roles:\n\n${lines}`);
+            }
+          }
+        }
+      }catch(err){}
       await load();
     }catch(e){
       alert('Could not save:\n\n' + e.message);
@@ -27822,7 +27927,18 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     $('saClose').addEventListener('click', close);
     $('saReload').addEventListener('click', () => { S.scope = null; S.sites = []; load(); });
     $('saSearch').addEventListener('click', load);
-    $('saQ').addEventListener('keydown', e => { if(e.key === 'Enter') load(); });
+    $('saQ').addEventListener('keydown', e => { if(e.key === 'Enter'){ clearTimeout(S.qT); load(); } });
+    // searches by itself a moment after typing stops
+    $('saQ').addEventListener('input', () => {
+      clearTimeout(S.qT);
+      const q = $('saQ').value.trim();
+      if(q.length === 0 || q.length >= 2 || /^\d+$/.test(q)) S.qT = setTimeout(load, 450);
+    });
+    $('saApp').addEventListener('click', e => {
+      if(!e.target.closest('.sa-go-labor')) return;
+      close();
+      try{ if(typeof goLabor === 'function') goLabor(); else document.getElementById('homeLaborCard').click(); }catch(err){}
+    });
     ['saSite','saOnly'].forEach(id => $(id).addEventListener('change', load));
     $('saCsv').addEventListener('click', csv);
     $('saSave').addEventListener('click', e => save(e.currentTarget));
@@ -30630,7 +30746,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v103';
+  const V = 'v105';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -30866,6 +30982,11 @@ document.addEventListener('change', function(ev){
 #homeAttendanceCard .hc-scan{margin-top:10px;align-self:flex-start;padding:7px 12px;border-radius:10px;border:1px solid rgba(56,189,248,.6);
   background:rgba(14,165,233,.14);color:#7dd3fc;font-weight:800;font-size:13px;cursor:pointer}
 #homeAttendanceCard .hc-scan:hover{background:rgba(14,165,233,.28)}
+</style>
+<style>
+/* v104: Site Access — HR not found */
+#saApp .sa-miss{margin:0 0 10px;padding:10px 12px;border-radius:10px;border:1px solid rgba(251,191,36,.55);background:rgba(251,191,36,.1);color:#fde68a;font-size:13px;line-height:1.5}
+#saApp .sa-go-labor{margin-left:6px;padding:4px 10px;border-radius:8px;border:1px solid rgba(56,189,248,.6);background:rgba(14,165,233,.16);color:#7dd3fc;font-weight:700;cursor:pointer}
 </style>
 <script>
 /* v99: a stray ✕, refresh or Back must not throw the user out of the app.
