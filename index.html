@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v102 — Al Muhanad</title>
+<title>MEMCO Operations Console v103 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4793,6 +4793,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <div class="hc-title">Sub-Contractor & Al Muhanad Attendance</div>
         <div class="hc-sub">Daily labor & sub-contractor headcount</div>
         <div class="hc-stat" id="homeAttendanceStat">…</div>
+        <button type="button" class="hc-scan" id="homeScanBtn" title="Read a signed time sheet with the camera">📷 Scan signed sheet</button>
       </div>
       <div class="home-card" id="homeLaborCard">
         <div class="hc-num">3</div>
@@ -5339,7 +5340,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       </div>
       <span class="att-sep"></span>
       <button class="tab-btn active att-compact-mode" id="attTabDaily">🗓️ Attendance</button>
-      <button class="tab-btn att-compact-mode" id="attTabSheets">⚙ Groups &amp; setup</button>
+      <button class="tab-btn att-compact-mode" id="attTabSheets">📋 Sheets &amp; groups</button>
     </div>
     <div id="attSourceStrip" style="margin:0 0 6px"></div>
     <div id="attSheetsWrap" style="display:none">
@@ -5417,6 +5418,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <button type="button" class="btn btn-primary" id="attAllPresent">✅ All present</button>
         <button type="button" class="btn btn-ghost att-allabs" id="attAllAbsent">⛔ All absent</button>
         <button type="button" class="btn btn-ghost att-holi" id="attHoliday">🎉 Holiday</button>
+        <button type="button" class="btn btn-ghost att-scan" id="attScanBtn">📷 Scan signed sheet</button>
         <span class="st-muted" id="attWhoCount"></span>
       </div>
       <div id="laborAttList" class="labor-att-list-v6" style="max-height:420px;overflow-y:auto;"></div>
@@ -7564,6 +7566,35 @@ document.getElementById('usersSearchInput').addEventListener('input', renderUser
 
 /* ---- Permission Matrix screen (Super Admin only) ---- */
 // rights some roles have by design, whatever the matrix says (the code grants them)
+// Job No and Location of a site, the same on every phone and computer
+let memcoSiteInfo = {};
+try{ memcoSiteInfo = JSON.parse(localStorage.getItem('memco-siteinfo-all') || '{}') || {}; }catch(e){ memcoSiteInfo = {}; }
+async function memcoLoadSiteInfo(){
+  try{
+    const r = await window.storage.get('memco-siteinfo-v1', true);
+    if(r && r.value){ memcoSiteInfo = Object.assign({}, memcoSiteInfo, JSON.parse(r.value) || {}); localStorage.setItem('memco-siteinfo-all', JSON.stringify(memcoSiteInfo)); }
+  }catch(e){}
+  return memcoSiteInfo;
+}
+window.memcoSiteInfoGet = site => {
+  const o = memcoSiteInfo[site];
+  if(o) return o;
+  try{ return JSON.parse(localStorage.getItem('memco-siteinfo:' + site) || '{}') || {}; }catch(e){ return {}; }   // older, this device only
+};
+window.memcoSiteInfoSet = async (site, o) => {
+  if(!site) return;
+  const cur = memcoSiteInfo[site] || {};
+  if(cur.job === o.job && cur.loc === o.loc) return;
+  memcoSiteInfo[site] = {job: o.job || '', loc: o.loc || ''};
+  try{ localStorage.setItem('memco-siteinfo-all', JSON.stringify(memcoSiteInfo)); }catch(e){}
+  try{
+    // merge with what other devices saved meanwhile
+    const r = await window.storage.get('memco-siteinfo-v1', true);
+    const all = Object.assign({}, (r && r.value) ? (JSON.parse(r.value) || {}) : {}, {[site]: memcoSiteInfo[site]});
+    await window.storage.set('memco-siteinfo-v1', JSON.stringify(all), true);
+  }catch(e){}
+};
+window.memcoLoadSiteInfo = memcoLoadSiteInfo;
 function builtInPerm(role, key){
   const R = {
     openAdminHub: (typeof ADMIN_HUB_ROLES !== 'undefined') ? ADMIN_HUB_ROLES : ['HR', 'Project Manager'],
@@ -9156,28 +9187,39 @@ function renderHomeStats(){
     ? `Welcome back, ${currentUserName}${currentUser && currentUser.role ? ' · ' + currentUser.role : ''}`
     : 'Welcome back';
 
-  document.getElementById('homeDirectoryStat').textContent = `${data.length} Active Entries`;
-  document.getElementById('homeLaborStat').textContent = `${LABOR_DATA.length} Total Workers`;
+  // a man tied to one site (timekeeper, foreman …) sees his own site's numbers
+  const mySite = (currentUser && currentUser.site && typeof isSiteLockedRole === 'function' && isSiteLockedRole(currentUser.role)) ? currentUser.site : '';
+  const inMine = x => !mySite || String(x || '') === mySite;
+  const labAll = (typeof laborRecords !== 'undefined' && laborRecords.length) ? laborRecords : LABOR_DATA;
+  const stfAll = (typeof staffRecords !== 'undefined' && staffRecords.length) ? staffRecords : STAFF_DATA;
+  const myLabor = labAll.filter(l => inMine(l.site)), myStaff = stfAll.filter(x => inMine(x.site));
+  const myData = data.filter(d => inMine(d.site));
+  document.getElementById('homeDirectoryStat').textContent = `${myData.length} Active Entries`;
+  document.getElementById('homeLaborStat').textContent = `${mySite ? myLabor.length : LABOR_DATA.length} Total Workers`;
 
   // Executive summary strip -- real, live numbers (never hardcoded), mirrors
   // the same figures the module cards below already compute.
   const projectsEl = document.getElementById('execProjectsValue');
   if(projectsEl){
     const siteCount = (typeof unifiedSites !== 'undefined' && unifiedSites.length) ? unifiedSites.length : 0;
-    projectsEl.textContent = siteCount || '—';
+    projectsEl.textContent = mySite ? 1 : (siteCount || '—');
+    const ps = document.getElementById('execProjectsSub');
+    if(ps) ps.textContent = mySite ? mySite : 'Across all sites';
   }
   const contractorsEl = document.getElementById('execContractorsValue');
-  if(contractorsEl) contractorsEl.textContent = data.length;
+  if(contractorsEl) contractorsEl.textContent = myData.length;
   const workforceEl = document.getElementById('execWorkforceValue');
-  if(workforceEl) workforceEl.textContent = (LABOR_DATA.length + STAFF_DATA.length).toLocaleString();
+  if(workforceEl) workforceEl.textContent = (mySite ? myLabor.length + myStaff.length : LABOR_DATA.length + STAFF_DATA.length).toLocaleString();
 
   const today = new Date().toISOString().slice(0,10);
-  const todaysRecs = (typeof dailyLaborRecords !== 'undefined' ? dailyLaborRecords : []).filter(r => r.date === today);
+  const todaysRecs = (typeof dailyLaborRecords !== 'undefined' ? dailyLaborRecords : []).filter(r => r.date === today && inMine(r.project));
   if(todaysRecs.length > 0){
     const totalPresent = todaysRecs.reduce((s,r) => s + (r.presentCount||0), 0);
     document.getElementById('homeAttendanceStat').textContent = `${totalPresent} Present Today`;
     const execAttVal = document.getElementById('execAttendanceValue');
     if(execAttVal) execAttVal.textContent = totalPresent;
+    const execAttSub = document.getElementById('execAttendanceSub');
+    if(execAttSub) execAttSub.textContent = 'Present today';
   }else{
     document.getElementById('homeAttendanceStat').textContent = "No entries yet today";
     const execAttVal = document.getElementById('execAttendanceValue');
@@ -9346,6 +9388,18 @@ document.getElementById('attAllPresent').addEventListener('click', () => {
   if(typeof renderLaborAttChecklist === 'function') renderLaborAttChecklist();
   if(typeof renderAttSnapshot === 'function') renderAttSnapshot();
   showToast(cleared ? `${men.length} men present — ${cleared} were marked absent` : `${men.length} men present`);
+});
+// 📷 straight to "Read signed sheet"
+function attOpenScan(){
+  try{ if(window.MemcoStores && MemcoStores.state) MemcoStores.state.tsTab = 'read'; }catch(e){}
+  attShowTab('sheets');
+}
+window.attOpenScan = attOpenScan;
+document.getElementById('attScanBtn').addEventListener('click', attOpenScan);
+document.getElementById('homeScanBtn').addEventListener('click', async e => {
+  e.stopPropagation();
+  await goAttendance();
+  attOpenScan();
 });
 document.getElementById('attAllAbsent').addEventListener('click', () => {
   const project = document.getElementById('attProject').value;
@@ -10359,11 +10413,16 @@ async function attPrintSignatureSheets(){
   }else{
     lists = ATT_CREWS.slice();
     const free = laborRecords.filter(l => l.site === project && !inAny.has(String(l.code)));
-    if(free.length) lists.push({name: 'Not in any group', trade: '', foreman_name: '', foreman_hr: '', members: null});
+    // men with no foreman yet: at least one sheet per trade, so each sheet has a title and goes to the right people
+    const byTrade = {};
+    const KNOWN = ['Electrical', 'Plumbing', 'HVAC', 'ELV', 'Fire Fighting', 'Civil', 'Transport', 'HSE', 'Store'];
+    free.forEach(l => { let t = (typeof tsTradeFamily === 'function' ? tsTradeFamily(l.trade) : '') || ''; if(!KNOWN.includes(t)) t = 'General'; (byTrade[t] = byTrade[t] || []).push({hr: l.code}); });
+    Object.keys(byTrade).sort().forEach(t => lists.push({name: 'Not in any group — ' + t, trade: t, foreman_name: '', foreman_hr: '', members: byTrade[t], noGroup: true}));
   }
   if(!lists.length){ showToast('No men to print'); return; }
 
   const menOf = crew => {
+    if(crew.noGroup) return laborRecords.filter(l => l.site === project && crew.members.some(m => String(m.hr) === String(l.code)));
     if(crew.members){
       const hrs = new Set((crew.members || []).map(m => String(m.hr)));
       if(crew.foreman_hr) hrs.add(String(crew.foreman_hr));
@@ -10372,8 +10431,8 @@ async function attPrintSignatureSheets(){
     return laborRecords.filter(l => l.site === project && !inAny.has(String(l.code)));
   };
 
-  let site = {};
-  try{ site = JSON.parse(localStorage.getItem('memco-siteinfo:' + project) || '{}') || {}; }catch(e){}
+  try{ await memcoLoadSiteInfo(); }catch(e){}
+  const site = window.memcoSiteInfoGet(project) || {};
   const inTimeOf = key => { try{ return localStorage.getItem('memco-intime:' + key) || ''; }catch(e){ return ''; } };
   const who = (nm, hr) => nm ? nm + (hr ? ' (' + hr + ')' : '') : '';
   const sheets = [];
@@ -10412,8 +10471,11 @@ async function attPrintSignatureSheets(){
   if(!sheets.length){ showToast('No men to print'); return; }
   // every page is kept as a real sheet (with its number boxes), exactly like Time sheets → Print sheet,
   // so the signed page can be read back by the phone or from a scanned PDF
+  // printing needs a window opened straight from the tap (phones block it later), so open it first
+  let win = null;
+  try{ win = window.open('', '_blank'); if(win) win.document.write('<p style="font:16px Arial;padding:20px">Making the sheets…</p>'); }catch(e){ win = null; }
   const made = [];
-  let failed = 0;
+  let failed = 0, why = '';
   if(window.MemcoStores && typeof MemcoStores.createSheet === 'function'){
     showToast(`Making ${sheets.length} sheet(s)…`);
     for(const sh of sheets){
@@ -10423,12 +10485,16 @@ async function attPrintSignatureSheets(){
           made.push(Object.assign(r, {meta: Object.assign({}, r.meta || {}, sh.meta), rows: (r.rows && r.rows.length) ? r.rows : sh.rows}));
           continue;
         }
-      }catch(e){}
+        why = why || 'the server gave no sheet back';
+      }catch(e){ why = why || (e && e.message) || String(e); }
       failed++; made.push(sh);
     }
-  } else { failed = sheets.length; made.push(...sheets); }
-  if(failed) showToast(`${failed} sheet(s) could not be saved — they will print, but cannot be read back`);
-  MEMCO_ATT.printMany(made);
+  } else { failed = sheets.length; made.push(...sheets); why = 'the sheet store is still loading'; }
+  if(failed){
+    const ok = confirm(`${failed} of ${sheets.length} sheet(s) could not be saved:\n${why}\n\nThose sheets will print WITHOUT their number boxes and cannot be read back by the phone.\n\nPrint anyway?`);
+    if(!ok){ try{ if(win) win.close(); }catch(e){} return; }
+  }
+  MEMCO_ATT.printMany(made, win);
   showToast(`${sheets.length} sheet(s) ready`);
 }
 
@@ -22478,8 +22544,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   // the IN TIME of a group, and the job no / location of a site, are remembered on this device
   function tsInTimeGet(key){ try{ return localStorage.getItem('memco-intime:' + key) || ''; }catch(e){ return ''; } }
   function tsInTimeSet(key, t){ try{ t ? localStorage.setItem('memco-intime:' + key, t) : localStorage.removeItem('memco-intime:' + key); }catch(e){} }
-  function tsSiteInfoGet(group){ try{ return JSON.parse(localStorage.getItem('memco-siteinfo:' + group) || '{}') || {}; }catch(e){ return {}; } }
-  function tsSiteInfoSet(group, o){ try{ localStorage.setItem('memco-siteinfo:' + group, JSON.stringify(o)); }catch(e){} }
+  function tsSiteInfoGet(group){ return (typeof window.memcoSiteInfoGet === 'function') ? (window.memcoSiteInfoGet(group) || {}) : {}; }
+  function tsSiteInfoSet(group, o){ if(typeof window.memcoSiteInfoSet === 'function') window.memcoSiteInfoSet(group, o); }
   // engineers and supervisors live in the Staff list, which is only read when first needed
   async function tsEnsureStaff(){
     try{
@@ -22615,6 +22681,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   async function openTimeSheets(host, group){
     TS_HOST = host; if(group) TS_GROUP = group;
     host.innerHTML = '<div class="st-empty">Loading…</div>';
+    try{ if(typeof window.memcoLoadSiteInfo === 'function') await window.memcoLoadSiteInfo(); }catch(e){}
     try{
       if(!S.loaded) await loadAll();
       if(S.access == null) await checkAccess();
@@ -23585,7 +23652,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     body.innerHTML = `<div class="st-card ts-scan">
         <div class="st-row" style="justify-content:space-between;gap:8px;margin:0;align-items:center">
           <div><b>📄 Many signed sheets at once</b><div class="st-muted">A PDF from the office copier, or several photos together. Each page is matched to its sheet by the little boxes along its top edge.</div></div>
-          <label class="st-btn st-ok" style="cursor:pointer">📄 Choose PDF / photos<input type="file" id="tsScanIn" accept="application/pdf,image/*" multiple style="display:none"></label>
+          <span style="display:flex;gap:6px;flex-wrap:wrap">
+          <label class="st-btn st-ok" style="cursor:pointer">📷 Camera<input type="file" id="tsScanCam" accept="image/*" capture="environment" style="display:none"></label>
+          <label class="st-btn" style="cursor:pointer">📄 PDF / photos<input type="file" id="tsScanIn" accept="application/pdf,image/*" multiple style="display:none"></label></span>
         </div>
         <div id="tsQueue"></div>
       </div>
@@ -23766,7 +23835,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       const seen = {};
       Q.items.forEach(it => { it.dup = false; if(it.sheetId && it.status !== 'error'){ if(seen[it.sheetId]) it.dup = true; seen[it.sheetId] = true; } });
     };
-    $('tsScanIn').addEventListener('change', async e => {
+    const onScanFiles = async e => {
       const files = [...e.target.files]; e.target.value = '';
       if(!files.length) return;
       const qh = $('tsQueue');
@@ -23797,7 +23866,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       }
       const got = Q.items.slice(start).filter(it => it.status === 'matched').length;
       toast(`${pages.length} page(s): ${got} matched`);
-    });
+      // one photo from the camera and it found its sheet: open it for checking at once
+      if(pages.length === 1 && got === 1 && e.target.id === 'tsScanCam'){
+        const it = Q.items[Q.items.length - 1]; const sh = sheets.find(x => x.id === it.sheetId);
+        if(sh) openRead(it.file, sh, it);
+      }
+    };
+    $('tsScanIn').addEventListener('change', onScanFiles);
+    $('tsScanCam').addEventListener('change', onScanFiles);
     drawQueue();
   }
 
@@ -30168,11 +30244,11 @@ const MEMCO_ATT = (() => {
   function print(sheet){ printMany([sheet]); }
 
   // several sheets in one print job — one page each
-  function printMany(sheets){
+  function printMany(sheets, preWin){
     const list = (sheets || []).filter(Boolean);
     if(!list.length) return;
     const full = docHtml(list, list[0].sheet_no || 'Attendance');
-    const w = window.open('', '_blank');
+    const w = (preWin && !preWin.closed) ? preWin : window.open('', '_blank');
     if(w && !w.closed){
       try{
         w.document.open();
@@ -30554,7 +30630,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v102';
+  const V = 'v103';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -30746,6 +30822,7 @@ document.addEventListener('change', function(ev){
 #attendanceView .l2-tg.l2-h{background:rgba(245,158,11,.18);border-color:rgba(251,191,36,.75);color:#fcd34d}
 #attendanceView .l2-tg.l2-lv{background:rgba(249,115,22,.16);border-color:rgba(251,146,60,.75);color:#fdba74;font-size:11.5px}
 #attendanceView .att-quickbar .att-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
+#attendanceView .att-quickbar .att-scan{border-color:rgba(56,189,248,.6)!important;color:#7dd3fc!important}
 #attendanceView .att-quickbar .att-holi{border-color:rgba(251,191,36,.6)!important;color:#fcd34d!important}
 #attendanceView .att-quickbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .hol-wrap{position:fixed;inset:0;z-index:9700;background:rgba(2,10,20,.8);display:flex;align-items:center;justify-content:center;padding:14px}
@@ -30783,6 +30860,12 @@ document.addEventListener('change', function(ev){
 .fam-sites{display:flex;flex-wrap:wrap;gap:4px 12px;max-height:160px;overflow:auto}
 .fam-sites label{display:flex!important;align-items:center;gap:5px;font-size:12px!important;font-weight:600!important;text-transform:none!important;letter-spacing:0!important;color:#cbd5e1!important;margin:0!important}
 .fam-sites input{width:auto!important}
+</style>
+<style>
+/* v103: scan button on the attendance card */
+#homeAttendanceCard .hc-scan{margin-top:10px;align-self:flex-start;padding:7px 12px;border-radius:10px;border:1px solid rgba(56,189,248,.6);
+  background:rgba(14,165,233,.14);color:#7dd3fc;font-weight:800;font-size:13px;cursor:pointer}
+#homeAttendanceCard .hc-scan:hover{background:rgba(14,165,233,.28)}
 </style>
 <script>
 /* v99: a stray ✕, refresh or Back must not throw the user out of the app.
