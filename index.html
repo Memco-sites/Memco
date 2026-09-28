@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v116 — Al Muhanad</title>
+<title>MEMCO Operations Console v117 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -30878,7 +30878,7 @@ const MEMCO_ATT = (() => {
     return found;
   }
 
-  async function read(file, sheet){
+  async function read(file, sheet, opts){
     const G = pickG(sheet);
     const SGN0 = G.cols.sign, SGN1 = G.cols.signEnd || G.cols.end;          // the signature box that says "present"
     const ABS0 = G.cols.abs, ABS1 = G.cols.absEnd || G.cols.sign;           // the ABS box
@@ -30903,10 +30903,8 @@ const MEMCO_ATT = (() => {
 
     const M = findMarks(gray, W, H, darkThr);
     if(!M) throw new Error('The four corner squares were not found. Put the whole sheet in the picture, flat and in good light.');
-    const TL = M.TL, TR = M.TR, BL = M.BL, BR = M.BR;
-    // a true perspective map from the four squares: a photo taken at an angle (top farther
-    // from the phone than the bottom) no longer shifts the rows
-    const at = (() => {
+    // perspective map from four corner points (TL, TR, BR, BL of the PAGE) — a photo taken at an angle is fine
+    const makeAt = (TL, TR, BL, BR) => {
       const x0 = TL.x, y0 = TL.y, x1 = TR.x, y1 = TR.y, x2 = BR.x, y2 = BR.y, x3 = BL.x, y3 = BL.y;
       const dx1 = x1 - x2, dx2 = x3 - x2, dx3 = x0 - x1 + x2 - x3;
       const dy1 = y1 - y2, dy2 = y3 - y2, dy3 = y0 - y1 + y2 - y3;
@@ -30921,12 +30919,51 @@ const MEMCO_ATT = (() => {
         d = y1 - y0 + g * y1; e = y3 - y0 + h * y3; f = y0;
       }
       return (uu, vv) => { const w = g * uu + h * vv + 1; return {x: (a * uu + b * vv + c) / w, y: (d * uu + e * vv + f) / w}; };
-    })();
-    const px = (uu, vv) => {
+    };
+    const pxOf = at => (uu, vv) => {
       const p = at(uu, vv);
       const x = Math.max(0, Math.min(W - 1, Math.round(p.x))), y = Math.max(0, Math.min(H - 1, Math.round(p.y)));
       return gray[y * W + x];
     };
+    // the sheet's number from the boxes along its top edge (0 = none) — also tells which way up the page lies
+    const stripCode = px0 => {
+      const S = G.strip, lv = [];
+      for(let k = 0; k < S.bits; k++){
+        const x0 = S.x + k * (S.w + S.gap);
+        let t = 0, n = 0;
+        for(let x = x0 + 0.8; x < x0 + S.w - 0.8; x += 0.3)
+          for(let y = S.y + 0.7; y < S.y + S.h - 0.7; y += 0.3){ t += px0(u(x), v(y)); n++; }
+        lv.push(n ? t / n : 255);
+      }
+      const lo = Math.min.apply(null, lv), hi = Math.max.apply(null, lv);
+      if(hi - lo <= 40) return {c: 0, q: 0};
+      const mid = (lo + hi) / 2;
+      let c = 0;
+      lv.forEach((g0, k) => { if(g0 < mid) c |= (1 << k); });
+      c = c >>> 0;
+      // how cleanly the boxes split into black and white: printed boxes leave a wide empty gap between the two
+      const sorted = lv.slice().sort((a1, b1) => a1 - b1);
+      let gap = 0; for(let k = 1; k < sorted.length; k++) gap = Math.max(gap, sorted[k] - sorted[k - 1]);
+      return codeOk(c) ? {c, q: gap / (hi - lo + 1)} : {c: 0, q: 0};
+    };
+    // the phone may hold the page sideways or upside down: try the four ways, keep the one whose
+    // number boxes read true; without boxes, keep the ways where the page stands tall
+    const Q = [M.TL, M.TR, M.BR, M.BL];           // corners in the picture, clockwise
+    const tries = [0, 1, 2, 3].map(r => { const q = [0, 1, 2, 3].map(i => Q[(i + r) % 4]); return {TL: q[0], TR: q[1], BR: q[2], BL: q[3], r}; });
+    const tall = t => dist(t.TL, t.BL) > dist(t.TL, t.TR);
+    const want = new Set((opts && opts.codes) || []);
+    if(sheet && sheet.id) want.add(sheetCode(sheet.id));
+    let pick = null, code = 0, best = -1;
+    for(const t of tries){
+      const r1 = stripCode(pxOf(makeAt(t.TL, t.TR, t.BL, t.BR)));
+      if(!r1.c) continue;
+      const score = (want.has(r1.c) ? 10 : 0) + (tall(t) ? 1 : 0) + r1.q;   // a known number wins; then a tall page; then clean boxes
+      if(score > best){ best = score; pick = t; code = r1.c; }
+    }
+    if(!pick) pick = tries.filter(tall)[0] || tries[0];
+    const TL = pick.TL, TR = pick.TR, BL = pick.BL, BR = pick.BR;
+    const at = makeAt(TL, TR, BL, BR);
+    const px = pxOf(at);
 
     // read every signature box first, then decide how white the clean paper is
     const cells = (sheet.rows || []).map((r, i) => {
@@ -30978,32 +31015,12 @@ const MEMCO_ATT = (() => {
       return cc.toDataURL('image/jpeg', 0.6);
     });
 
-    // the sheet's own number from the boxes along the top edge (0 = none found)
-    let code = 0;
-    {
-      const S = G.strip, lv = [];
-      for(let k = 0; k < S.bits; k++){
-        const x0 = S.x + k * (S.w + S.gap);
-        let t = 0, n = 0;
-        for(let x = x0 + 0.8; x < x0 + S.w - 0.8; x += 0.3)
-          for(let y = S.y + 0.7; y < S.y + S.h - 0.7; y += 0.3){ t += px(u(x), v(y)); n++; }
-        lv.push(n ? t / n : 255);
-      }
-      const lo = Math.min.apply(null, lv), hi = Math.max.apply(null, lv);
-      if(hi - lo > 40){
-        const mid = (lo + hi) / 2;
-        lv.forEach((g, k) => { if(g < mid) code |= (1 << k); });
-        code = code >>> 0;
-        if(!codeOk(code)) code = 0;
-      }
-    }
-
-    return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr), code, marks: M, size: [W, H]};
+    return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr), code, marks: {TL, TR, BL, BR, turn: pick.r}, size: [W, H]};
   }
 
   // which of these sheets is in the picture? (null when the picture has no number)
   async function identify(file, sheets){
-    const r = await read(file, {rows: []});
+    const r = await read(file, {rows: []}, {codes: (sheets || []).filter(x => x && x.id).map(x => sheetCode(x.id))});
     if(!r.code) return {code: 0, sheet: null};
     return {code: r.code, sheet: (sheets || []).find(x => x && x.id && sheetCode(x.id) === r.code) || null};
   }
@@ -31161,7 +31178,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v116';
+  const V = 'v117';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31325,7 +31342,7 @@ document.addEventListener('change', function(ev){
 .ts-shl-men{display:none}
 /* v115: the list of printed sheets on a phone — one card each, buttons underneath */
 @media (max-width:760px){
-  #attSheetsHost .ts-shl{overflow:visible}
+  #attSheetsHost .ts-shl{overflow:visible;max-height:none!important;height:auto!important}
   #attSheetsHost .ts-shl table, #attSheetsHost .ts-shl tbody{display:block;width:100%}
   #attSheetsHost .ts-shl thead{display:none}
   #attSheetsHost .ts-shl tr{display:grid;grid-template-columns:1fr auto;grid-template-areas:"no st" "dt st" "bt bt";gap:2px 8px;padding:10px 8px;border-bottom:1px solid rgba(148,163,184,.2)}
