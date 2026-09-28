@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v109 — Al Muhanad</title>
+<title>MEMCO Operations Console v110 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -9450,7 +9450,8 @@ function attOtRulesFor(code){
   const on = s.otEnabled !== false || otExceptionSetFor(project).has(String(code));
   const cap = !on ? 0 : (isHolidayOrSunday(otDate) ? null : (s.maxOtCap ? Number(s.maxOtCap) : null));
   const absentThatDay = currentOtDateAbsentMap.hasOwnProperty(code);
-  return {ok: on && !absentThatDay && !isDateLocked(project, otDate), cap};
+  const onLeave = currentLeaveAuto.has(code);          // on leave in HR (VAC, EMG …): no overtime
+  return {ok: on && !absentThatDay && !onLeave && !isDateLocked(project, otDate), cap};
 }
 // ⏱ the same OT for everybody on the list (contract men keep their own hours)
 document.getElementById('attOtAllBtn').addEventListener('click', () => {
@@ -10255,11 +10256,12 @@ function renderLaborAttChecklist(){
     const reason = currentAbsentMap[l.code] || '';
     const absentOnOtDate = currentOtDateAbsentMap.hasOwnProperty(l.code);
     const { isExempt, workerOtOn, cap: rowCap } = rowOtState(l.code);
-    const otDisabled = !workerOtOn || absentOnOtDate || otDateLocked;
+    const otDisabled = !workerOtOn || absentOnOtDate || otDateLocked || currentLeaveAuto.has(l.code);
     const otVal = otDisabled ? '' : (currentOTMap[l.code] || '');
     const otTitle = otDateLocked
       ? `${formatDMY(otDate)} is locked for editing — request Admin/HR/PM approval above`
-      : (!workerOtOn
+      : (currentLeaveAuto.has(l.code) ? `On ${hrStatusLabel(l.status)} — no overtime`
+      : !workerOtOn
         ? 'Overtime is disabled for this project'
         : (absentOnOtDate ? `Marked Absent on ${otDate} — OT not applicable` : (
             (isExempt && !otEnabled ? '🛂 VIP Pass exception — ' : '') +
@@ -10647,26 +10649,34 @@ document.getElementById('attTodayPrintBtn').onclick = () => {
   const project = document.getElementById('attProject').value;
   if(!date || !project){ showToast('Pick a date and project first'); return; }
 
-  const siteLabor = laborRecords.filter(l => l.site === project);
+  // what is on the screen is what prints: the whole site, one group, or the men in no group
+  const whoSel = document.getElementById('attWho');
+  const whoLabel = ATT_WHO && whoSel && whoSel.selectedIndex > -1 ? whoSel.options[whoSel.selectedIndex].text.replace(/\s+—\s+\d+\s+men$/, '') : '';
+  const isGroup = !!ATT_WHO;
+  const siteLabor = attWhoMen(laborRecords.filter(l => l.site === project));
+  const otRecP = dailyLaborRecords.find(r => r.date === otDate && r.project === project) || {};
   const reasonCounts = {};
   const laborRows = siteLabor.map((w, idx) => {
-    const reason = currentAbsentMap[w.code] || '';
-    const isAbsent = !!reason;
+    const has = currentAbsentMap.hasOwnProperty(w.code);
+    const reason = has ? (currentAbsentMap[w.code] || 'A') : '';
+    const isHol = reason === 'H';
+    const isAbsent = has && !isHol;
     if(isAbsent) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
     const ot = currentOTMap[w.code] || '';
+    const ct = attContractPending[w.code] || (otRecP.otContract || {})[w.code];
     return {
       no: idx + 1,
       code: w.code || '',
       name: w.name || '',
       trade: w.trade || '',
-      status: isAbsent ? ('Absent - ' + (LATT_REASON_LABELS[reason] || reason)) : 'Present',
-      ot: ot === '' ? '0' : ot
+      status: isHol ? 'Holiday' : (isAbsent ? ('Absent' + (reason && reason !== 'A' ? ' - ' + (LATT_REASON_LABELS[reason] || reason) : '')) : 'Present'),
+      ot: (ot === '' ? '0' : ot) + (ct ? ' CT (' + ct + ')' : '')
     };
   });
   const absentTotal = laborRows.filter(r => r.status.startsWith('Absent')).length;
   const presentTotal = Math.max(0, siteLabor.length - absentTotal);
 
-  const cleanSubRows = currentSubRows.filter(r => r.company && r.company.trim());
+  const cleanSubRows = isGroup ? [] : currentSubRows.filter(r => r.company && r.company.trim());
   let subLabor=0, subSup=0, subEng=0, subFor=0;
   cleanSubRows.forEach(r => {
     subLabor += Number(r.labor)||0;
@@ -10689,7 +10699,7 @@ document.getElementById('attTodayPrintBtn').onclick = () => {
 
   const w = window.open('', '_blank', 'width=1200,height=850');
   if(!w){ showToast('Pop-up blocked — allow pop-ups to print today’s attendance'); return; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Daily Attendance - ${escapeHtml(project)} - ${escapeHtml(formatDMY(date))}</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Daily Attendance - ${escapeHtml(project)}${isGroup ? ' - ' + escapeHtml(whoLabel) : ''} - ${escapeHtml(formatDMY(date))}</title>
     <style>
       @page{size:A4 landscape;margin:10mm}
       *{box-sizing:border-box} body{font-family:Arial,sans-serif;color:#111;margin:0;background:#fff;font-size:11px}
@@ -10700,10 +10710,10 @@ document.getElementById('attTodayPrintBtn').onclick = () => {
       .section{font-size:13px;font-weight:800;color:#0b62b9;margin:10px 0 4px}.foot{display:flex;justify-content:space-between;margin-top:12px;padding-top:8px;border-top:1px solid #bbb;color:#555;font-size:9px}
       @media print{.no-print{display:none}}
     </style></head><body>
-    <div class="head"><div><div class="company">AL MUHANAD ELECTRO-MECHANICAL CONT. L.L.C.</div><h1>Daily Attendance Sheet</h1></div><div style="text-align:right"><b>${escapeHtml(project)}</b><div class="muted">Attendance: ${escapeHtml(formatDMY(date))} &nbsp; | &nbsp; Overtime: ${escapeHtml(formatDMY(otDate || date))}</div></div></div>
+    <div class="head"><div><div class="company">AL MUHANAD ELECTRO-MECHANICAL CONT. L.L.C.</div><h1>Daily Attendance Sheet</h1></div><div style="text-align:right"><b>${escapeHtml(project)}${isGroup ? ' — ' + escapeHtml(whoLabel) : ''}</b><div class="muted">Attendance: ${escapeHtml(formatDMY(date))} &nbsp; | &nbsp; Overtime: ${escapeHtml(formatDMY(otDate || date))}</div></div></div>
     <div class="meta">
       <div class="box"><b>Total People</b><span class="big">${grandTotal}</span></div>
-      <div class="box"><b>Al Muhanad Labor</b><span class="big">${siteLabor.length}</span></div>
+      <div class="box"><b>${isGroup ? 'This group' : 'Al Muhanad Labor'}</b><span class="big">${siteLabor.length}</span></div>
       <div class="box"><b>Present</b><span class="big">${presentTotal}</span></div>
       <div class="box"><b>Absent</b><span class="big">${absentTotal}</span></div>
       <div class="box"><b>Sub-Contractor</b><span class="big">${subTotal}</span></div>
@@ -10711,8 +10721,8 @@ document.getElementById('attTodayPrintBtn').onclick = () => {
     </div>
     <div class="section">Al Muhanad Labor</div>
     <table><thead><tr><th>#</th><th>HR #</th><th>Worker Name</th><th>Trade</th><th>Attendance</th><th>OT Hours</th></tr></thead><tbody>${laborHtml}</tbody></table>
-    <div class="section">Sub-Contractor Attendance</div>
-    <table><thead><tr><th>Company</th><th>Labor</th><th>Supervisor</th><th>Engineer</th><th>Foreman</th><th>Total</th></tr></thead><tbody>${subHtml}</tbody></table>
+    ${isGroup ? '' : `<div class="section">Sub-Contractor Attendance</div>
+    <table><thead><tr><th>Company</th><th>Labor</th><th>Supervisor</th><th>Engineer</th><th>Foreman</th><th>Total</th></tr></thead><tbody>${subHtml}</tbody></table>`}
     <div class="foot"><span>Generated ${new Date().toLocaleString()}</span><span>MEMCO ERP — Daily Attendance</span></div>
     <script>window.onload=function(){window.focus();setTimeout(function(){window.print();},250)};<\/script>
     </body></html>`);
@@ -31046,7 +31056,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v109';
+  const V = 'v110';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
