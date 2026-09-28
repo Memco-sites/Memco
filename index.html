@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v118 — Al Muhanad</title>
+<title>MEMCO Operations Console v119 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -68,7 +68,7 @@
      failed to load at all -- when the rest of the page's own script runs;
      the app simply falls back to its existing localStorage-only behavior
      until (or unless) this arrives. -->
-<script src="https://unpkg.com/@supabase/supabase-js@2" defer onerror="(window.__cdnFailed=window.__cdnFailed||{}).supabase=true;" onload="(window.__cdnLoaded=window.__cdnLoaded||{}).supabase=true;"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2" defer onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';s.onload=function(){(window.__cdnLoaded=window.__cdnLoaded||{}).supabase='jsdelivr';};s.onerror=function(){(window.__cdnFailed=window.__cdnFailed||{}).supabase=true;};document.head.appendChild(s);})();" onload="(window.__cdnLoaded=window.__cdnLoaded||{}).supabase='unpkg';"></script>
 
 <!-- ExcelJS is fetched on first use (see ensureExcelJs) rather than on
      boot: it is only needed when someone exports a sheet. -->
@@ -5879,7 +5879,8 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
  *    only CHANGED records/fields are sent, so two sites saving at the same time
  *    never overwrite each other;
  *  - small lists (holidays, projects list, driver licenses) -> app_shared_state.
- * localStorage stays as the offline cache. Existing device data is uploaded once.
+ * Supabase is the truth for shared data. The device copy is only a cache for showing
+ * things while offline; an old phone never re-seeds an empty or reset cloud (v119).
  */
 (function recordSync(){
   const base = window.storage;
@@ -5948,20 +5949,10 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       try{
         const rows = await fetchRows(c, cfg, null);
         const local = await localArr(key);
-        // one-time upload of this device's old data (skipped after an admin reset)
+        // the cloud is the truth: an old device cache is never uploaded into it (it could bring back
+        // records deleted or reset on purpose). Only real saves made from now on go up.
         const epoch = await serverEpoch(c);
-        const flagKey = `memco-sync-epoch-${cfg.bucket}`;
-        const flag = localStorage.getItem(flagKey);
-        let toUpload = [];
-        if(epoch !== undefined){
-          if(epoch === null && flag !== 'init'){
-            const have = new Set(rows.filter(r => !r.deleted).map(r => r.rkey));
-            toUpload = local.filter(r => { const k = keyOk(cfg, r); return k && !have.has(k); });
-            localStorage.setItem(flagKey, 'init');
-          } else if(epoch !== null && flag !== epoch){
-            localStorage.setItem(flagKey, epoch);
-          }
-        }
+        const toUpload = [];
         s.snap = new Map(); s.cur = []; s.lastSeen = null; s.served = false; s.epoch = epoch;
         rows.forEach(r => {
           if(!s.lastSeen || r.updated_at > s.lastSeen) s.lastSeen = r.updated_at;
@@ -5994,7 +5985,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         const r = await wait(c.rpc('rec_upsert', {p_bucket: cfg.bucket, p_items: items.slice(i, i + 200)}), 30000);
         if(!r || r.error){
           if(typeof recordSupaOutcome === 'function') recordSupaOutcome(false, r && r.error ? r.error.message : 'Save timed out');
-          if(typeof showToast === 'function') showToast('⚠ Not synced to server — check internet. Saved on this device.');
+          if(typeof showToast === 'function') showToast('⚠ Not on the server yet — kept on this device and retried by itself. Check the internet.');
           s.dirty = true;
           return false;
         }
@@ -6050,23 +6041,61 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
     if(removed.length) pushDelete(key, removed);
   }
 
+  // What this device last READ from the cloud for each shared list. A change is only written back when
+  // the cloud still holds exactly that — so a failed or skipped read can never wipe the company's list.
+  const blobBase = {};       // key -> JSON text last read from the cloud (null = the cloud has no such list yet)
+  const blobPending = {};    // key -> JSON text waiting to go up
+  const blobOffline = {};    // key -> true when the last read failed and the device copy is being shown
+  const blobChain = {};      // key -> promise, so writes of one list go one after another
   async function blobGet(key){
     const c = cli();
     if(signedIn() && c){
       const r = await wait(c.from('app_shared_state').select('data').eq('id', key).limit(1), 15000);
       if(r && !r.error){
+        delete blobOffline[key];
         if(r.data && r.data[0] && r.data[0].data != null){
           const v = JSON.stringify(r.data[0].data);
+          blobBase[key] = v;
           try{ await base.set(key, v); }catch(e){}
           return {value: v};
         }
-        // row does not exist yet: share this device's copy once
+        // the list is not in the cloud yet: this device's copy goes up once (data kept on one PC before v111)
+        blobBase[key] = null;
         const loc = await base.get(key);
-        if(loc && loc.value && typeof supaSetSharedState === 'function'){ try{ supaSetSharedState(key, JSON.parse(loc.value)); }catch(e){} }
+        if(loc && loc.value) blobPush(key, loc.value);
         return loc;
       }
     }
+    // cloud not reachable: show the device copy, marked as not confirmed; nothing is written from it
+    blobOffline[key] = true;
     return base.get(key);
+  }
+  function blobPush(key, value){
+    blobPending[key] = value;
+    const run = async () => {
+      if(blobPending[key] === undefined) return;
+      const c = cli();
+      if(!signedIn() || !c) return;                                  // stays waiting, retried
+      const r = await wait(c.from('app_shared_state').select('data').eq('id', key).limit(1), 15000);
+      if(!r || r.error){ recordSupaOutcome(false, r && r.error ? r.error.message : 'timeout'); return; }
+      const cloud = (r.data && r.data[0] && r.data[0].data != null) ? JSON.stringify(r.data[0].data) : null;
+      const want = blobPending[key];
+      if(cloud === want){ blobBase[key] = cloud; delete blobPending[key]; return; }
+      const base0 = blobBase[key];
+      if(cloud !== null && cloud !== base0){
+        // changed on another device since this one read it (or never read here): keep the cloud's list
+        delete blobPending[key];
+        blobBase[key] = cloud;
+        try{ await base.set(key, cloud); }catch(e){}
+        try{ if(typeof showToast === 'function') showToast('⚠ This list was changed on another device — your last change was not saved. Open it again and redo it.'); }catch(e){}
+        console.warn('shared list conflict — not overwritten:', key);
+        return;
+      }
+      const ok = (typeof supaSetSharedState === 'function') ? await supaSetSharedState(key, JSON.parse(want)) : false;
+      if(ok && blobPending[key] === want){ delete blobPending[key]; blobBase[key] = want; delete blobOffline[key]; }
+    };
+    blobChain[key] = (blobChain[key] || Promise.resolve()).then(run).catch(() => {});
+    return blobChain[key];
   }
 
   window.storage = {
@@ -6089,8 +6118,8 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
           if(st[key].loaded) diffAndPush(key, arr);
           else st[key].dirty = true;
         }
-      } else if(BLOB.includes(key) && signedIn() && typeof supaSetSharedState === 'function'){
-        try{ supaSetSharedState(key, JSON.parse(value)); }catch(e){}
+      } else if(BLOB.includes(key)){
+        try{ JSON.parse(value); blobPush(key, value); }catch(e){}
       }
       return res;
     }
@@ -6171,9 +6200,24 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       try{ if(typeof renderAttHistory === 'function' && document.getElementById('attProject') && document.getElementById('attProject').value) renderAttHistory(); }catch(e){}
       return;
     }
-    if(++ticks % 5 === 0) await poll();
+    if(++ticks % 5 === 0){
+      await poll();
+      Object.keys(blobPending).forEach(k => blobPush(k, blobPending[k]));
+    }
   }
-  window.MemcoRecordSync = {state: st, load, poll};
+  function syncState(){
+    const rowsWaiting = Object.keys(ROW).filter(k => st[k].dirty).length;
+    const listsWaiting = Object.keys(blobPending);
+    const offline = Object.keys(blobOffline);
+    return {rowsWaiting, listsWaiting, offline, signedIn: signedIn(),
+      loaded: Object.keys(ROW).map(k => ({key: k, loaded: st[k].loaded, lastSeen: st[k].lastSeen, dirty: st[k].dirty}))};
+  }
+  async function syncNow(){
+    await poll();
+    await Promise.all(Object.keys(blobPending).map(k => blobPush(k, blobPending[k])));
+    return syncState();
+  }
+  window.MemcoRecordSync = {state: st, load, poll, syncState, syncNow};
 })();
 
 /* =============== SUPABASE SHARED SYNC (cross-device) ===============
@@ -31193,7 +31237,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v118';
+  const V = 'v119';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31533,6 +31577,121 @@ document.addEventListener('change', function(ev){
 #saApp .sa-miss{margin:0 0 10px;padding:10px 12px;border-radius:10px;border:1px solid rgba(251,191,36,.55);background:rgba(251,191,36,.1);color:#fde68a;font-size:13px;line-height:1.5}
 #saApp .sa-go-labor{margin-left:6px;padding:4px 10px;border-radius:8px;border:1px solid rgba(56,189,248,.6);background:rgba(14,165,233,.16);color:#7dd3fc;font-weight:700;cursor:pointer}
 </style>
+<style>
+/* v119: sync status + system check + new-version bar */
+#memcoSyncPill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 6px);right:8px;z-index:9800;display:none;align-items:center;gap:5px;
+  padding:4px 10px;border-radius:999px;font:700 11.5px/1.2 'IBM Plex Sans',system-ui,sans-serif;cursor:pointer;border:1px solid;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+#memcoSyncPill.ok{background:rgba(6,40,24,.92);border-color:rgba(74,222,128,.6);color:#86efac}
+#memcoSyncPill.wait{background:rgba(48,32,6,.94);border-color:rgba(251,191,36,.7);color:#fde68a}
+#memcoSyncPill.bad{background:rgba(60,10,10,.94);border-color:rgba(248,113,113,.8);color:#fecaca}
+#memcoNewVer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:9850;display:none;
+  background:#0b62b9;color:#fff;border:1px solid #7dd3fc;border-radius:12px;padding:10px 14px;font:700 13.5px system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.45);cursor:pointer;max-width:92vw;text-align:center}
+.memco-chk-wrap{position:fixed;inset:0;z-index:9900;background:rgba(2,10,20,.82);display:flex;align-items:center;justify-content:center;padding:12px}
+.memco-chk{background:#0b2137;border:1px solid rgba(125,211,252,.35);border-radius:14px;padding:14px 16px;width:100%;max-width:520px;max-height:88vh;overflow:auto;color:#e6f2ff;font:13.5px/1.5 system-ui,sans-serif}
+.memco-chk h3{margin:0 0 8px;font-size:16px}
+.memco-chk .r{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.15)}
+.memco-chk .r b{color:#fff}.memco-chk .g{color:#4ade80}.memco-chk .y{color:#fbbf24}.memco-chk .x{color:#f87171}
+.memco-chk .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.memco-chk button{flex:1 1 auto;padding:9px 12px;border-radius:9px;border:1px solid rgba(125,211,252,.5);background:#0e3a5c;color:#e6f2ff;font-weight:700;cursor:pointer}
+</style>
+<div id="memcoSyncPill" title="Is everything on the server? Tap for the system check"></div>
+<div id="memcoNewVer"></div>
+<script>
+/* v119: is everything on the server? · a system check for any device · a new version is announced */
+(function(){
+  const RUNNING = (document.title.match(/v\d+/) || [''])[0];
+  const pill = document.getElementById('memcoSyncPill');
+  const signedIn = () => { try{ return typeof currentUser !== 'undefined' && !!(currentUser && currentUser.authId); }catch(e){ return false; } };
+  function state(){
+    const s = (window.MemcoRecordSync && window.MemcoRecordSync.syncState) ? window.MemcoRecordSync.syncState() : null;
+    const health = (typeof SUPA_HEALTH !== 'undefined') ? SUPA_HEALTH : {};
+    const libOk = typeof supabase !== 'undefined';
+    return {s, health, libOk, online: navigator.onLine};
+  }
+  function paint(){
+    if(!pill) return;
+    if(!signedIn()){ pill.style.display = 'none'; return; }
+    const {s, health, libOk, online} = state();
+    const waiting = s ? (s.rowsWaiting + s.listsWaiting.length) : 0;
+    let cls = 'ok', txt = '✔ Synced';
+    if(!online){ cls = 'bad'; txt = `⚠ No internet${waiting ? ' · ' + waiting + ' waiting' : ''}`; }
+    else if(!libOk){ cls = 'bad'; txt = '⚠ Server not connected'; }
+    else if(waiting){ cls = 'wait'; txt = `⏳ ${waiting} not on server yet`; }
+    else if(s && s.offline.length){ cls = 'wait'; txt = '⚠ Showing saved copy — not confirmed'; }
+    else if(health.ok === false){ cls = 'wait'; txt = '⚠ Last save failed — retrying'; }
+    pill.className = cls; pill.textContent = txt; pill.style.display = 'flex';
+  }
+  setInterval(paint, 2000);
+  window.addEventListener('online', paint); window.addEventListener('offline', paint);
+  // the system check — the same on every phone and computer
+  async function openCheck(){
+    const w = document.createElement('div');
+    w.className = 'memco-chk-wrap';
+    const draw = (st) => {
+      const {s, health, libOk, online} = state();
+      const src = (window.__cdnLoaded && window.__cdnLoaded.supabase) || (libOk ? 'loaded' : 'not loaded');
+      const row = (k, v, c) => `<div class="r"><span>${k}</span><b class="${c || ''}">${v}</b></div>`;
+      const fmt = t => t ? new Date(t).toLocaleString() : '—';
+      const u = signedIn() ? currentUser : null;
+      w.innerHTML = `<div class="memco-chk"><h3>🩺 System check — this device</h3>
+        ${row('App version', RUNNING || '?')}
+        ${row('Internet', online ? 'connected' : 'NO INTERNET', online ? 'g' : 'x')}
+        ${row('Server library', libOk ? 'loaded (' + src + ')' : 'NOT loaded', libOk ? 'g' : 'x')}
+        ${row('Signed in', u ? (u.name || u.username) + ' · ' + (u.role || '') : 'no', u ? 'g' : 'x')}
+        ${row('Last server contact', fmt(health.lastCheckedAt) + (health.ok === false ? ' — failed' : ''), health.ok === false ? 'y' : 'g')}
+        ${health.ok === false && health.lastError ? row('Last error', String(health.lastError).slice(0, 120), 'x') : ''}
+        ${s ? row('Records waiting to go up', String(s.rowsWaiting), s.rowsWaiting ? 'y' : 'g') : ''}
+        ${s ? row('Lists waiting to go up', s.listsWaiting.length ? s.listsWaiting.join(', ') : '0', s.listsWaiting.length ? 'y' : 'g') : ''}
+        ${s && s.offline.length ? row('Shown from this device (not confirmed)', s.offline.join(', '), 'y') : ''}
+        ${s ? s.loaded.map(x => row(x.key.replace(/-v1$/, ''), x.loaded ? 'from server · ' + fmt(x.lastSeen) : 'not loaded yet', x.loaded ? 'g' : 'y')).join('') : ''}
+        ${st ? `<div class="r"><span>Sync now</span><b class="${st.ok ? 'g' : 'y'}">${st.msg}</b></div>` : ''}
+        <div class="btns"><button type="button" data-a="sync">🔄 Sync now</button><button type="button" data-a="update">⬆ Load the newest version</button><button type="button" data-a="close">Close</button></div></div>`;
+    };
+    draw(null);
+    document.body.appendChild(w);
+    w.addEventListener('click', async e => {
+      const a = e.target.closest('[data-a]');
+      if(e.target === w || (a && a.dataset.a === 'close')){ w.remove(); return; }
+      if(!a) return;
+      if(a.dataset.a === 'sync'){
+        a.textContent = '… syncing';
+        try{ const r = window.MemcoRecordSync && window.MemcoRecordSync.syncNow ? await window.MemcoRecordSync.syncNow() : null;
+          const left = r ? r.rowsWaiting + r.listsWaiting.length : 0;
+          draw({ok: !left, msg: left ? left + ' still waiting' : 'everything is on the server'}); }
+        catch(err){ draw({ok: false, msg: String(err && err.message || err)}); }
+        paint();
+      }
+      if(a.dataset.a === 'update') reloadNewest();
+    });
+  }
+  if(pill) pill.addEventListener('click', openCheck);
+  window.memcoSystemCheck = openCheck;
+  // a new version on the server: say so, one tap to take it
+  function reloadNewest(){
+    window.__memcoLeaving = true;
+    try{ if(navigator.serviceWorker) navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.update && r.update())); }catch(e){}
+    location.replace(location.pathname + '?v=' + Date.now() + location.hash);
+  }
+  async function checkVersion(){
+    if(location.protocol.indexOf('http') !== 0) return;
+    try{
+      const r = await fetch(location.pathname + '?vcheck=' + Date.now(), {cache: 'no-store'});
+      if(!r.ok) return;
+      const t = await r.text();
+      const m = t.match(/const V = '(v\d+)'/);
+      if(m && RUNNING && m[1] !== RUNNING){
+        const bar = document.getElementById('memcoNewVer');
+        bar.textContent = `⬆ New version ${m[1]} is ready (this is ${RUNNING}) — tap to update`;
+        bar.style.display = 'block';
+        bar.onclick = reloadNewest;
+      }
+    }catch(e){}
+  }
+  setTimeout(checkVersion, 20000);
+  setInterval(checkVersion, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') checkVersion(); });
+})();
+</script>
 <script>
 /* v99: a stray ✕, refresh or Back must not throw the user out of the app.
    ✕ / refresh -> the browser asks "Leave site?".
