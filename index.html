@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v110 — Al Muhanad</title>
+<title>MEMCO Operations Console v111 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -5892,7 +5892,9 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
     'change-log-v1':             {bucket:'change-log',  key: r => `${r.ts}|${r.user}|${r.action}|${r.company || ''}`,
                                   arr: null, noDelete: true, newestFirst: 300}
   };
-  const BLOB = ['public-holidays-v1', 'projects-v1', 'driver-licenses-v1'];
+  const BLOB = ['public-holidays-v1', 'projects-v1', 'driver-licenses-v1',
+    // shared with every device: groups, sheets, holiday names, job no / location, project phases
+    'memco-crews-v1', 'memco-sheets-v1', 'memco-holiday-names', 'memco-siteinfo-v1', 'memco-project-families-v1', 'memco-phase-moves-v1'];
   const EPOCH_ID = 'records-epoch';
   const st = {};
   Object.keys(ROW).forEach(k => { st[k] = {loaded:false, loading:null, snap:new Map(), cur:[], lastSeen:null, queue:Promise.resolve(), dirty:false, served:false, epoch:undefined}; });
@@ -20998,6 +21000,21 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const r = await wait(c.rpc(name, args || {}), 25000);
     if(!r) throw new Error('Server did not respond. Check your internet connection.');
     if(r.error) throw new Error(cleanErr(r.error.message) + (/permission|not allowed|access/i.test(r.error.message || '') ? ` [${name}]` : ''));
+    // printed sheets: the office's list is kept in the shared store, a foreman's phone reads his own from it
+    if(name === 'st_att_sheet_list' && Array.isArray(r.data)){
+      const u1 = (typeof currentUser !== 'undefined') ? currentUser : null;
+      const isFm1 = u1 && /^foreman$/i.test(u1.role || '');
+      const site = (args || {}).p_group;
+      if(!isFm1 && r.data.length && site) tsSheetCacheSave(site, r.data);
+      if(isFm1 && !r.data.length && site){
+        const myHr1 = (typeof window.memcoMyHr === 'function') ? window.memcoMyHr() : '';
+        let crews1 = [];
+        try{ crews1 = (typeof window.memcoCrewCacheGet === 'function') ? await window.memcoCrewCacheGet(site) : []; }catch(e){}
+        const mine = new Set(crews1.filter(c => String(c.foreman_hr || '') === myHr1).map(c => c.id));
+        const all = await tsSheetCacheGet(site);
+        return all.filter(sh => (sh.meta && mine.has(sh.meta.crew_id)) || (sh.rows || []).some(x => String(x.hr) === myHr1));
+      }
+    }
     // a foreman works only with his own group
     if(name === 'st_crew_list' && Array.isArray(r.data)){
       const u0 = (typeof currentUser !== 'undefined') ? currentUser : null;
@@ -22816,6 +22833,22 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     return Object.values(out).sort((a, b) => (num(a.hr) - num(b.hr)) || String(a.hr).localeCompare(String(b.hr)));
   }
   // list of engineers or supervisors to pick from: this site first, then the rest of the company
+  // the office's printed sheets, per site, in the shared store (newest 150)
+  async function tsSheetCacheSave(site, list){
+    try{
+      const slim = list.slice(0, 150).map(x => ({id: x.id, sheet_no: x.sheet_no, sheet_date: x.sheet_date, ot_date: x.ot_date, shift: x.shift,
+        status: x.status, group_code: x.group_code || site, meta: x.meta || {}, rows: (x.rows || []).map(r => ({hr: r.hr, name: r.name, trade: r.trade}))}));
+      let all = {};
+      try{ const rr = await window.storage.get('memco-sheets-v1', true); if(rr && rr.value) all = JSON.parse(rr.value) || {}; }catch(e){}
+      const byId = new Map((all[site] || []).map(x => [x.id, x]));
+      slim.forEach(x => byId.set(x.id, x));
+      all[site] = [...byId.values()].sort((a, b) => String(b.sheet_date).localeCompare(String(a.sheet_date))).slice(0, 150);
+      await window.storage.set('memco-sheets-v1', JSON.stringify(all), true);
+    }catch(e){}
+  }
+  async function tsSheetCacheGet(site){
+    try{ const rr = await window.storage.get('memco-sheets-v1', true); const all = (rr && rr.value) ? JSON.parse(rr.value) : {}; return (all && all[site]) || []; }catch(e){ return []; }
+  }
   // the IN TIME of a group, and the job no / location of a site, are remembered on this device
   function tsInTimeGet(key){ try{ return localStorage.getItem('memco-intime:' + key) || ''; }catch(e){ return ''; } }
   function tsInTimeSet(key, t){ try{ t ? localStorage.setItem('memco-intime:' + key, t) : localStorage.removeItem('memco-intime:' + key); }catch(e){} }
@@ -22977,6 +23010,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       || groups.find(g => /workshop/i.test(g)) || groups[0] || '';
     // attendance and overtime are marked on the main attendance screen only — here: groups, sheets, reading, loans
     if(!S.tsTab || S.tsTab === 'ot' || S.tsTab === 'mark') S.tsTab = 'crew';
+    const tsFm = (typeof currentUser !== 'undefined' && currentUser && /^foreman$/i.test(currentUser.role || ''));
+    if(tsFm && (S.tsTab === 'crew' || S.tsTab === 'moves')) S.tsTab = 'read';
     const T = S.tsTab;
     main.innerHTML = `${TS_HOST ? `<div class="ts-topbar">
         <button type="button" class="st-btn st-ghost st-sm" id="tsBack">← Back</button>
@@ -22984,8 +23019,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <b class="ts-title">🗒 Time sheets</b>
       </div>` : '<h2>🗒 Time sheets</h2>'}${nav}
       <div class="dw-sub ts-tabs">
-        <button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Groups</button>
-        <button type="button" class="st-btn st-ghost st-sm ${T === 'moves' ? 'on' : ''}" data-ts="moves">🔁 Loans &amp; jobs</button>
+        ${tsFm ? '' : `<button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Groups</button>`}
+        ${tsFm ? '' : `<button type="button" class="st-btn st-ghost st-sm ${T === 'moves' ? 'on' : ''}" data-ts="moves">🔁 Loans &amp; jobs</button>`}
         <button type="button" class="st-btn st-ghost st-sm ${T === 'print' ? 'on' : ''}" data-ts="print">🖨 Print sheet</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'read' ? 'on' : ''}" data-ts="read">📷 Read signed sheet</button>
       </div>
@@ -23914,6 +23949,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               const sh = await rpc('st_att_sheet_create', {p_date: from, p_shift: $('tsShift').value,
                 p_group: group, p_group_name: group, p_rows: parts[k], p_meta: pm});
               out.push(Object.assign(sh, {meta: Object.assign({}, sh.meta || {}, pm)}));
+              try{ tsSheetCacheSave(group, [Object.assign({}, sh, {rows: (sh.rows && sh.rows.length) ? sh.rows : parts[k]})]); }catch(e){}
             }
           }
           // day by day, page by page
@@ -23978,11 +24014,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(up.error) throw up.error;
       }catch(err){ path = ''; toast('The photo could not be kept: ' + (err.message || err), true); }
       const out = res.rows.map(r => ({hr: r.hr, present: !!marks[r.hr], ink: r.ink}));
-      const s3 = await rpc('st_att_sheet_post', {p_id: sheet.id, p_rows: out, p_scan_path: path, p_scan_name: name});
+      let s3 = null;
+      try{ s3 = await rpc('st_att_sheet_post', {p_id: sheet.id, p_rows: out, p_scan_path: path, p_scan_name: name}); }
+      catch(err){
+        // the attendance itself is still saved (next step); only the sheet's own "read" mark on the server is missing
+        if(!/permission|not allowed|access|denied/i.test(err.message || '')) throw err;
+        toast('Saved to attendance — the office list will show this sheet as read after the office opens it', false);
+      }
       if(extra && extra.length){
-        await rpc('st_att_set', {p_date: sheet.sheet_date, p_group: sheet.group_code,
+        try{ await rpc('st_att_set', {p_date: sheet.sheet_date, p_group: sheet.group_code,
           p_crew: (sheet.meta && sheet.meta.crew_id) || null,
-          p_rows: extra.map(x => ({hr: x.hr, name: x.name, trade: x.trade, present: true})), p_source: 'sheet'});
+          p_rows: extra.map(x => ({hr: x.hr, name: x.name, trade: x.trade, present: true})), p_source: 'sheet'});}catch(e){}
       }
       return s3 || {present_cnt: out.filter(x => x.present).length, absent_cnt: out.filter(x => !x.present).length};
     };
@@ -31056,7 +31098,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v110';
+  const V = 'v111';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
