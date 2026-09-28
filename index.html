@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v119 — Al Muhanad</title>
+<title>MEMCO Operations Console v122 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -9074,7 +9074,7 @@ function attShowTab(which){
     });
   }
   if(sheets) sheets.style.display = isSheets ? '' : 'none';
-  if(!isSheets && typeof onDateOrProjectChange === 'function'){ try{ onDateOrProjectChange(); }catch(e){} }
+  if(!isSheets && typeof onDateOrProjectChange === 'function' && !(typeof attDirtyCount === 'function' && attDirtyCount())){ try{ onDateOrProjectChange(); }catch(e){} }
   if(bD) bD.classList.toggle('active', !isSheets);
   if(bS) bS.classList.toggle('active', isSheets);
   if(isSheets){
@@ -9465,8 +9465,13 @@ document.getElementById('removeProjectBtn').onclick = async () => {
   showToast('Project removed: ' + projectName);
 };
 
-document.getElementById('attDate').addEventListener('change', onDateOrProjectChange);
-document.getElementById('attProject').addEventListener('change', onDateOrProjectChange);
+document.getElementById('attDate').addEventListener('change', () => onDateOrProjectChange());
+document.getElementById('attProject').addEventListener('change', () => onDateOrProjectChange());
+{
+  // every (re)load of a day starts clean: what is on screen is what is saved
+  const _odpc = onDateOrProjectChange;
+  onDateOrProjectChange = async function(){ const r = await _odpc.apply(this, arguments); try{ attSnapTake(); }catch(e){} return r; };
+}
 
 // whose attendance is on the screen
 document.getElementById('attWho').addEventListener('change', e => {
@@ -9579,6 +9584,7 @@ document.getElementById('attHoliday').addEventListener('click', async () => {
   renderLaborAttChecklist(); renderAttSnapshot();
 });
 document.getElementById('attOtDate').addEventListener('change', refreshOtState);
+document.getElementById('attOtDate').addEventListener('change', () => setTimeout(() => { try{ attSnapTake(); }catch(e){} }, 60));
 document.getElementById('otEnabledToggle').addEventListener('change', onOtSettingChange);
 document.getElementById('otMaxCapSelect').addEventListener('change', onOtSettingChange);
 document.getElementById('otExceptionListInput').addEventListener('change', onOtSettingChange);
@@ -11089,6 +11095,42 @@ async function memcoApplySheetToDay(o){
   return {applied: rows.length};
 }
 window.memcoApplySheetToDay = memcoApplySheetToDay;
+// ---- unsaved changes on the attendance screen: counted, and a Save bar stays in sight until saved ----
+let ATT_SNAP = null;          // code -> "state" as it was when the day was loaded or saved
+function attStateOf(code){
+  const a = currentAbsentMap.hasOwnProperty(code) ? 'A:' + (currentAbsentMap[code] || '') : (currentMarkedSet.has(code) ? 'P' : '-');
+  const o = (currentOTMap[code] !== undefined && currentOTMap[code] !== '') ? String(currentOTMap[code]) : '';
+  return a + '|' + o + '|' + (attContractPending[code] || '');
+}
+function attSiteCodes(){
+  const project = (document.getElementById('attProject') || {}).value || '';
+  return laborRecords.filter(l => l.site === project).map(l => String(l.code));
+}
+function attSnapTake(){ ATT_SNAP = {}; attSiteCodes().forEach(c => { ATT_SNAP[c] = attStateOf(c); }); attDirtyPaint(); }
+function attSnapSet(code){ if(ATT_SNAP) ATT_SNAP[code] = attStateOf(code); }
+function attDirtyCount(){
+  if(!ATT_SNAP) return 0;
+  let n = 0; attSiteCodes().forEach(c => { if(ATT_SNAP[c] !== undefined && ATT_SNAP[c] !== attStateOf(c)) n++; });
+  return n;
+}
+window.attDirtyCount = attDirtyCount;
+function attDirtyPaint(){
+  let bar = document.getElementById('attUnsavedBar');
+  const view = document.getElementById('attendanceView');
+  const onDaily = view && view.getClientRects().length && !(document.getElementById('attSheetsWrap') && document.getElementById('attSheetsWrap').style.display !== 'none');
+  const n = onDaily ? attDirtyCount() : 0;
+  if(!n){ if(bar) bar.style.display = 'none'; return; }
+  if(!bar){
+    bar = document.createElement('button');
+    bar.type = 'button'; bar.id = 'attUnsavedBar';
+    bar.addEventListener('click', () => { doSaveAttendance(); });
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `💾 <b>${n}</b> change${n === 1 ? '' : 's'} not saved — tap to save`;
+  bar.style.display = 'block';
+}
+setInterval(() => { try{ attDirtyPaint(); }catch(e){} }, 800);
+window.addEventListener('beforeunload', e => { try{ if(attDirtyCount() && !window.__memcoLeaving){ e.preventDefault(); e.returnValue = ''; } }catch(err){} });
 // what another device saved for the day on screen is laid over it: the men it touched change here too
 window.memcoOnDayRecordsChanged = function(keys){
   try{
@@ -11119,6 +11161,7 @@ window.memcoOnDayRecordsChanged = function(keys){
     // overtime from the other device, for the OT date on screen
     Object.keys(otRec.otHours || {}).forEach(code => { if(siteCodes.has(code) && String(currentOTMap[code] || '') !== String(otRec.otHours[code])){ currentOTMap[code] = otRec.otHours[code]; n++; } });
     window.__attDayTs = rec.ts || window.__attDayTs;
+    try{ touched.forEach(c => attSnapSet(c)); Object.keys(otRec.otHours || {}).forEach(c => attSnapSet(c)); }catch(e){}
     if(typeof syncOtDateAbsentIfSameDay === 'function') syncOtDateAbsentIfSameDay();
     renderLaborAttChecklist(); renderAttSnapshot();
     if(n) showToast(`📄 Updated from another device — ${n} change(s) on ${formatDMY(date)}`);
@@ -11183,7 +11226,8 @@ async function doSaveAttendance(){
   // individual row controls -- a locked page with no row edits could
   // otherwise still slip a save through.
   if(isDateLocked(project, date)){ showToast(`Cannot save — ${formatDMY(date)} is locked. Request Admin/HR/PM approval above.`); return; }
-  if(otDate !== date && isDateLocked(project, otDate)){ showToast(`Cannot save — ${formatDMY(otDate)} (Overtime date) is locked. Request Admin/HR/PM approval above.`); return; }
+  // a locked OT date must not stop today's attendance: the attendance is saved, the OT is left as it was
+  const otLocked = !!(otDate && otDate !== date && isDateLocked(project, otDate));
   {
     // nobody is counted present by accident: warn about men nobody has marked
     const siteMen = laborRecords.filter(l => l.site === project);
@@ -11230,7 +11274,7 @@ async function doSaveAttendance(){
   // as its own otEnteredBy/otTs trail) so the Excel export always maps
   // them to the correct calendar day, whatever date Attendance itself is
   // being edited for right now.
-  if(otDate){
+  if(otDate && !otLocked){
     const otHours = {};
     Object.keys(currentOTMap).forEach(code => {
       if(laborRecords.some(l => l.site === project && l.code === code) && currentOTMap[code] !== ''){
@@ -11255,7 +11299,8 @@ async function doSaveAttendance(){
       await window.storage.set(DAILY_LABOR_KEY, JSON.stringify(dailyLaborRecords), true);
     }
     try{ const me = dailyLaborRecords.find(r => r.date === date && r.project === project); window.__attDayTs = me && me.ts; }catch(e){}
-    showToast('Attendance saved for ' + date + (otDate && otDate !== date ? ` · OT saved for ${otDate}` : ''));
+    try{ attSnapTake(); }catch(e){}
+    showToast('Attendance saved for ' + formatDMY(date) + (otLocked ? ` · OT of ${formatDMY(otDate)} is locked — not changed` : (otDate && otDate !== date ? ` · OT saved for ${formatDMY(otDate)}` : '')));
   }catch(e){
     showToast('Could not save — try again');
   }
@@ -27720,7 +27765,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     });
     try{ if(localStorage.getItem('st-menu-off') === '1') $('stApp').classList.add('st-menu-off'); }catch(e){}
     $('stRefreshBtn').addEventListener('click', () => { S.loaded = false; S.setupMissing = false; clearStockCache(); go(S.tab); });
-    document.addEventListener('keydown', e => { if(e.key === 'Escape' && $('stApp').style.display !== 'none' && !document.querySelector('#stApp input:focus')) close(); });
+    document.addEventListener('keydown', e => { const sa = $('stApp'); if(e.key === 'Escape' && sa && sa.style.display !== 'none' && !document.querySelector('#stApp input:focus')) close(); });
     setInterval(checkAccess, 2000);
     setInterval(async () => {
       if(!S.access || !S.loaded) return;
@@ -31237,7 +31282,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v119';
+  const V = 'v122';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31519,6 +31564,10 @@ document.addEventListener('change', function(ev){
 #attendanceView .l2-tg.l2-lv{background:rgba(249,115,22,.16);border-color:rgba(251,146,60,.75);color:#fdba74;font-size:11.5px}
 #attendanceView .att-quickbar .att-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
 #attendanceView .att-quickbar .att-scan{border-color:rgba(56,189,248,.6)!important;color:#7dd3fc!important}
+#attUnsavedBar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 18px);z-index:9700;display:none;
+  background:linear-gradient(135deg,#16a34a,#059669);color:#fff;border:2px solid #86efac;border-radius:999px;padding:11px 20px;
+  font:800 14px system-ui,sans-serif;box-shadow:0 8px 26px rgba(0,0,0,.5);cursor:pointer;max-width:92vw;white-space:nowrap}
+@media (max-width:900px){ #attUnsavedBar{bottom:calc(env(safe-area-inset-bottom,0px) + 84px)} }
 #attendanceView .att-quickbar .att-otall{border-color:rgba(251,146,60,.6)!important;color:#fdba74!important}
 .ct-list{max-height:220px;overflow:auto;border:1px solid rgba(148,163,184,.25);border-radius:8px;padding:4px 6px;background:#06172a}
 .ct-man{display:flex!important;align-items:center;gap:6px;padding:4px 2px;font-size:12.5px!important;text-transform:none!important;letter-spacing:0!important;color:#e6f2ff!important;margin:0!important;border-bottom:1px solid rgba(148,163,184,.1);cursor:pointer}
@@ -31692,6 +31741,27 @@ document.addEventListener('change', function(ev){
   document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') checkVersion(); });
 })();
 </script>
+<style>
+/* v121: nothing on a phone may be wider than the screen — a long group name or a wide select used to
+   stretch the whole page to the right (the phone then showed only part of it and the Save button half) */
+@media (max-width:760px){
+  html, body{max-width:100%;overflow-x:hidden}
+  #attendanceView .att-who-field{flex:1 1 100%!important;min-width:0!important;max-width:100%!important}
+  #attendanceView .att-who-field select, #attendanceView .att-compact-field select{min-width:0!important;max-width:100%!important;width:100%!important;text-overflow:ellipsis}
+  #attendanceView .att-compact-field{min-width:0!important;max-width:100%}
+  #transferView .tr2-proj{flex:1 1 100%!important;min-width:0}
+  #transferView .tr2-proj select{min-width:0;flex:1 1 auto;width:auto;max-width:100%}
+  select{max-width:100%}
+  .hol-box, .memco-chk{max-width:100%}
+  #memcoOtControlBar{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
+  #memcoOtControlBar > *{min-width:0!important;max-width:100%}
+  #memcoOtControlBar #adminOtStopAllBtn, #memcoOtControlBar #adminOtStartAllBtn{white-space:normal!important;width:100%!important}
+  #memcoOtControlBar .memco-global-pill{white-space:normal!important}
+  #vehiclesView{margin-left:0!important;margin-right:0!important;max-width:100%}
+  #transferView .att-inline-row{min-width:0!important;flex:1 1 100%!important;max-width:100%}
+  #transferView .att-inline-row select{min-width:0!important;max-width:100%;flex:1 1 auto}
+}
+</style>
 <script>
 /* v99: a stray ✕, refresh or Back must not throw the user out of the app.
    ✕ / refresh -> the browser asks "Leave site?".
