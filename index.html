@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v107 — Al Muhanad</title>
+<title>MEMCO Operations Console v109 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -5419,6 +5419,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <button type="button" class="btn btn-ghost att-allabs" id="attAllAbsent">⛔ All absent</button>
         <button type="button" class="btn btn-ghost att-holi" id="attHoliday">🎉 Holiday</button>
         <button type="button" class="btn btn-ghost att-scan" id="attScanBtn">📷 Scan signed sheet</button>
+        <button type="button" class="btn btn-ghost att-otall" id="attOtAllBtn" title="The same overtime for everybody present on this list">⏱ OT for all</button>
         <button type="button" class="btn btn-ghost att-ctbtn" id="attCtBtn" title="Overtime given for a contract job, not from IN/OUT">📝 Contract OT</button>
         <span class="st-muted" id="attWhoCount"></span>
       </div>
@@ -7939,7 +7940,9 @@ async function ensureForemanMen(){
     let found = false;
     for(const site of sites){
       const r = await c.rpc('st_crew_list', {p_group: site});
-      ((r && r.data) || []).filter(cr => String(cr.foreman_hr || '') === hr).forEach(cr => {
+      let list = (r && r.data) || [];
+      if(!list.length) list = await memcoCrewCacheGet(site);
+      list.filter(cr => String(cr.foreman_hr || '') === hr).forEach(cr => {
         found = true; (cr.members || []).forEach(m => set.add(String(m.hr)));
       });
     }
@@ -9439,11 +9442,50 @@ function attOpenScan(){
 }
 window.attOpenScan = attOpenScan;
 document.getElementById('attScanBtn').addEventListener('click', attOpenScan);
-// 📝 contract OT: a few men get fixed hours for a job — typed once for all of them
-document.getElementById('attCtBtn').addEventListener('click', async () => {
-  const r = await memcoContractDialog();
-  if(!r) return;
+// who may get overtime on the OT date, and up to how many hours
+function attOtRulesFor(code){
   const project = document.getElementById('attProject').value;
+  const otDate = document.getElementById('attOtDate').value;
+  const s = projectOtSettings[project] || {};
+  const on = s.otEnabled !== false || otExceptionSetFor(project).has(String(code));
+  const cap = !on ? 0 : (isHolidayOrSunday(otDate) ? null : (s.maxOtCap ? Number(s.maxOtCap) : null));
+  const absentThatDay = currentOtDateAbsentMap.hasOwnProperty(code);
+  return {ok: on && !absentThatDay && !isDateLocked(project, otDate), cap};
+}
+// ⏱ the same OT for everybody on the list (contract men keep their own hours)
+document.getElementById('attOtAllBtn').addEventListener('click', () => {
+  const project = document.getElementById('attProject').value;
+  const otDate = document.getElementById('attOtDate').value;
+  if(isDateLocked(project, otDate)){ showToast(`${formatDMY(otDate)} is locked — request approval first`); return; }
+  const s = projectOtSettings[project] || {};
+  const capTxt = isHolidayOrSunday(otDate) ? 'no cap today (Sunday / holiday)' : (s.maxOtCap ? `cap ${s.maxOtCap} h` : 'no cap');
+  const x = prompt(`Overtime on ${formatDMY(otDate)} for everybody on this list (${capTxt}).\nHours (0 clears it):`, s.maxOtCap || '2');
+  if(x === null) return;
+  const h = Number(String(x).replace(',', '.'));
+  if(!(h >= 0) || h > 16){ alert('Write the hours, like 2 or 3.5'); return; }
+  const otRec = dailyLaborRecords.find(r => r.date === otDate && r.project === project) || {};
+  const men = attWhoMen(laborRecords.filter(l => l.site === project));
+  let set = 0, capped = 0, skipped = 0;
+  men.forEach(l => {
+    const code = l.code;
+    if(attContractPending[code] || (otRec.otContract || {})[code]){ skipped++; return; }
+    const r = attOtRulesFor(code);
+    if(!r.ok){ skipped++; return; }
+    let v = h;
+    if(r.cap != null && v > r.cap){ v = r.cap; capped++; }
+    if(v > 0) currentOTMap[code] = v; else delete currentOTMap[code];
+    set++;
+  });
+  renderLaborAttChecklist(); renderAttSnapshot();
+  showToast(`${h} h OT for ${set} men${capped ? ` · ${capped} held at the cap` : ''}${skipped ? ` · ${skipped} skipped (contract / absent / OT off)` : ''} — press Save`);
+});
+// 📝 contract OT: tick the men of this list, their hours and the job
+document.getElementById('attCtBtn').addEventListener('click', async () => {
+  const project = document.getElementById('attProject').value;
+  const list = attWhoMen(laborRecords.filter(l => l.site === project)).filter(l => !currentLeaveAuto.has(l.code))
+    .map(l => ({hr: String(l.code), name: l.name, trade: l.trade || ''}));
+  const r = await memcoContractDialog('', list);
+  if(!r) return;
   const known = new Set(laborRecords.filter(l => l.site === project).map(l => String(l.code)));
   const ok = r.hrs.filter(h => known.has(h)), bad = r.hrs.filter(h => !known.has(h));
   ok.forEach(h => { currentOTMap[h] = r.hours; attContractPending[h] = r.job; });
@@ -10040,8 +10082,31 @@ async function attLoadCrews(project){
       ATT_CREWS = (r && r.data) ? r.data : [];
     }
   }catch(e){ ATT_CREWS = []; }
+  if(ATT_CREWS.length) memcoCrewCacheSave(project, ATT_CREWS);
+  else ATT_CREWS = await memcoCrewCacheGet(project);
   attFillWho();
 }
+// a copy of every site's groups in the shared store: written whenever the office sees them,
+// read when a foreman's phone gets nothing back from the server
+const CREW_CACHE_KEY = 'memco-crews-v1';
+async function memcoCrewCacheSave(site, crews){
+  try{
+    if(!site || !Array.isArray(crews)) return;
+    const slim = crews.map(c => ({id: c.id, name: c.name, group_code: c.group_code || site, trade: c.trade, foreman_hr: c.foreman_hr, foreman_name: c.foreman_name,
+      engineer_hr: c.engineer_hr, engineer_name: c.engineer_name, supervisor_hr: c.supervisor_hr, supervisor_name: c.supervisor_name,
+      members: (c.members || []).map(m => ({hr: m.hr, name: m.name, trade: m.trade}))}));
+    let all = {};
+    try{ const r = await window.storage.get(CREW_CACHE_KEY, true); if(r && r.value) all = JSON.parse(r.value) || {}; }catch(e){}
+    if(JSON.stringify(all[site] || null) === JSON.stringify(slim)) return;
+    all[site] = slim;
+    await window.storage.set(CREW_CACHE_KEY, JSON.stringify(all), true);
+  }catch(e){}
+}
+async function memcoCrewCacheGet(site){
+  try{ const r = await window.storage.get(CREW_CACHE_KEY, true); const all = (r && r.value) ? JSON.parse(r.value) : {}; return (all && all[site]) || []; }catch(e){ return []; }
+}
+window.memcoCrewCacheSave = memcoCrewCacheSave;
+window.memcoCrewCacheGet = memcoCrewCacheGet;
 
 // a foreman is tied to his own group; everyone else may pick
 function attMyCrew(){
@@ -10055,7 +10120,7 @@ function attIsForemanOnly(){
   try{
     const role = String((currentUser && currentUser.role) || '').toLowerCase();
     if(/admin|director|manager|timekeeper|time keeper|pm\b/.test(role)) return false;
-    return !!attMyCrew();
+    return /^foreman$/.test(role.trim()) || !!attMyCrew();
   }catch(e){ return false; }
 }
 
@@ -10069,6 +10134,12 @@ function attFillWho(){
   const siteMen = laborRecords.filter(l => l.site === project);
   const free = siteMen.filter(l => !inAnyCrew.has(String(l.code))).length;
 
+  if(attIsForemanOnly() && !mine){
+    // a foreman with no group found: show nothing rather than the whole site
+    sel.innerHTML = '<option value="none">⚠ Your group is not set yet — ask the office</option>';
+    sel.value = 'none'; ATT_WHO = 'none'; sel.disabled = true;
+    return;
+  }
   if(attIsForemanOnly() && mine){
     // the foreman sees only his own men, so nothing can go wrong
     sel.innerHTML = `<option value="crew:${escapeAttr(mine.id)}">${escapeHtml(mine.name || 'My group')} — ${(mine.members || []).length} men</option>`;
@@ -10086,6 +10157,7 @@ function attFillWho(){
 
 // the men the chosen line stands for
 function attWhoMen(siteLabor){
+  if(ATT_WHO === 'none') return [];
   if(!ATT_WHO) return siteLabor;
   if(ATT_WHO === 'nogroup'){
     const inAny = new Set();
@@ -10303,7 +10375,8 @@ function renderAttSnapshot(){
   });
   const subTotal = subLabor+subSup+subEng+subFor;
 
-  const siteLabor = laborRecords.filter(l => l.site === project);
+  const siteLabor = (typeof attIsForemanOnly === 'function' && attIsForemanOnly())
+    ? attWhoMen(laborRecords.filter(l => l.site === project)) : laborRecords.filter(l => l.site === project);
   const almTotal = siteLabor.length;
   const reasonCounts = {};
   Object.keys(currentAbsentMap).forEach(code => {
@@ -10949,13 +11022,16 @@ async function memcoApplySheetToDay(o){
   return {applied: rows.length};
 }
 window.memcoApplySheetToDay = memcoApplySheetToDay;
-function memcoContractDialog(preHrs){
+function memcoContractDialog(preHrs, men){
   return new Promise(resolve => {
     const w = document.createElement('div');
     w.className = 'hol-wrap';
-    w.innerHTML = `<div class="hol-box">
+    const two = n => String(n || '').replace(/\s+/g, ' ').trim().split(' ').slice(0, 2).join(' ');
+    w.innerHTML = `<div class="hol-box" style="max-width:520px">
       <div class="hol-head"><b>📝 Contract overtime</b><button type="button" class="hol-x" data-x>✕</button></div>
       <div class="hol-note">Men who did a job on contract get these hours as overtime — not worked out from IN and OUT. Marked <b>CT</b> on the screen and in the monthly Excel.</div>
+      ${men && men.length ? `<label>Tick the men</label><input id="ctFind" placeholder="🔎 name or HR…" style="margin-bottom:6px">
+        <div class="ct-list">${men.map(m => `<label class="ct-man"><input type="checkbox" value="${escapeAttr(m.hr)}"> <b>${escapeHtml(m.hr)}</b> ${escapeHtml(two(m.name))} <span>${escapeHtml(m.trade || '')}</span></label>`).join('')}</div>` : ''}
       <label>HR numbers</label><input id="ctHrs" placeholder="2258, 2305, 2331" value="${escapeAttr(preHrs || '')}">
       <div class="hol-row"><div><label>Hours</label><input id="ctHours" type="number" min="0.5" max="16" step="0.5" value="4"></div>
         <div><label>Job</label><input id="ctJob" placeholder="e.g. Pump room piping"></div></div>
@@ -10963,6 +11039,18 @@ function memcoContractDialog(preHrs){
     document.body.appendChild(w);
     const close = v => { w.remove(); resolve(v); };
     w.addEventListener('click', e => { if(e.target === w || e.target.closest('[data-x]')) close(null); });
+    // ticks and the HR box stay the same list
+    const hrBox = w.querySelector('#ctHrs');
+    w.querySelectorAll('.ct-man input').forEach(c => c.addEventListener('change', () => {
+      const cur = new Set((hrBox.value.match(/\d{1,6}/g) || []));
+      c.checked ? cur.add(c.value) : cur.delete(c.value);
+      hrBox.value = [...cur].join(', ');
+    }));
+    const find = w.querySelector('#ctFind');
+    if(find) find.addEventListener('input', () => {
+      const q = find.value.trim().toLowerCase();
+      w.querySelectorAll('.ct-man').forEach(l => { l.style.display = !q || l.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+    });
     w.querySelector('#ctOk').addEventListener('click', () => {
       const hrs = [...new Set((w.querySelector('#ctHrs').value.match(/\d{1,6}/g) || []))];
       const hours = Number(w.querySelector('#ctHours').value);
@@ -10971,7 +11059,7 @@ function memcoContractDialog(preHrs){
       if(!(hours > 0)){ alert('Write the hours.'); return; }
       close({hrs, hours, job});
     });
-    setTimeout(() => w.querySelector('#ctHrs').focus(), 30);
+    setTimeout(() => (w.querySelector('#ctFind') || w.querySelector('#ctHrs')).focus(), 30);
   });
 }
 window.memcoContractDialog = memcoContractDialog;
@@ -20902,6 +20990,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(r.error) throw new Error(cleanErr(r.error.message) + (/permission|not allowed|access/i.test(r.error.message || '') ? ` [${name}]` : ''));
     // a foreman works only with his own group
     if(name === 'st_crew_list' && Array.isArray(r.data)){
+      const u0 = (typeof currentUser !== 'undefined') ? currentUser : null;
+      const isFm = u0 && /^foreman$/i.test(u0.role || '');
+      if(!isFm && r.data.length && typeof window.memcoCrewCacheSave === 'function') window.memcoCrewCacheSave((args || {}).p_group, r.data);
+      if(isFm && !r.data.length && typeof window.memcoCrewCacheGet === 'function'){
+        const cached = await window.memcoCrewCacheGet((args || {}).p_group);
+        const myHr0 = (typeof window.memcoMyHr === 'function') ? window.memcoMyHr() : '';
+        return cached.filter(cr => String(cr.foreman_hr || '') === myHr0);
+      }
       try{
         const u = (typeof currentUser !== 'undefined') ? currentUser : null;
         const myHr = (typeof window.memcoMyHr === 'function') ? window.memcoMyHr() : (u ? String(u.hrCode || u.hr || '') : '');
@@ -23946,7 +24042,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         });
         $('tsRdCt').addEventListener('click', async () => {
           if(typeof window.memcoContractDialog !== 'function') return;
-          const c = await window.memcoContractDialog();
+          const c = await window.memcoContractDialog('', res.rows.filter(r => marks[r.hr]).map(r => ({hr: String(r.hr), name: r.name, trade: r.trade || ''})));
           if(!c) return;
           const onSheet = new Set(res.rows.map(r => String(r.hr)));
           const bad = [];
@@ -30950,7 +31046,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v107';
+  const V = 'v109';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31160,6 +31256,12 @@ document.addEventListener('change', function(ev){
 #attendanceView .l2-tg.l2-lv{background:rgba(249,115,22,.16);border-color:rgba(251,146,60,.75);color:#fdba74;font-size:11.5px}
 #attendanceView .att-quickbar .att-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
 #attendanceView .att-quickbar .att-scan{border-color:rgba(56,189,248,.6)!important;color:#7dd3fc!important}
+#attendanceView .att-quickbar .att-otall{border-color:rgba(251,146,60,.6)!important;color:#fdba74!important}
+.ct-list{max-height:220px;overflow:auto;border:1px solid rgba(148,163,184,.25);border-radius:8px;padding:4px 6px;background:#06172a}
+.ct-man{display:flex!important;align-items:center;gap:6px;padding:4px 2px;font-size:12.5px!important;text-transform:none!important;letter-spacing:0!important;color:#e6f2ff!important;margin:0!important;border-bottom:1px solid rgba(148,163,184,.1);cursor:pointer}
+.ct-man input{width:auto!important}
+.ct-man b{color:#38bdf8;min-width:40px}
+.ct-man span{color:#8fb3d1;font-size:11px;margin-left:auto}
 #attendanceView .att-quickbar .att-ctbtn{border-color:rgba(192,132,252,.6)!important;color:#d8b4fe!important}
 #attendanceView .l2-src{font-size:11px;margin-left:2px}
 #attendanceView .l2-ct{font-size:9.5px;font-weight:800;color:#d8b4fe;border:1px solid rgba(192,132,252,.6);border-radius:5px;padding:0 4px;margin-left:3px;vertical-align:middle}
