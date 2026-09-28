@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v123 — Al Muhanad</title>
+<title>MEMCO Operations Console v124 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -23009,6 +23009,22 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       await window.storage.set('memco-sheets-v1', JSON.stringify(all), true);
     }catch(e){}
   }
+  // "read" / "cancelled" per sheet, for every device (a foreman's phone may not be allowed to mark it on the server)
+  async function tsSheetMarksGet(site){
+    try{ const rr = await window.storage.get('memco-sheets-v1', true); const all = (rr && rr.value) ? JSON.parse(rr.value) : {}; return (all && all['__marks__' + site]) || {}; }catch(e){ return {}; }
+  }
+  async function tsSheetMarkSet(site, id, mark){
+    try{
+      let all = {};
+      try{ const rr = await window.storage.get('memco-sheets-v1', true); if(rr && rr.value) all = JSON.parse(rr.value) || {}; }catch(e){}
+      const k = '__marks__' + site;
+      all[k] = Object.assign({}, all[k] || {}, {[id]: Object.assign({}, (all[k] || {})[id] || {}, mark, {at: new Date().toISOString()})});
+      // keep the marks list small: only the newest 400
+      const ids = Object.keys(all[k]);
+      if(ids.length > 400) ids.sort((a, b) => String(all[k][a].at).localeCompare(String(all[k][b].at))).slice(0, ids.length - 400).forEach(x => delete all[k][x]);
+      await window.storage.set('memco-sheets-v1', JSON.stringify(all), true);
+    }catch(e){}
+  }
   async function tsSheetCacheGet(site){
     try{ const rr = await window.storage.get('memco-sheets-v1', true); const all = (rr && rr.value) ? JSON.parse(rr.value) : {}; return (all && all[site]) || []; }catch(e){ return []; }
   }
@@ -24133,7 +24149,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     let sheets = [];
     try{ sheets = await rpc('st_att_sheet_list', {p_from: null, p_to: null, p_group: group, p_limit: 200}) || []; }
     catch(e){ body.innerHTML = `<div class="st-note warn">${esc(e.message)}<br>Run <b>26</b> and <b>27</b> (attendance) in Supabase first.</div>`; return; }
-    const waiting = sheets.filter(x => x.status === 'printed');
+    // sheets read on a phone (even when the server's own mark was closed to it) and sheets cancelled by the office
+    const marksShared = await tsSheetMarksGet(group);
+    sheets.forEach(x => { const m = marksShared[x.id]; if(m && m.read && x.status === 'printed'){ x.status = 'posted'; x.present_cnt = m.p; x.absent_cnt = m.a; } if(m && m.cancelled) x.cancelled = true; });
+    const allSheets = sheets;
+    const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const cutoffRead = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    // shown: sheets still waiting from the last 7 days, and read ones from the last 2 days — the rest only on "Show all"
+    if(!S.tsShowAllSheets) sheets = sheets.filter(x => !x.cancelled && ((x.status === 'printed' && String(x.sheet_date) >= cutoff) || (x.status !== 'printed' && String(x.sheet_date) >= cutoffRead)));
+    const hiddenN = allSheets.length - sheets.length;
+    const waiting = sheets.filter(x => x.status === 'printed' && !x.cancelled);
+    const canCancel = (typeof currentUser !== 'undefined' && currentUser && !/^foreman$/i.test(currentUser.role || ''));
     body.innerHTML = `<div class="st-card ts-scan">
         <div class="st-row" style="justify-content:space-between;gap:8px;margin:0;align-items:center">
           <div><b>📄 Many signed sheets at once</b><div class="st-muted">A PDF from the office copier, or several photos together. Each page is matched to its sheet by the little boxes along its top edge.</div></div>
@@ -24149,12 +24175,22 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         ${sheets.length ? sheets.map(s2 => `<tr><td><b>${esc(s2.sheet_no)}</b><div class="st-muted">${esc(s2.created_name)}</div></td><td>${esc(dmy(s2.sheet_date))}</td><td>${esc(s2.shift)}</td>
           <td class="n">${(s2.rows || []).length}<span class="ts-shl-men"> men</span></td>
           <td>${pill(s2.status)}${s2.status === 'posted' ? `<div class="st-muted">${s2.present_cnt} present · ${s2.absent_cnt} absent</div>` : ''}</td>
-          <td><div class="st-actions"><button type="button" class="st-btn st-ghost st-sm" data-pr="${esc(s2.id)}">🖨 Print again</button>
+          <td><div class="st-actions">${s2.cancelled ? '<span class="st-pill p-rejected">cancelled</span>' : ''}<button type="button" class="st-btn st-ghost st-sm" data-pr="${esc(s2.id)}">🖨 Print again</button>
             <label class="st-btn st-ok st-sm" style="cursor:pointer">📷 Phone photo<input type="file" accept="image/*" capture="environment" data-ph="${esc(s2.id)}" style="display:none"></label>
             <label class="st-btn st-sm" style="cursor:pointer">📁 ${/Android|iPhone|iPad/i.test(navigator.userAgent) ? 'From gallery' : 'From computer'}<input type="file" accept="image/*" data-ph="${esc(s2.id)}" style="display:none"></label>
-            ${s2.scan_path ? `<button type="button" class="st-btn st-ghost st-sm" data-sc="${esc(s2.id)}">📄 Sheet photo</button>` : ''}</div></td></tr>`).join('')
-          : '<tr><td colspan="6" class="st-muted">No sheet printed yet for this group.</td></tr>'}
-      </tbody></table></div><div id="tsRead"></div>`;
+            ${s2.scan_path ? `<button type="button" class="st-btn st-ghost st-sm" data-sc="${esc(s2.id)}">📄 Sheet photo</button>` : ''}
+            ${canCancel && s2.status === 'printed' && !s2.cancelled ? `<button type="button" class="st-btn st-ghost st-sm" data-cx="${esc(s2.id)}" title="A sheet printed by mistake or for a test — it will not be asked for again">🗑 Cancel</button>` : ''}</div></td></tr>`).join('')
+          : '<tr><td colspan="6" class="st-muted">No sheet waiting for this group.</td></tr>'}
+      </tbody></table></div>
+      ${hiddenN || S.tsShowAllSheets ? `<div class="st-row" style="margin-top:6px"><button type="button" class="st-btn st-ghost st-sm" id="tsShowAll">${S.tsShowAllSheets ? '▲ Show only the recent sheets' : `▼ Show all sheets (${hiddenN} older, read or cancelled)`}</button></div>` : ''}
+      <div id="tsRead"></div>`;
+    const sa = $('tsShowAll'); if(sa) sa.addEventListener('click', () => { S.tsShowAllSheets = !S.tsShowAllSheets; tsReload(); });
+    body.querySelectorAll('[data-cx]').forEach(b => b.addEventListener('click', async () => {
+      const s2 = allSheets.find(x => x.id === b.dataset.cx);
+      if(!s2 || !confirm(`Cancel sheet ${s2.sheet_no}?\n\nUse this only for a sheet printed by mistake or for a test. It will not be asked for again.`)) return;
+      await tsSheetMarkSet(group, s2.id, {cancelled: true});
+      toast('Sheet cancelled'); tsReload();
+    }));
     body.querySelectorAll('[data-pr]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
       const s2 = sheets.find(x => x.id === b.dataset.pr);
       let fresh = s2;
@@ -24286,6 +24322,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           if(applied && applied.kept){ toast('Nothing changed — you chose to keep the attendance saved earlier'); return; }
           // 2) the sheet's photo and "read" mark on the server (may be closed to some roles — that is fine)
           await postRead(sheet, file, res, marks, extra);
+          try{ await tsSheetMarkSet(project, sheet.id, {read: true, p: pN, a: aN}); }catch(e){}
           if(qItem){ qItem.status = 'done'; qItem.msg = `${pN} present · ${aN} absent`; }
           host.innerHTML = `<div class="st-card ts-done">✅ <b>Saved to attendance</b> — ${esc(dmy(sheet.sheet_date))} · ${esc(project)}<br>
             <b style="color:#4ade80">${pN} present</b> · <b style="color:#fca5a5">${aN} absent</b>
@@ -31309,7 +31346,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v123';
+  const V = 'v124';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
