@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v111 — Al Muhanad</title>
+<title>MEMCO Operations Console v112 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -9262,7 +9262,12 @@ function renderHomeStats(){
   const today = new Date().toISOString().slice(0,10);
   const todaysRecs = (typeof dailyLaborRecords !== 'undefined' ? dailyLaborRecords : []).filter(r => r.date === today && inMine(r.project));
   if(todaysRecs.length > 0){
-    const totalPresent = todaysRecs.reduce((s,r) => s + (r.presentCount||0), 0);
+    let totalPresent = todaysRecs.reduce((s,r) => s + (r.presentCount||0), 0);
+    if(foremanMen){
+      const abs = new Set(); todaysRecs.forEach(r => (r.absentees || []).forEach(a => { if(a.reason !== 'H') abs.add(String(a.code)); }));
+      const sm = {}; todaysRecs.forEach(r => Object.assign(sm, r.sheetMarks || {}));
+      totalPresent = [...foremanMen].filter(c => todaysRecs.some(r => r.attendanceTaken) ? !abs.has(c) : sm[c] === 1).length;
+    }
     document.getElementById('homeAttendanceStat').textContent = `${totalPresent} Present Today`;
     const execAttVal = document.getElementById('execAttendanceValue');
     if(execAttVal) execAttVal.textContent = totalPresent;
@@ -27633,7 +27638,11 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     checkAccess();
   }
   // the daily screen makes its sheets through the same place as Time sheets, so they can be read back
-  const createSheet = args => rpc('st_att_sheet_create', args);
+  const createSheet = async args => {
+    const sh = await rpc('st_att_sheet_create', args);
+    try{ if(sh && sh.id) tsSheetCacheSave(args.p_group, [Object.assign({}, sh, {meta: Object.assign({}, sh.meta || {}, args.p_meta || {}), rows: (sh.rows && sh.rows.length) ? sh.rows : args.p_rows})]); }catch(e){}
+    return sh;
+  };
   window.MemcoStores = {open, openWorkshop, openTimeSheets, close, state: S, createSheet};
   window.MemcoSheet = {readSheet, readXlsx, readCsv, normBrand, num};
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
@@ -31098,7 +31107,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v111';
+  const V = 'v112';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
