@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v106 — Al Muhanad</title>
+<title>MEMCO Operations Console v107 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -5419,6 +5419,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <button type="button" class="btn btn-ghost att-allabs" id="attAllAbsent">⛔ All absent</button>
         <button type="button" class="btn btn-ghost att-holi" id="attHoliday">🎉 Holiday</button>
         <button type="button" class="btn btn-ghost att-scan" id="attScanBtn">📷 Scan signed sheet</button>
+        <button type="button" class="btn btn-ghost att-ctbtn" id="attCtBtn" title="Overtime given for a contract job, not from IN/OUT">📝 Contract OT</button>
         <span class="st-muted" id="attWhoCount"></span>
       </div>
       <div id="laborAttList" class="labor-att-list-v6" style="max-height:420px;overflow-y:auto;"></div>
@@ -8910,6 +8911,7 @@ let dailyLaborLoaded = false;
 let currentAbsentMap = {}; // code -> reason
 let currentMarkedSet = new Set(); // men whose attendance was marked on the screen (present or absent)
 let currentLeaveAuto = new Set(); // men put 'on leave' by their HR record, until someone marks them back on duty
+let attContractPending = {};      // code -> contract job, for the OT date, saved with the day
 let currentOTMap = {}; // code -> OT hours (number, as string while typing), keyed against the selected OT date (see attOtDate), not necessarily the Attendance date
 let currentOtDateAbsentMap = {}; // read-only snapshot: code -> reason, who was Absent ON THE SELECTED OT DATE specifically (may differ from the Attendance-date absentee map above) — used only to disable/zero the OT box for them
 const PROJECT_OT_SETTINGS_KEY = "project-ot-settings-v1";
@@ -9437,6 +9439,18 @@ function attOpenScan(){
 }
 window.attOpenScan = attOpenScan;
 document.getElementById('attScanBtn').addEventListener('click', attOpenScan);
+// 📝 contract OT: a few men get fixed hours for a job — typed once for all of them
+document.getElementById('attCtBtn').addEventListener('click', async () => {
+  const r = await memcoContractDialog();
+  if(!r) return;
+  const project = document.getElementById('attProject').value;
+  const known = new Set(laborRecords.filter(l => l.site === project).map(l => String(l.code)));
+  const ok = r.hrs.filter(h => known.has(h)), bad = r.hrs.filter(h => !known.has(h));
+  ok.forEach(h => { currentOTMap[h] = r.hours; attContractPending[h] = r.job; });
+  renderLaborAttChecklist(); renderAttSnapshot();
+  showToast(`${ok.length} man(men): ${r.hours} h OT for "${r.job}" on ${formatDMY(document.getElementById('attOtDate').value)} — press Save`);
+  if(bad.length) alert('Not on this site: ' + bad.join(', '));
+});
 document.getElementById('homeScanBtn').addEventListener('click', async e => {
   e.stopPropagation();
   await goAttendance();
@@ -9477,6 +9491,7 @@ function findAttRecord(date, project){
 }
 
 async function onDateOrProjectChange(){
+  attContractPending = {};
   const date = document.getElementById('attDate').value;
   const project = document.getElementById('attProject').value;
   if(!date || !project) return;
@@ -9529,7 +9544,7 @@ async function onDateOrProjectChange(){
   currentAbsentMap = {};
   currentMarkedSet = new Set();
   currentLeaveAuto = new Set();
-  if(dailyExisting){
+  if(dailyExisting && dailyExisting.attendanceTaken !== false && (dailyExisting.attendanceTaken || (dailyExisting.absentees || []).length || dailyExisting.presentCount)){
     (dailyExisting.absentees || []).forEach(a => { currentAbsentMap[a.code] = a.reason || ''; });
     // a day already saved: everybody on it counts as marked
     laborRecords.filter(l => l.site === project).forEach(l => currentMarkedSet.add(l.code));
@@ -9544,6 +9559,14 @@ async function onDateOrProjectChange(){
     if(holidayDates.includes(date)){
       siteMen.filter(l => !currentLeaveAuto.has(l.code)).forEach(l => { currentAbsentMap[l.code] = 'H'; currentMarkedSet.add(l.code); });
     }
+    // what the signed sheets said for this day (📄): already marked, the timekeeper only saves the day
+    const sm = (dailyExisting && dailyExisting.sheetMarks) || {};
+    Object.keys(sm).forEach(code => {
+      if(!siteMen.some(l => l.code === code)) return;
+      currentMarkedSet.add(code);
+      if(sm[code]){ delete currentAbsentMap[code]; currentLeaveAuto.delete(code); }
+      else if(!currentLeaveAuto.has(code)) currentAbsentMap[code] = '';
+    });
   }
 
   const otDateInput = document.getElementById('attOtDate');
@@ -10145,6 +10168,11 @@ function renderLaborAttChecklist(){
   }
 
   const capped = shown.slice(0, 400);
+  // 📄 came from a signed sheet · CT overtime given for a contract job
+  const dayRec = dailyLaborRecords.find(r => r.date === attDateVal && r.project === (document.getElementById('attProject') || {}).value) || {};
+  const otRec = dailyLaborRecords.find(r => r.date === otDate && r.project === (document.getElementById('attProject') || {}).value) || {};
+  const srcOf = c => (dayRec.sheetSrc || {})[c];
+  const ctOf = c => attContractPending[c] || (otRec.otContract || {})[c];
   const two = n => String(n || '').replace(/\s+/g, ' ').trim().split(' ').slice(0, 2).join(' ');
   const dd = d => { const x = String(d || '').split('-'); return x.length === 3 ? `${x[2]}/${x[1]}` : ''; };
   const head = extra => `<div class="l2-head${extra}"><span class="l2-sl">#</span><span class="l2-hr">HR</span><span class="l2-nm">Name</span><span class="l2-td">Trade</span>
@@ -10175,7 +10203,7 @@ function renderLaborAttChecklist(){
       <div class="l2-row">
         <span class="l2-sl">${idx + 1}</span>
         <span class="l2-hr">${escapeHtml(l.code)}</span>
-        <span class="l2-nm" title="${escapeAttr(l.name || '')}">${escapeHtml(two(l.name))}${isExempt && !otEnabled ? ' <span class="latt-vip-badge" title="Overtime Exception List (VIP Pass)">🛂</span>' : ''}</span>
+        <span class="l2-nm" title="${escapeAttr(l.name || '')}">${escapeHtml(two(l.name))}${srcOf(l.code) ? ` <span class="l2-src" title="From signed sheet ${escapeAttr(srcOf(l.code))}${(dayRec.times || {})[l.code] ? ' · IN ' + escapeAttr(dayRec.times[l.code].in || '—') + ' · OUT ' + escapeAttr(dayRec.times[l.code].out || '—') : ''}">📄</span>` : ''}${ctOf(l.code) ? ` <span class="l2-ct" title="Contract: ${escapeAttr(ctOf(l.code))}">CT</span>` : ''}${isExempt && !otEnabled ? ' <span class="latt-vip-badge" title="Overtime Exception List (VIP Pass)">🛂</span>' : ''}</span>
         <span class="l2-td" title="${escapeAttr(l.trade || '')}">${escapeHtml(l.trade || '')}</span>
         <button class="l2-tg l2-${state}" data-toggle-code="${escapeAttr(l.code)}" ${attDateLocked ? 'disabled' : ''} title="${attDateLocked ? `${formatDMY(attDateVal)} is locked for editing — request Admin/HR/PM approval above` : (state === 'lv' ? `On ${escapeAttr(hrStatusLabel(l.status))} in HR — tap when he is back on duty` : state === 'h' ? 'Public holiday — tap if he came to work' : state === 'u' ? 'Not marked yet — tap for Present' : (state === 'p' ? 'Present — tap to mark Absent' : 'Absent — tap to mark Present'))}">${label}</button>
         <input type="number" min="0" ${rowCap != null ? `max="${rowCap}"` : 'max="24"'} step="0.5" class="l2-ot" data-ot-code="${escapeAttr(l.code)}" placeholder="OT" value="${escapeAttr(otVal)}" title="${escapeAttr(otTitle)}" ${otDisabled ? 'disabled' : ''}>
@@ -10499,6 +10527,7 @@ async function attPrintSignatureSheets(){
           supervisor: who(crew.supervisor_name, crew.supervisor_hr),
           in_time: inTimeOf(crew.id || project),
           crew_id: crew.id || null,
+          layout: 2,
           first_no: k * MEMCO_ATT.G.maxRows + 1,
           part: parts.length > 1 ? `page ${k + 1} of ${parts.length}` : ''
         },
@@ -10658,7 +10687,7 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
     // flip every worker to "P" for that day. OT hours themselves are read
     // independently below (Synchronized OT Alignment), regardless of
     // whether attendance was ever taken for that date.
-    dayInfoMap[dayNum] = { absentMap, otMap: r.otHours || {}, hasRecord: !!r.attendanceTaken };
+    dayInfoMap[dayNum] = { absentMap, otMap: r.otHours || {}, hasRecord: !!r.attendanceTaken, sheetMarks: r.sheetMarks || {}, otContract: r.otContract || {} };
   });
 
   const FONT_NAME = 'Century Gothic';
@@ -10756,6 +10785,8 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
       let code, ot;
       if(dayInfo && dayInfo.hasRecord){
         code = dayInfo.absentMap[w.code] ? (dayInfo.absentMap[w.code] || 'A') : 'P';
+      }else if(dayInfo && dayInfo.sheetMarks && dayInfo.sheetMarks[w.code] !== undefined){
+        code = dayInfo.sheetMarks[w.code] ? 'P' : 'A';           // from a signed sheet, before the day was saved
       }else if(dow === 0 || holidayDates.includes(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)){
         code = 'H';
       }
@@ -10769,6 +10800,9 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
       }
       if(code !== undefined) attRow.getCell(col).value = code;
       if(ot !== undefined) otRow.getCell(col).value = ot;
+      if(ot !== undefined && dayInfo && dayInfo.otContract && dayInfo.otContract[w.code]){
+        try{ otRow.getCell(col).note = 'CT — contract: ' + dayInfo.otContract[w.code]; }catch(e){}
+      }
     }
 
     const dayRangeStart = ws.getColumn(DAY_COL_START).letter;
@@ -10866,6 +10900,81 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
 // OT) that may already exist there — e.g. saving OT for yesterday must not
 // blank out yesterday's already-recorded absentees, and saving today's
 // attendance must not touch OT hours someone already logged for today.
+// a signed sheet, read by the phone, goes straight into the one official day record
+// rows: [{hr, present, in, out, ot, ct}]  ct = contract job (OT given for the job, not from IN/OUT)
+async function memcoApplySheetToDay(o){
+  const {date, project, rows, sheetNo} = o || {};
+  if(!date || !project || !rows || !rows.length) return {applied: 0};
+  try{ const res = await window.storage.get(DAILY_LABOR_KEY, true); if(res && res.value) dailyLaborRecords = JSON.parse(res.value) || dailyLaborRecords; }catch(e){}
+  const id = `${date}__${project}`;
+  const cur = dailyLaborRecords.find(r => r.id === id || (r.date === date && r.project === project));
+  const saved = !!(cur && cur.attendanceTaken);
+  // the day was already saved by hand: show what differs and ask
+  if(saved){
+    const diff = rows.filter(r => { const wasAbs = (cur.absentees || []).some(a => a.code === r.hr && a.reason !== 'H'); return wasAbs === !!r.present; });
+    if(diff.length){
+      const lines = diff.slice(0, 15).map(r => `HR ${r.hr}: saved ${r.present ? 'ABSENT' : 'PRESENT'} → sheet says ${r.present ? 'PRESENT' : 'ABSENT'}`).join('\n');
+      if(!confirm(`${formatDMY(date)} was already saved on the attendance screen, and ${diff.length} man(men) differ:\n\n${lines}${diff.length > 15 ? '\n…' : ''}\n\nOK = use the signed sheet · Cancel = keep what was saved`)) return {applied: 0, kept: true};
+    }
+  }
+  const patch = {};
+  const times = Object.assign({}, (cur && cur.times) || {});
+  const otHours = Object.assign({}, (cur && cur.otHours) || {});
+  const otContract = Object.assign({}, (cur && cur.otContract) || {});
+  const sheetSrc = Object.assign({}, (cur && cur.sheetSrc) || {});
+  const sheetMarks = Object.assign({}, (cur && cur.sheetMarks) || {});
+  let absentees = saved ? (cur.absentees || []).slice() : null;
+  rows.forEach(r => {
+    const code = String(r.hr);
+    sheetSrc[code] = sheetNo || 'sheet';
+    if(r.in || r.out) times[code] = {in: r.in || '', out: r.out || ''};
+    if(r.present){
+      if(r.ot !== '' && r.ot != null && Number(r.ot) > 0) otHours[code] = Number(r.ot); else delete otHours[code];
+      if(r.ct) otContract[code] = r.ct; else delete otContract[code];
+    } else { delete otHours[code]; delete otContract[code]; }
+    if(saved){
+      absentees = absentees.filter(a => a.code !== code || a.reason === 'H');
+      if(!r.present){ const w = laborRecords.find(l => l.code === code); absentees.push({code, name: w ? w.name : '', reason: ''}); }
+    } else sheetMarks[code] = r.present ? 1 : 0;
+  });
+  Object.assign(patch, {times, otHours, otContract, sheetSrc});
+  if(saved){ patch.absentees = absentees; patch.presentCount = (cur.total || 0) - absentees.length; }
+  else patch.sheetMarks = sheetMarks;
+  upsertDailyLaborRecord(date, project, patch);
+  try{ await window.storage.set(DAILY_LABOR_KEY, JSON.stringify(dailyLaborRecords), true); }catch(e){ throw new Error('The day could not be saved — try again'); }
+  // the attendance screen, if it shows that day, shows it at once
+  try{
+    if(document.getElementById('attDate').value === date && document.getElementById('attProject').value === project) onDateOrProjectChange();
+  }catch(e){}
+  return {applied: rows.length};
+}
+window.memcoApplySheetToDay = memcoApplySheetToDay;
+function memcoContractDialog(preHrs){
+  return new Promise(resolve => {
+    const w = document.createElement('div');
+    w.className = 'hol-wrap';
+    w.innerHTML = `<div class="hol-box">
+      <div class="hol-head"><b>📝 Contract overtime</b><button type="button" class="hol-x" data-x>✕</button></div>
+      <div class="hol-note">Men who did a job on contract get these hours as overtime — not worked out from IN and OUT. Marked <b>CT</b> on the screen and in the monthly Excel.</div>
+      <label>HR numbers</label><input id="ctHrs" placeholder="2258, 2305, 2331" value="${escapeAttr(preHrs || '')}">
+      <div class="hol-row"><div><label>Hours</label><input id="ctHours" type="number" min="0.5" max="16" step="0.5" value="4"></div>
+        <div><label>Job</label><input id="ctJob" placeholder="e.g. Pump room piping"></div></div>
+      <div class="hol-foot"><button type="button" class="btn btn-ghost" data-x>Cancel</button><button type="button" class="btn btn-primary" id="ctOk">Apply</button></div></div>`;
+    document.body.appendChild(w);
+    const close = v => { w.remove(); resolve(v); };
+    w.addEventListener('click', e => { if(e.target === w || e.target.closest('[data-x]')) close(null); });
+    w.querySelector('#ctOk').addEventListener('click', () => {
+      const hrs = [...new Set((w.querySelector('#ctHrs').value.match(/\d{1,6}/g) || []))];
+      const hours = Number(w.querySelector('#ctHours').value);
+      const job = w.querySelector('#ctJob').value.trim() || 'Contract';
+      if(!hrs.length){ alert('Write the HR numbers.'); return; }
+      if(!(hours > 0)){ alert('Write the hours.'); return; }
+      close({hrs, hours, job});
+    });
+    setTimeout(() => w.querySelector('#ctHrs').focus(), 30);
+  });
+}
+window.memcoContractDialog = memcoContractDialog;
 function upsertDailyLaborRecord(date, project, patch){
   const id = `${date}__${project}`;
   const idx = dailyLaborRecords.findIndex(r => r.id === id);
@@ -10938,8 +11047,13 @@ async function doSaveAttendance(){
         otHours[code] = currentOTMap[code];
       }
     });
+    const prevOt = dailyLaborRecords.find(r => r.date === otDate && r.project === project) || {};
+    const otContract = Object.assign({}, prevOt.otContract || {}, attContractPending);
+    Object.keys(otContract).forEach(c => { if(!otHours[c]) delete otContract[c]; });
+    attContractPending = {};
     upsertDailyLaborRecord(otDate, project, {
       otHours,
+      otContract,
       otEnteredBy: currentUserName || 'Unknown',
       otTs: new Date().toISOString()
     });
@@ -22755,7 +22869,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const groups = wsGroups();
     const guess = (TS_HOST && TS_GROUP && groups.includes(TS_GROUP) ? TS_GROUP : null)
       || groups.find(g => /workshop/i.test(g)) || groups[0] || '';
-    const T = S.tsTab || 'ot';
+    // attendance and overtime are marked on the main attendance screen only — here: groups, sheets, reading, loans
+    if(!S.tsTab || S.tsTab === 'ot' || S.tsTab === 'mark') S.tsTab = 'crew';
+    const T = S.tsTab;
     main.innerHTML = `${TS_HOST ? `<div class="ts-topbar">
         <button type="button" class="st-btn st-ghost st-sm" id="tsBack">← Back</button>
         <button type="button" class="st-btn st-ghost st-sm" id="tsHome">🏠 Home</button>
@@ -22763,9 +22879,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       </div>` : '<h2>🗒 Time sheets</h2>'}${nav}
       <div class="dw-sub ts-tabs">
         <button type="button" class="st-btn st-ghost st-sm ${T === 'crew' ? 'on' : ''}" data-ts="crew">👷 Groups</button>
-        <button type="button" class="st-btn st-ghost st-sm ${T === 'mark' ? 'on' : ''}" data-ts="mark">✅ Mark attendance</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'moves' ? 'on' : ''}" data-ts="moves">🔁 Loans &amp; jobs</button>
-        <button type="button" class="st-btn st-ghost st-sm ${T === 'ot' ? 'on' : ''}" data-ts="ot">⏱ Overtime</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'print' ? 'on' : ''}" data-ts="print">🖨 Print sheet</button>
         <button type="button" class="st-btn st-ghost st-sm ${T === 'read' ? 'on' : ''}" data-ts="read">📷 Read signed sheet</button>
       </div>
@@ -23675,7 +23789,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             location: S.tsLoc, foreman: S.tsFore || (crew ? crew.foreman_name : ''),
             engineer: engNm ? engNm + (engHr ? ' (' + engHr + ')' : '') : '',
             supervisor: supNm ? supNm + (supHr ? ' (' + supHr + ')' : '') : '',
-            in_time: tsInTimeGet(crewId || group), crew_id: crewId || null};
+            in_time: tsInTimeGet(crewId || group), crew_id: crewId || null, layout: 2};
           const from = $('tsDate').value || todayIso(), to = $('tsDate2').value || from;
           if(to < from) throw new Error('The "up to" date is before the start date.');
           const parts = MEMCO_ATT.chunk(rows);
@@ -23777,26 +23891,69 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       res.rows.forEach(r => { marks[r.hr] = r.present; });
       let where = {};
       try{ where = await rpc('st_where', {p_date: sheet.sheet_date, p_hrs: res.rows.map(r => r.hr)}) || {}; }catch(e){}
+      // IN / OUT / OT for each man: IN is the group's time on the sheet, OUT is written once for all,
+      // OT = hours past 10 (9 duty + 1 lunch), unless a contract gives fixed hours
+      const DUTY = 10;
+      const hhmm = t => { const m = String(t || '').trim().replace('.', ':').match(/^(\d{1,2})(?::(\d{2}))?$/); return m ? (+m[1]) * 60 + (+(m[2] || 0)) : null; };
+      const fixT = t => { const v = hhmm(t); return v == null ? '' : `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`; };
+      const otFrom = (i, o) => { const a = hhmm(i), b = hhmm(o); if(a == null || b == null) return ''; let d = b - a; if(d <= 0) d += 1440; const x = d / 60 - DUTY; return x > 0 ? Math.floor(x * 2) / 2 : 0; };
+      const T = {};
+      const allIn = fixT((sheet.meta && sheet.meta.in_time) || '') || '07:00';
+      let allOut = S.tsAllOut || '17:00';
+      res.rows.forEach(r => { T[r.hr] = {in: allIn, out: allOut, ot: otFrom(allIn, allOut), otHand: false, ct: ''}; });
+      const tOf = hr => T[hr] || (T[hr] = {in: allIn, out: allOut, ot: otFrom(allIn, allOut), otHand: false, ct: ''});
+      const reOt = hr => { const t = tOf(hr); if(t.ct || t.otHand) return; t.ot = otFrom(t.in, t.out); };
       const drawRead = () => {
         const pres = Object.values(marks).filter(Boolean).length;
+        const cts = Object.values(T).filter(t => t.ct).length;
         host.innerHTML = `<div class="st-card"><h3 style="margin-top:0">${esc(sheet.sheet_no)} — check before saving</h3>
-          <div class="st-muted">Tap a row to change it. <b>${pres}</b> present · <b>${res.rows.length - pres}</b> absent.</div>
-          <div class="st-tw" style="margin-top:8px;max-height:55vh"><table class="st-t st-compact"><thead><tr><th>HR</th><th>Name</th><th class="n">OT</th><th>Signature</th><th class="n">Sign</th><th class="n">ABS</th><th>Result</th></tr></thead><tbody>
-            ${res.rows.map((r, i) => { const w = where[r.hr] || {}; const away = w.kind && w.kind !== 'home'; return `<tr data-hr="${esc(r.hr)}" style="cursor:pointer">
-              <td><b>${esc(r.hr)}</b></td><td>${esc(r.name)}${away ? `<div class="st-pill p-pending">${w.kind === 'task' ? '🧰 ' + esc(w.task_name || 'job') : '👷 ' + esc(w.crew_name || 'other foreman')} — not his day here</div>` : ''}</td><td class="n">${r.ot ? fmt(r.ot) : ''}</td>
-              <td><img src="${res.crops[i]}" style="height:26px;border-radius:3px;background:#fff"></td>
-              <td class="n st-muted">${fmt(r.ink)}%</td><td class="n st-muted">${fmt(r.absent_ink || 0)}%</td>
-              <td><span class="st-pill ${marks[r.hr] ? 'p-live' : 'p-rejected'}">${marks[r.hr] ? 'Present' : 'Absent'}</span></td></tr>`; }).join('')}
-            ${extra.map(x => `<tr style="background:rgba(56,189,248,.08)"><td><b>${esc(x.hr)}</b><div class="st-muted">added by hand</div></td><td>${esc(x.name)}</td><td class="n"></td>
-              <td colspan="2" class="st-muted">written on the sheet</td>
-              <td><span class="st-pill p-live">Present</span></td></tr>`).join('')}
+          <div class="st-muted">Tap a name to change Present / Absent. <b>${pres}</b> present · <b>${res.rows.length - pres}</b> absent${cts ? ` · <b style="color:#d8b4fe">${cts}</b> on contract` : ''}.
+            OT = hours after ${DUTY} (9 duty + 1 lunch).</div>
+          <div class="ts-rd-bar">
+            <label>IN <input type="time" id="tsRdIn" value="${esc(allIn)}"></label>
+            <label>OUT for everybody <input type="time" id="tsRdOut" value="${esc(allOut)}"></label>
+            <button type="button" class="st-btn st-sm" id="tsRdApply">Apply to all</button>
+            <button type="button" class="st-btn st-sm ts-ctb" id="tsRdCt">📝 Contract OT</button>
+          </div>
+          <div class="st-tw" style="margin-top:8px;max-height:55vh"><table class="st-t st-compact ts-rd"><thead><tr><th>HR</th><th>Name</th><th>IN sign</th><th>Result</th><th>IN</th><th>OUT</th><th class="n">OT</th></tr></thead><tbody>
+            ${res.rows.map((r, i) => { const w = where[r.hr] || {}; const away = w.kind && w.kind !== 'home'; const t = tOf(r.hr); const on = !!marks[r.hr]; return `<tr data-hr="${esc(r.hr)}">
+              <td class="tg"><b>${esc(r.hr)}</b></td><td class="tg">${esc(MEMCO_ATT.shortName(r.name))}${away ? `<div class="st-pill p-pending">${w.kind === 'task' ? '🧰 ' + esc(w.task_name || 'job') : '👷 ' + esc(w.crew_name || 'other foreman')} — not his day here</div>` : ''}</td>
+              <td class="tg"><img src="${res.crops[i]}" style="height:24px;border-radius:3px;background:#fff"></td>
+              <td class="tg"><span class="st-pill ${on ? 'p-live' : 'p-rejected'}">${on ? 'Present' : 'Absent'}</span></td>
+              <td><input type="time" class="ts-t" data-k="in" value="${esc(t.in)}" ${on ? '' : 'disabled'}></td>
+              <td><input type="time" class="ts-t" data-k="out" value="${esc(t.out)}" ${on ? '' : 'disabled'}></td>
+              <td class="n"><input type="number" class="ts-o" min="0" max="16" step="0.5" value="${on ? esc(t.ot) : ''}" ${on ? '' : 'disabled'} title="${t.ct ? 'Contract: ' + esc(t.ct) : 'Worked out from IN and OUT — you can change it'}">${t.ct ? `<span class="ts-ct" title="${esc(t.ct)}">CT</span>` : ''}</td></tr>`; }).join('')}
+            ${extra.map(x => `<tr style="background:rgba(56,189,248,.08)"><td><b>${esc(x.hr)}</b><div class="st-muted">added by hand</div></td><td>${esc(x.name)}</td>
+              <td class="st-muted">written on the sheet</td><td><span class="st-pill p-live">Present</span></td><td colspan="3"></td></tr>`).join('')}
           </tbody></table></div>
           <div class="st-row" style="margin-top:10px;justify-content:space-between;gap:6px">
             <button type="button" class="st-btn st-sm" id="tsReadAdd">➕ Man written by hand</button>
             <div class="st-row" style="gap:6px;margin:0">
               <button type="button" class="st-btn st-ghost" id="tsReadCancel">Cancel</button>
-              <button type="button" class="st-btn st-ok" id="tsReadSave">💾 Save attendance</button></div></div></div>`;
-        host.querySelectorAll('tr[data-hr]').forEach(tr => tr.addEventListener('click', () => { marks[tr.dataset.hr] = !marks[tr.dataset.hr]; drawRead(); }));
+              <button type="button" class="st-btn st-ok" id="tsReadSave">💾 Save to attendance</button></div></div></div>`;
+        host.querySelectorAll('tr[data-hr] td.tg').forEach(td => td.addEventListener('click', () => { const hr = td.parentElement.dataset.hr; marks[hr] = !marks[hr]; drawRead(); }));
+        host.querySelectorAll('tr[data-hr] .ts-t').forEach(inp => inp.addEventListener('change', () => {
+          const hr = inp.closest('tr').dataset.hr, t = tOf(hr); t[inp.dataset.k] = inp.value; t.otHand = false; reOt(hr); drawRead();
+        }));
+        host.querySelectorAll('tr[data-hr] .ts-o').forEach(inp => inp.addEventListener('change', () => {
+          const t = tOf(inp.closest('tr').dataset.hr); t.ot = inp.value === '' ? '' : Number(inp.value); t.otHand = true;
+        }));
+        $('tsRdApply').addEventListener('click', () => {
+          const i = fixT($('tsRdIn').value) || allIn, o = fixT($('tsRdOut').value) || allOut;
+          allOut = o; S.tsAllOut = o;
+          res.rows.forEach(r => { const t = tOf(r.hr); t.in = i; t.out = o; t.otHand = false; reOt(r.hr); });
+          drawRead();
+        });
+        $('tsRdCt').addEventListener('click', async () => {
+          if(typeof window.memcoContractDialog !== 'function') return;
+          const c = await window.memcoContractDialog();
+          if(!c) return;
+          const onSheet = new Set(res.rows.map(r => String(r.hr)));
+          const bad = [];
+          c.hrs.forEach(h => { if(!onSheet.has(h)){ bad.push(h); return; } const t = tOf(h); t.ct = c.job; t.ot = c.hours; t.otHand = true; marks[h] = true; });
+          if(bad.length) toast('Not on this sheet: ' + bad.join(', '), true);
+          drawRead();
+        });
         $('tsReadAdd').addEventListener('click', () => {
           const hr = prompt('HR number written by hand on the sheet:', '');
           if(hr === null) return;
@@ -23811,8 +23968,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         $('tsReadCancel').addEventListener('click', () => { host.innerHTML = ''; });
         $('tsReadSave').addEventListener('click', ev => busy(ev.currentTarget, async () => {
           const s3 = await postRead(sheet, file, res, marks, extra);
+          // …and into the one official attendance of the day (P/A, times, OT, contract)
+          let applied = null;
+          if(typeof window.memcoApplySheetToDay === 'function'){
+            const rows = res.rows.map(r => { const t = tOf(r.hr); const on = !!marks[r.hr];
+              return {hr: String(r.hr), present: on, in: on ? t.in : '', out: on ? t.out : '', ot: on ? t.ot : '', ct: on ? t.ct : ''}; })
+              .concat(extra.map(x => ({hr: String(x.hr), present: true, in: allIn, out: allOut, ot: otFrom(allIn, allOut), ct: ''})));
+            applied = await window.memcoApplySheetToDay({date: sheet.sheet_date, project: sheet.group_code, rows, sheetNo: sheet.sheet_no});
+          }
           if(qItem){ qItem.status = 'done'; qItem.msg = `${s3.present_cnt + extra.length} present · ${s3.absent_cnt} absent`; }
-          toast(`Attendance saved — ${s3.present_cnt + extra.length} present, ${s3.absent_cnt} absent`);
+          toast(applied && applied.kept ? 'Sheet kept — the attendance saved earlier was not changed'
+            : `Saved to attendance — ${s3.present_cnt + extra.length} present, ${s3.absent_cnt} absent`);
           tsReload();
         }));
       };
@@ -23868,6 +24034,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
             const res = await MEMCO_ATT.read(it.file, sh);
             const marks = {}; res.rows.forEach(r => { marks[r.hr] = r.present; });
             const s3 = await postRead(sh, it.file, res, marks, []);
+            if(typeof window.memcoApplySheetToDay === 'function'){
+              const i0 = ((sh.meta && sh.meta.in_time) || '07:00'), o0 = S.tsAllOut || '17:00';
+              const a = (() => { const m = String(i0).match(/(\d{1,2}):?(\d{2})?/); return m ? (+m[1]) * 60 + (+(m[2] || 0)) : 420; })();
+              const b = (() => { const m = String(o0).match(/(\d{1,2}):?(\d{2})?/); return m ? (+m[1]) * 60 + (+(m[2] || 0)) : 1020; })();
+              let d = b - a; if(d <= 0) d += 1440; const ot = Math.max(0, Math.floor((d / 60 - 10) * 2) / 2);
+              await window.memcoApplySheetToDay({date: sh.sheet_date, project: sh.group_code, sheetNo: sh.sheet_no,
+                rows: res.rows.map(r => ({hr: String(r.hr), present: !!r.present, in: r.present ? i0 : '', out: r.present ? o0 : '', ot: r.present ? ot : '', ct: ''}))});
+            }
             it.status = 'done'; it.msg = `${s3.present_cnt} present · ${s3.absent_cnt} absent`; okN++;
           }catch(err){ it.status = 'error'; it.msg = err.message || String(err); }
           drawQueue();
@@ -30210,13 +30384,23 @@ const MEMCO_ATT = (() => {
     rowTop: 46,          // first row top
     rowH: 8.6,
     box: {left: 8, right: 182},
-    // SL | CODE | NAME | DESIGNATION | IN TIME | OT | ABS | SIGNATURE
-    cols: {no: 8, id: 18, name: 33, desig: 72, intime: 110, ot: 124, abs: 137, sign: 149, end: 182},
+    // layout 2: SL | CODE | NAME | DESIGNATION | IN TIME | IN SIGN | ABS | OUT TIME | OUT SIGN | OT
+    // the phone reads IN SIGN (present) and ABS (absent); OUT and the times are written by hand
+    cols: {no: 8, id: 16, name: 28, desig: 60, intime: 86, sign: 98, signEnd: 125, abs: 125, absEnd: 135,
+           outtime: 135, osign: 147, ot: 170, end: 182},
+    layout: 2,
     maxRows: 24,         // what fits between the squares; a longer list prints page 2, 3 …
     // a row of little black/white boxes along the top edge: the sheet's own number,
     // so a scanned pile of pages can be matched to the right sheets without asking
     strip: {x: 42, y: 2.2, w: 3.5, gap: 1.5, h: 3, bits: 24}
   };
+  // sheets printed before layout 2 (one signature column) are still read with their own columns
+  const G1 = Object.assign({}, G, {layout: 1,
+    cols: {no: 8, id: 18, name: 33, desig: 72, intime: 110, ot: 124, abs: 137, sign: 149, end: 182}});
+  const pickG = sheet => (sheet && sheet.meta && Number(sheet.meta.layout) === 2) ? G : G1;
+  // long trades made short so they fit the narrow column
+  const shortTrade = t => String(t || '').replace(/Electrical/i, 'Elec.').replace(/Plumbing/i, 'Plumb.').replace(/Chargehand|Charge Hand/i, 'C/H')
+    .replace(/Technician/i, 'Tech.').replace(/Supervisor/i, 'Supv.').replace(/Mechanical/i, 'Mech.').replace(/Assistant/i, 'Asst.').replace(/Fire Fighting/i, 'FF');
   // 20 bits from the sheet id + 4 check bits; never all white, never all black
   function sheetCode(id){
     let h = 2166136261;
@@ -30282,12 +30466,14 @@ const MEMCO_ATT = (() => {
         .ttl{position:absolute;left:44mm;right:40mm;top:0;text-align:center;font-weight:bold;text-decoration:underline;white-space:nowrap;overflow:hidden}
         .sub{position:absolute;top:33mm;left:${G.box.left}mm;width:${G.box.right - G.box.left}mm;text-align:center;font-size:7pt;color:#444}
         .hd,.row{position:absolute;left:0;width:${G.pageW}mm}
-        .hd{top:${G.head}mm;height:${G.rowTop - G.head}mm;font-size:7pt;font-weight:bold}
+        .hd{top:${G.head}mm;height:${G.rowTop - G.head}mm;font-size:6.5pt;font-weight:bold}
         .hd span{line-height:${G.rowTop - G.head}mm;text-align:center}
         .row{height:${G.rowH}mm;font-size:9.5pt;line-height:${G.rowH}mm}
         .hd span,.row span{position:absolute;overflow:hidden;white-space:nowrap}
         .mid{text-align:center}
-        .row span.sm{font-size:8pt}
+        .row span.sm{font-size:7.5pt}
+        .row span .smi{position:static;font-size:8pt}
+        .hd span.hw{white-space:normal;line-height:3.1mm;top:${(G.rowTop - G.head - 6.2) / 2}mm;height:6.4mm;display:flex;align-items:center;justify-content:center}
         .v{position:absolute;top:${G.head}mm;height:${tableH}mm;border-left:.3mm solid #000}
         .h{position:absolute;left:${G.box.left}mm;width:${G.box.right - G.box.left}mm;border-top:.3mm solid #000}
         .foot{position:absolute;top:${tEnd + 4}mm;left:${G.box.left}mm;width:${G.box.right - G.box.left}mm;font-size:8pt;color:#222;display:flex;justify-content:space-between}
@@ -30296,24 +30482,39 @@ const MEMCO_ATT = (() => {
   }
 
   function sheetBody(sheet){
+    const G = pickG(sheet);
     const data = (sheet.rows || []).slice(0, G.maxRows);
     const m = sheet.meta || {};
     const C = G.cols;
     const cell = (x, w, html, cls) => `<span style="left:${x + 1.2}mm;width:${w - 2.4}mm" class="${cls || ''}">${html}</span>`;
     const inTime = String(m.in_time || '').trim();
-    const line = (r, i) => {
-      const top = G.rowTop + i * G.rowH;
-      return `<div class="row" style="top:${top}mm">
-        ${cell(C.no, C.id - C.no, String((m.first_no || 1) + i), 'mid')}
-        ${cell(C.id, C.name - C.id, `<b>${esc(r.hr)}</b>`, 'mid')}
-        ${cell(C.name, C.desig - C.name, esc(shortName(r.name)))}
-        ${cell(C.desig, C.intime - C.desig, esc(r.trade || ''), 'mid' + (String(r.trade || '').length > 20 ? ' sm' : ''))}
-        ${cell(C.intime, C.ot - C.intime, esc(inTime), 'mid')}
-        ${cell(C.ot, C.abs - C.ot, r.ot ? `<b>${esc(r.ot)}</b>` : '', 'mid')}
-      </div>`;
-    };
+    const L2 = G.layout === 2;
+    // [start, end, header, value for a man]
+    const spec = L2 ? [
+      [C.no, C.id, 'SL NO', (r, i) => String((m.first_no || 1) + i), 'mid'],
+      [C.id, C.name, 'EMP CODE', r => `<b>${esc(r.hr)}</b>`, 'mid'],
+      [C.name, C.desig, 'NAME', r => esc(shortName(r.name)), ''],
+      [C.desig, C.intime, 'DESIGNATION', r => esc(shortTrade(r.trade)), 'mid sm'],
+      [C.intime, C.sign, 'IN TIME', () => esc(inTime), 'mid'],
+      [C.sign, C.signEnd, 'IN SIGN', () => '', ''],
+      [C.abs, C.absEnd, 'ABS', () => '', 'mid'],
+      [C.outtime, C.osign, 'OUT TIME', () => '', 'mid'],
+      [C.osign, C.ot, 'OUT SIGN', () => '', ''],
+      [C.ot, C.end, 'OT (Hrs)', () => '', 'mid']
+    ] : [
+      [C.no, C.id, 'SL NO', (r, i) => String((m.first_no || 1) + i), 'mid'],
+      [C.id, C.name, 'EMP CODE', r => `<b>${esc(r.hr)}</b>`, 'mid'],
+      [C.name, C.desig, 'NAME', r => esc(shortName(r.name)), ''],
+      [C.desig, C.intime, 'DESIGNATION', r => `<span class="${String(r.trade || '').length > 20 ? 'smi' : ''}">${esc(r.trade || '')}</span>`, 'mid'],
+      [C.intime, C.ot, 'IN TIME', () => esc(inTime), 'mid'],
+      [C.ot, C.abs, 'OT (Hrs)', r => r.ot ? `<b>${esc(r.ot)}</b>` : '', 'mid'],
+      [C.abs, C.sign, 'ABS', () => '', 'mid'],
+      [C.sign, C.end, 'SIGNATURE', () => '', '']
+    ];
+    const line = (r, i) => `<div class="row" style="top:${G.rowTop + i * G.rowH}mm">
+        ${spec.map(([x0, x1, , fn, cls]) => cell(x0, x1 - x0, fn(r, i), cls)).join('')}</div>`;
     const blankLine = i => `<div class="row" style="top:${G.rowTop + i * G.rowH}mm">${cell(C.no, C.id - C.no, String((m.first_no || 1) + i), 'mid')}</div>`;
-    const bounds = [C.no, C.id, C.name, C.desig, C.intime, C.ot, C.abs, C.sign, C.end];
+    const bounds = [...new Set(spec.map(x => x[0]).concat([C.end]))];
     const vlines = bounds.map(x => `<div class="v" style="left:${x}mm"></div>`).join('');
     const hlines = [G.head].concat(Array.from({length: G.maxRows + 1}, (_, i) => G.rowTop + i * G.rowH))
       .map(y => `<div class="h" style="top:${y}mm"></div>`).join('');
@@ -30338,23 +30539,15 @@ const MEMCO_ATT = (() => {
         <div class="ttl" style="font-size:${tSize}pt">${esc(title)}</div>
         <div class="r"><span>DATE:</span><b>${esc(dmy(sheet.sheet_date))}</b></div>
       </div>
-      <div class="sub">${esc(sheet.sheet_no || '')}${sheet.shift ? ' · ' + esc(sheet.shift) + ' shift' : ''}${sheet.ot_date ? ' · OT shown is of ' + esc(dmy(sheet.ot_date)) : ''}${m.part ? ' · ' + esc(m.part) : ''} · ${data.length} men on this page</div>
+      <div class="sub">${esc(sheet.sheet_no || '')}${sheet.shift ? ' · ' + esc(sheet.shift) + ' shift' : ''}${!L2 && sheet.ot_date ? ' · OT shown is of ' + esc(dmy(sheet.ot_date)) : ''}${m.part ? ' · ' + esc(m.part) : ''} · ${data.length} men on this page</div>
       <div class="hdbox"></div>
       ${vlines}${hlines}
-      <div class="hd">
-        ${cell(C.no, C.id - C.no, 'SL NO')}
-        ${cell(C.id, C.name - C.id, 'EMP CODE')}
-        ${cell(C.name, C.desig - C.name, 'NAME')}
-        ${cell(C.desig, C.intime - C.desig, 'DESIGNATION')}
-        ${cell(C.intime, C.ot - C.intime, 'IN TIME')}
-        ${cell(C.ot, C.abs - C.ot, 'OT (Hrs)')}
-        ${cell(C.abs, C.sign - C.abs, 'ABS')}
-        ${cell(C.sign, C.end - C.sign, 'SIGNATURE')}
-      </div>
+      <div class="hd">${spec.map(([x0, x1, h]) => cell(x0, x1 - x0, h.replace(' ', '<br>'), 'mid hw')).join('')}</div>
       ${data.map(line).join('')}
       ${Array.from({length: blanks}, (_, k) => blankLine(data.length + k)).join('')}
       <div class="foot"><span>Foreman sign: ______________</span><span>Supervisor sign: ______________</span><span>Engineer sign: ______________</span></div>
-      <div class="no">Absent: put a mark (✗) in the ABS box — do not write in the signature box. Keep the four black squares and the boxes along the top clean.</div>
+      <div class="no">${L2 ? 'Sign IN when you come and OUT when you leave. Absent: a mark (✗) in the ABS box. Keep the four black squares and the boxes along the top clean.'
+        : 'Absent: put a mark (✗) in the ABS box — do not write in the signature box. Keep the four black squares and the boxes along the top clean.'}</div>
     </div>`;
   }
 
@@ -30489,6 +30682,9 @@ const MEMCO_ATT = (() => {
   }
 
   async function read(file, sheet){
+    const G = pickG(sheet);
+    const SGN0 = G.cols.sign, SGN1 = G.cols.signEnd || G.cols.end;          // the signature box that says "present"
+    const ABS0 = G.cols.abs, ABS1 = G.cols.absEnd || G.cols.sign;           // the ABS box
     const img = await new Promise((res, rej) => {
       const url = URL.createObjectURL(file);
       const im = new Image();
@@ -30526,7 +30722,7 @@ const MEMCO_ATT = (() => {
       const top = G.rowTop + i * G.rowH;
       const vals = [];
       // stay inside the box, away from the printed column lines
-      for(let x = G.cols.sign + 2; x < G.cols.end - 2; x += 0.25){
+      for(let x = SGN0 + 2; x < SGN1 - 2; x += 0.25){
         for(let y = top + 1.6; y < top + G.rowH - 1.6; y += 0.35){
           vals.push(px(u(x), v(y)));
         }
@@ -30549,8 +30745,8 @@ const MEMCO_ATT = (() => {
     };
     const out = (sheet.rows || []).map((r, i) => {
       const top = G.rowTop + i * G.rowH;
-      const sign = inkIn(G.cols.sign + 2, G.cols.end - 2, top, 1.4, G.rowH - 1.4);
-      const absent = inkIn(G.cols.abs + 3, G.cols.sign - 3, top, 2, G.rowH - 2);
+      const sign = inkIn(SGN0 + 2, SGN1 - 2, top, 1.4, G.rowH - 1.4);
+      const absent = inkIn(ABS0 + 2.5, ABS1 - 2.5, top, 2, G.rowH - 2);
       // a mark in the ABSENT box wins, even if somebody wrote "Absent" where the signature goes.
       // a little ink there is ignored: it is usually the neighbour's signature running over.
       const marked = absent > 0.04 && absent > sign * 0.8;
@@ -30561,8 +30757,8 @@ const MEMCO_ATT = (() => {
     // small picture of each signature box, for the checking screen
     const crops = out.map((r, i) => {
       const top = G.rowTop + i * G.rowH;
-      const c1 = at(u(G.cols.sign), v(top)), c2 = at(u(G.cols.end), v(top)),
-            c3 = at(u(G.cols.sign), v(top + G.rowH)), c4 = at(u(G.cols.end), v(top + G.rowH));
+      const c1 = at(u(SGN0), v(top)), c2 = at(u(SGN1), v(top)),
+            c3 = at(u(SGN0), v(top + G.rowH)), c4 = at(u(SGN1), v(top + G.rowH));
       const x0 = Math.max(0, Math.floor(Math.min(c1.x, c3.x))), x1 = Math.min(W, Math.ceil(Math.max(c2.x, c4.x)));
       const y0 = Math.max(0, Math.floor(Math.min(c1.y, c2.y))), y1 = Math.min(H, Math.ceil(Math.max(c3.y, c4.y)));
       const cc = document.createElement('canvas');
@@ -30754,7 +30950,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v106';
+  const V = 'v107';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -30880,6 +31076,14 @@ document.addEventListener('change', function(ev){
 #attSheetsHost .ts-mk-LV{background:rgba(249,115,22,.16)!important;border-color:rgba(251,146,60,.75)!important;color:#fdba74!important}
 #attSheetsHost .ts-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
 #attSheetsHost .ts-holi{border-color:rgba(251,191,36,.6)!important;color:#fcd34d!important}
+#attSheetsHost .ts-rd-bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:8px;padding:8px;border-radius:10px;background:rgba(6,23,42,.5);border:1px solid rgba(56,189,248,.25)}
+#attSheetsHost .ts-rd-bar label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#8fb3d1}
+#attSheetsHost .ts-rd-bar input{width:auto;padding:5px 8px}
+#attSheetsHost .ts-ctb{border-color:rgba(192,132,252,.6)!important;color:#d8b4fe!important}
+#attSheetsHost .ts-rd td.tg{cursor:pointer}
+#attSheetsHost .ts-rd input.ts-t{width:122px;padding:3px 6px}
+#attSheetsHost .ts-rd input.ts-o{width:64px;padding:3px 6px;text-align:center}
+#attSheetsHost .ts-ct{font-size:9.5px;font-weight:800;color:#d8b4fe;border:1px solid rgba(192,132,252,.6);border-radius:5px;padding:0 4px;margin-left:4px}
 #attSheetsHost .ts-it.on{ background:linear-gradient(135deg,#d97706,#b45309); border-color:#fbbf24; color:#fff; }
 </style>
 <style>
@@ -30956,6 +31160,9 @@ document.addEventListener('change', function(ev){
 #attendanceView .l2-tg.l2-lv{background:rgba(249,115,22,.16);border-color:rgba(251,146,60,.75);color:#fdba74;font-size:11.5px}
 #attendanceView .att-quickbar .att-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
 #attendanceView .att-quickbar .att-scan{border-color:rgba(56,189,248,.6)!important;color:#7dd3fc!important}
+#attendanceView .att-quickbar .att-ctbtn{border-color:rgba(192,132,252,.6)!important;color:#d8b4fe!important}
+#attendanceView .l2-src{font-size:11px;margin-left:2px}
+#attendanceView .l2-ct{font-size:9.5px;font-weight:800;color:#d8b4fe;border:1px solid rgba(192,132,252,.6);border-radius:5px;padding:0 4px;margin-left:3px;vertical-align:middle}
 #attendanceView .att-quickbar .att-holi{border-color:rgba(251,191,36,.6)!important;color:#fcd34d!important}
 #attendanceView .att-quickbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .hol-wrap{position:fixed;inset:0;z-index:9700;background:rgba(2,10,20,.8);display:flex;align-items:center;justify-content:center;padding:14px}
