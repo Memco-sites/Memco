@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v122 — Al Muhanad</title>
+<title>MEMCO Operations Console v123 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -6588,6 +6588,7 @@ const ACTION_PERMISSIONS = [
   { key: 'bulkPeopleExcel',   label: 'Load labor / staff / site lists from Excel', group: 'Administration' },
   { key: 'approveTransfer',   label: 'Approve labor transfers (as the PM of a site)', group: 'Administration' },
   { key: 'movePhases',        label: 'Move labor between phases of the same project (no approval)', group: 'Administration' },
+  { key: 'subconAttendance',  label: 'Sub-contractor attendance (headcount of other companies) — Al Muhanad labor attendance is separate', group: 'Administration' },
   { key: 'siteLocked',        label: '📍 This role sees only its own site(s) — set the site in Manage Users', group: 'Administration' },
 ];
 // a role is limited to its own site when it is one of the built-in field roles,
@@ -7653,6 +7654,7 @@ function builtInPerm(role, key){
     bulkPeopleExcel: ['HR'],
     approveTransfer: ['Project Manager'],
     movePhases: ['Project Manager', 'Project Engineer', 'Site Engineer', 'Site Supervisor'],
+    subconAttendance: ['HR', 'Project Manager', 'Project Engineer', 'Site Engineer', 'Site Supervisor', 'Timekeeper', 'Document Controller'],
     siteLocked: (typeof SITE_LOCKED_ROLES !== 'undefined') ? SITE_LOCKED_ROLES : []
   };
   return !!(R[key] && R[key].includes(role));
@@ -8833,7 +8835,7 @@ function renderAttOverview(){
       <div class="hist-item" style="cursor:default;flex-direction:column;align-items:stretch;">
         <div class="hd-date" style="margin-bottom:4px;">${escapeHtml(site)} — <span style="color:var(--orange);">${grandTotal} total</span></div>
         <div class="hd-total">👷 Total Labor Deployed (Al Muhanad): ${almTotal} — Present ${present}${reasonSummary}</div>
-        <div class="hd-total">🏗 Sub-Contractor (${subTotal}) today</div>
+        ${(typeof window.canSubconAttendance === 'function' && !window.canSubconAttendance()) ? '' : `<div class="hd-total">🏗 Sub-Contractor (${subTotal}) today</div>`}
       </div>
     `;
   }).join('');
@@ -9470,7 +9472,7 @@ document.getElementById('attProject').addEventListener('change', () => onDateOrP
 {
   // every (re)load of a day starts clean: what is on screen is what is saved
   const _odpc = onDateOrProjectChange;
-  onDateOrProjectChange = async function(){ const r = await _odpc.apply(this, arguments); try{ attSnapTake(); }catch(e){} return r; };
+  onDateOrProjectChange = async function(){ const r = await _odpc.apply(this, arguments); try{ attSnapTake(); }catch(e){} try{ applySubconAccess(); }catch(e){} return r; };
 }
 
 // whose attendance is on the screen
@@ -10415,7 +10417,32 @@ function updateAttSummary(){
 }
 document.getElementById('attOverallLabor').addEventListener('input', updateAttSummary);
 
+// Al Muhanad labor attendance and sub-contractor attendance are separate permissions:
+// a foreman marks his own men and never sees the other companies' headcount (unless ticked for his role)
+function canSubconAttendance(){
+  if(!currentUser) return false;
+  if(currentUser.role === 'Super Admin' || currentUser.superUserBypass) return true;
+  if(builtInPerm(currentUser.role, 'subconAttendance')) return true;
+  const m = (typeof ROLE_PERM_MATRIX !== 'undefined') ? ROLE_PERM_MATRIX[currentUser.role] : null;
+  return !!(m && m.subconAttendance);
+}
+window.canSubconAttendance = canSubconAttendance;
+function applySubconAccess(){
+  const ok = canSubconAttendance();
+  const btn = document.getElementById('attModeSubBtn');
+  if(btn) btn.style.display = ok ? '' : 'none';
+  if(!ok){
+    const sec = document.getElementById('attSubSection'), lab = document.getElementById('attLaborSection');
+    if(sec) sec.style.display = 'none';
+    if(lab) lab.style.display = '';
+    const lb = document.getElementById('attModeLaborBtn'); if(lb) lb.classList.add('active');
+    if(btn) btn.classList.remove('active');
+  }
+  document.body.classList.toggle('no-subcon-att', !ok);
+}
+window.applySubconAccess = applySubconAccess;
 document.getElementById('attModeSubBtn').onclick = () => {
+  if(!canSubconAttendance()){ showToast('Sub-contractor attendance is not open for your role'); return; }
   document.getElementById('attModeSubBtn').classList.add('active');
   document.getElementById('attModeLaborBtn').classList.remove('active');
   document.getElementById('attSubSection').style.display = '';
@@ -10468,7 +10495,7 @@ function renderAttSnapshot(){
       <span class="att-snapshot-label">👷 Total Labor Deployed (Al Muhanad): ${almTotal}</span>
       <span class="att-snapshot-vals">${almTotal===0 ? 'No data' : `Present ${present}${reasonSummary}${notMarkedTxt}`}</span>
     </div>
-    <div class="att-snapshot-row">
+    <div class="att-snapshot-row" data-snap="sub">
       <span class="att-snapshot-label">🏗 Sub-Contractor (${subTotal})</span>
       <span class="att-snapshot-vals">Labor ${subLabor} · Sup ${subSup} · Eng ${subEng} · Foreman ${subFor}</span>
     </div>
@@ -31282,7 +31309,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v122';
+  const V = 'v123';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31741,6 +31768,10 @@ document.addEventListener('change', function(ev){
   document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') checkVersion(); });
 })();
 </script>
+<style>
+/* v123: without sub-contractor attendance there is no sub-contractor line in the totals either */
+body.no-subcon-att #attendanceView [data-snap="sub"]{display:none!important}
+</style>
 <style>
 /* v121: nothing on a phone may be wider than the screen — a long group name or a wide select used to
    stretch the whole page to the right (the phone then showed only part of it and the Save button half) */
