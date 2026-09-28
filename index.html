@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v105 — Al Muhanad</title>
+<title>MEMCO Operations Console v106 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -7914,13 +7914,21 @@ function lockedSiteList(){
   if(!lockedSite) return null;
   return Array.isArray(lockedSite) ? lockedSite : [lockedSite];
 }
+// the HR number of the signed-in man — labor accounts sign in with their HR number as username
+function memcoMyHr(){
+  const u = (typeof currentUser !== 'undefined') ? currentUser : null;
+  if(!u) return '';
+  const v = u.hrCode || u.hr_code || u.hr || u.code || (/^\d{1,6}$/.test(String(u.username || '')) ? u.username : '');
+  return String(v || '').trim();
+}
+window.memcoMyHr = memcoMyHr;
 // a foreman sees only the men of his own group(s): loaded from the groups (Time sheets → Groups)
 let foremanMen = null;            // null = not a foreman (or no group yet) → no extra filter
 let foremanMenFor = '';
 async function ensureForemanMen(){
   try{
     const u = currentUser;
-    const hr = u ? String(u.hrCode || u.hr || '') : '';
+    const hr = memcoMyHr();
     if(!u || !/^foreman$/i.test(u.role || '') || !hr){ foremanMen = null; foremanMenFor = ''; return null; }
     if(foremanMenFor === u.authId + '|' + hr && foremanMen) return foremanMen;
     const c = (typeof getSupaClient === 'function') ? getSupaClient() : null;
@@ -10015,7 +10023,7 @@ async function attLoadCrews(project){
 // a foreman is tied to his own group; everyone else may pick
 function attMyCrew(){
   try{
-    const hr = String((currentUser && (currentUser.hr || currentUser.code)) || '').trim();
+    const hr = memcoMyHr();
     if(!hr) return null;
     return ATT_CREWS.find(c => String(c.foreman_hr || '') === hr) || null;
   }catch(e){ return null; }
@@ -20782,7 +20790,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(name === 'st_crew_list' && Array.isArray(r.data)){
       try{
         const u = (typeof currentUser !== 'undefined') ? currentUser : null;
-        const myHr = u ? String(u.hrCode || u.hr || '') : '';
+        const myHr = (typeof window.memcoMyHr === 'function') ? window.memcoMyHr() : (u ? String(u.hrCode || u.hr || '') : '');
         if(u && /^foreman$/i.test(u.role || '') && myHr){
           return r.data.filter(cr => String(cr.foreman_hr || '') === myHr);
         }
@@ -30746,7 +30754,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v105';
+  const V = 'v106';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -30757,8 +30765,17 @@ document.addEventListener('change', function(ev){
       f.appendChild(t);
     });
   }
-  document.addEventListener('DOMContentLoaded', paint);
-  setTimeout(paint, 1200); setTimeout(paint, 3000);
+  function paintMobile(){
+    const w = document.querySelector('.exec-hero, .exec-header, #execDashboardHeader') || document.getElementById('homeView');
+    if(!w || document.getElementById('memcoVerBadge')) return;
+    const b = document.createElement('div');
+    b.id = 'memcoVerBadge';
+    b.style.cssText = 'text-align:center;font-size:11px;color:#7dd3fc;font-weight:700;letter-spacing:.05em;margin:4px 0;opacity:.8';
+    b.textContent = 'MEMCO ' + V;
+    w.insertBefore(b, w.firstChild);
+  }
+  document.addEventListener('DOMContentLoaded', () => { paint(); paintMobile(); });
+  setTimeout(() => { paint(); paintMobile(); }, 1200); setTimeout(() => { paint(); paintMobile(); }, 3000);
 })();
 </script>
 
