@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v113 — Al Muhanad</title>
+<title>MEMCO Operations Console v116 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -6121,6 +6121,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       let rows;
       try{ rows = await fetchRows(c, Object.assign({}, cfg, {newestFirst: 0}), since); }catch(e){ continue; }
       let changed = false;
+      const changedKeys = [];
       const idx = new Map(); s.cur.forEach((r, i) => { const k = keyOk(cfg, r); if(k) idx.set(k, i); });
       rows.forEach(r => {
         if(!s.lastSeen || r.updated_at > s.lastSeen) s.lastSeen = r.updated_at;
@@ -6133,7 +6134,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         if(old === js) return;
         s.snap.set(r.rkey, js);
         if(idx.has(r.rkey)) s.cur[idx.get(r.rkey)] = r.data; else s.cur.push(r.data);
-        changed = true;
+        changed = true; changedKeys.push(r.rkey);
       });
       if(!changed) continue;
       s.cur = s.cur.filter(Boolean);
@@ -6145,6 +6146,8 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
       try{
         if(key !== 'villas-v1' && typeof renderAttHistory === 'function' && document.getElementById('attProject') && document.getElementById('attProject').value) renderAttHistory();
       }catch(e){}
+      // a day changed on another phone or computer (a signed sheet read, a group marked): show it here at once
+      try{ if(key === 'daily-labor-attendance-v1' && changedKeys.length && typeof window.memcoOnDayRecordsChanged === 'function') window.memcoOnDayRecordsChanged(changedKeys); }catch(e){}
     }
   }
   // load as soon as someone is signed in, so the live arrays get the shared data
@@ -9591,6 +9594,7 @@ async function onDateOrProjectChange(){
   renderAttHistory();
 
   const dailyExisting = dailyLaborRecords.find(r => r.date === date && r.project === project);
+  window.__attDayTs = dailyExisting && dailyExisting.ts;
   currentAbsentMap = {};
   currentMarkedSet = new Set();
   currentLeaveAuto = new Set();
@@ -11039,6 +11043,41 @@ async function memcoApplySheetToDay(o){
   return {applied: rows.length};
 }
 window.memcoApplySheetToDay = memcoApplySheetToDay;
+// what another device saved for the day on screen is laid over it: the men it touched change here too
+window.memcoOnDayRecordsChanged = function(keys){
+  try{
+    const view = document.getElementById('attendanceView');
+    if(!view || !view.getClientRects().length) return;
+    const project = document.getElementById('attProject').value;
+    const date = document.getElementById('attDate').value, otDate = document.getElementById('attOtDate').value;
+    const hit = keys.some(k => k === `${date}|${project}` || k === `${otDate}|${project}`);
+    if(!hit) return;
+    const rec = dailyLaborRecords.find(r => r.date === date && r.project === project) || {};
+    const otRec = dailyLaborRecords.find(r => r.date === otDate && r.project === project) || {};
+    const siteCodes = new Set(laborRecords.filter(l => l.site === project).map(l => String(l.code)));
+    let n = 0;
+    // men who came from a signed sheet (📄), or everybody when the whole day was saved elsewhere
+    const touched = new Set(Object.keys(rec.sheetSrc || {}));
+    if(rec.attendanceTaken && rec.ts && rec.ts !== window.__attDayTs){ siteCodes.forEach(c => touched.add(c)); }
+    touched.forEach(code => {
+      if(!siteCodes.has(code)) return;
+      let absent, reason = '';
+      if(rec.attendanceTaken){ const a = (rec.absentees || []).find(x => String(x.code) === code); absent = !!a; reason = a ? (a.reason || '') : ''; }
+      else if(rec.sheetMarks && rec.sheetMarks[code] !== undefined) absent = !rec.sheetMarks[code];
+      else return;
+      const was = currentAbsentMap.hasOwnProperty(code) ? currentAbsentMap[code] : null;
+      if(absent){ if(was !== reason){ currentAbsentMap[code] = reason; n++; } }
+      else if(was !== null && was !== 'H'){ delete currentAbsentMap[code]; n++; }
+      currentMarkedSet.add(code);
+    });
+    // overtime from the other device, for the OT date on screen
+    Object.keys(otRec.otHours || {}).forEach(code => { if(siteCodes.has(code) && String(currentOTMap[code] || '') !== String(otRec.otHours[code])){ currentOTMap[code] = otRec.otHours[code]; n++; } });
+    window.__attDayTs = rec.ts || window.__attDayTs;
+    if(typeof syncOtDateAbsentIfSameDay === 'function') syncOtDateAbsentIfSameDay();
+    renderLaborAttChecklist(); renderAttSnapshot();
+    if(n) showToast(`📄 Updated from another device — ${n} change(s) on ${formatDMY(date)}`);
+  }catch(e){}
+};
 function memcoContractDialog(preHrs, men){
   return new Promise(resolve => {
     const w = document.createElement('div');
@@ -11169,6 +11208,7 @@ async function doSaveAttendance(){
     if(siteLaborTotal > 0){
       await window.storage.set(DAILY_LABOR_KEY, JSON.stringify(dailyLaborRecords), true);
     }
+    try{ const me = dailyLaborRecords.find(r => r.date === date && r.project === project); window.__attDayTs = me && me.ts; }catch(e){}
     showToast('Attendance saved for ' + date + (otDate && otDate !== date ? ` · OT saved for ${otDate}` : ''));
   }catch(e){
     showToast('Could not save — try again');
@@ -23987,13 +24027,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       </div>
       <div class="st-note">Take the photo flat over the paper, with the whole sheet and its four black corner squares inside the picture.
       ${waiting.length ? `<br><b>${waiting.length}</b> printed sheet(s) are still waiting to be read: ${esc(waiting.slice(0, 8).map(x => dmy(x.sheet_date)).join(' · '))}${waiting.length > 8 ? ' …' : ''}` : ''}</div>
-      <div class="st-tw"><table class="st-t"><thead><tr><th>Sheet</th><th>Date</th><th>Shift</th><th class="n">Men</th><th>Status</th><th></th></tr></thead><tbody>
+      <div class="st-tw ts-shl"><table class="st-t"><thead><tr><th>Sheet</th><th>Date</th><th>Shift</th><th class="n">Men</th><th>Status</th><th></th></tr></thead><tbody>
         ${sheets.length ? sheets.map(s2 => `<tr><td><b>${esc(s2.sheet_no)}</b><div class="st-muted">${esc(s2.created_name)}</div></td><td>${esc(dmy(s2.sheet_date))}</td><td>${esc(s2.shift)}</td>
-          <td class="n">${(s2.rows || []).length}</td>
+          <td class="n">${(s2.rows || []).length}<span class="ts-shl-men"> men</span></td>
           <td>${pill(s2.status)}${s2.status === 'posted' ? `<div class="st-muted">${s2.present_cnt} present · ${s2.absent_cnt} absent</div>` : ''}</td>
           <td><div class="st-actions"><button type="button" class="st-btn st-ghost st-sm" data-pr="${esc(s2.id)}">🖨 Print again</button>
             <label class="st-btn st-ok st-sm" style="cursor:pointer">📷 Phone photo<input type="file" accept="image/*" capture="environment" data-ph="${esc(s2.id)}" style="display:none"></label>
-            <label class="st-btn st-sm" style="cursor:pointer">📁 From computer<input type="file" accept="image/*" data-ph="${esc(s2.id)}" style="display:none"></label>
+            <label class="st-btn st-sm" style="cursor:pointer">📁 ${/Android|iPhone|iPad/i.test(navigator.userAgent) ? 'From gallery' : 'From computer'}<input type="file" accept="image/*" data-ph="${esc(s2.id)}" style="display:none"></label>
             ${s2.scan_path ? `<button type="button" class="st-btn st-ghost st-sm" data-sc="${esc(s2.id)}">📄 Sheet photo</button>` : ''}</div></td></tr>`).join('')
           : '<tr><td colspan="6" class="st-muted">No sheet printed yet for this group.</td></tr>'}
       </tbody></table></div><div id="tsRead"></div>`;
@@ -30864,10 +30904,24 @@ const MEMCO_ATT = (() => {
     const M = findMarks(gray, W, H, darkThr);
     if(!M) throw new Error('The four corner squares were not found. Put the whole sheet in the picture, flat and in good light.');
     const TL = M.TL, TR = M.TR, BL = M.BL, BR = M.BR;
-    const at = (uu, vv) => ({
-      x: (1 - uu) * (1 - vv) * TL.x + uu * (1 - vv) * TR.x + (1 - uu) * vv * BL.x + uu * vv * BR.x,
-      y: (1 - uu) * (1 - vv) * TL.y + uu * (1 - vv) * TR.y + (1 - uu) * vv * BL.y + uu * vv * BR.y
-    });
+    // a true perspective map from the four squares: a photo taken at an angle (top farther
+    // from the phone than the bottom) no longer shifts the rows
+    const at = (() => {
+      const x0 = TL.x, y0 = TL.y, x1 = TR.x, y1 = TR.y, x2 = BR.x, y2 = BR.y, x3 = BL.x, y3 = BL.y;
+      const dx1 = x1 - x2, dx2 = x3 - x2, dx3 = x0 - x1 + x2 - x3;
+      const dy1 = y1 - y2, dy2 = y3 - y2, dy3 = y0 - y1 + y2 - y3;
+      let a, b, c, d, e, f, g, h;
+      const den = dx1 * dy2 - dx2 * dy1;
+      if((Math.abs(dx3) < 1e-6 && Math.abs(dy3) < 1e-6) || Math.abs(den) < 1e-9){
+        g = 0; h = 0; a = x1 - x0; b = x3 - x0; c = x0; d = y1 - y0; e = y3 - y0; f = y0;
+      } else {
+        g = (dx3 * dy2 - dx2 * dy3) / den;
+        h = (dx1 * dy3 - dx3 * dy1) / den;
+        a = x1 - x0 + g * x1; b = x3 - x0 + h * x3; c = x0;
+        d = y1 - y0 + g * y1; e = y3 - y0 + h * y3; f = y0;
+      }
+      return (uu, vv) => { const w = g * uu + h * vv + 1; return {x: (a * uu + b * vv + c) / w, y: (d * uu + e * vv + f) / w}; };
+    })();
     const px = (uu, vv) => {
       const p = at(uu, vv);
       const x = Math.max(0, Math.min(W - 1, Math.round(p.x))), y = Math.max(0, Math.min(H - 1, Math.round(p.y)));
@@ -30944,7 +30998,7 @@ const MEMCO_ATT = (() => {
       }
     }
 
-    return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr), code};
+    return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr), code, marks: M, size: [W, H]};
   }
 
   // which of these sheets is in the picture? (null when the picture has no number)
@@ -31107,7 +31161,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v113';
+  const V = 'v116';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31267,6 +31321,24 @@ document.addEventListener('change', function(ev){
   #attSheetsHost .ts-rd .ts-ct{margin-left:2px;font-size:9px;padding:0 2px}
   #attSheetsHost #tsRead .st-row{flex-wrap:wrap}
   #attSheetsHost #tsReadSave{flex:1 1 auto}
+}
+.ts-shl-men{display:none}
+/* v115: the list of printed sheets on a phone — one card each, buttons underneath */
+@media (max-width:760px){
+  #attSheetsHost .ts-shl{overflow:visible}
+  #attSheetsHost .ts-shl table, #attSheetsHost .ts-shl tbody{display:block;width:100%}
+  #attSheetsHost .ts-shl thead{display:none}
+  #attSheetsHost .ts-shl tr{display:grid;grid-template-columns:1fr auto;grid-template-areas:"no st" "dt st" "bt bt";gap:2px 8px;padding:10px 8px;border-bottom:1px solid rgba(148,163,184,.2)}
+  #attSheetsHost .ts-shl td{display:block;padding:0;border:0}
+  #attSheetsHost .ts-shl td:nth-child(1){grid-area:no;word-break:break-all}
+  #attSheetsHost .ts-shl td:nth-child(2){grid-area:dt;display:inline;color:#9fb6d3;font-size:12.5px}
+  #attSheetsHost .ts-shl td:nth-child(3){display:none}
+  #attSheetsHost .ts-shl td:nth-child(4){grid-area:dt;justify-self:end;color:#9fb6d3;font-size:12.5px;text-align:right}
+  #attSheetsHost .ts-shl .ts-shl-men{display:inline}
+  #attSheetsHost .ts-shl td:nth-child(5){grid-area:st;align-self:start;text-align:right}
+  #attSheetsHost .ts-shl td:nth-child(6){grid-area:bt;margin-top:6px}
+  #attSheetsHost .ts-shl td:nth-child(6) .st-actions{display:flex;flex-wrap:wrap;gap:6px}
+  #attSheetsHost .ts-shl td[colspan]{grid-column:1 / -1}
 }
 #attSheetsHost .ts-it.on{ background:linear-gradient(135deg,#d97706,#b45309); border-color:#fbbf24; color:#fff; }
 </style>
