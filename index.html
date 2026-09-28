@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v117 — Al Muhanad</title>
+<title>MEMCO Operations Console v118 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -9030,6 +9030,7 @@ function attShowTab(which){
     });
   }
   if(sheets) sheets.style.display = isSheets ? '' : 'none';
+  if(!isSheets && typeof onDateOrProjectChange === 'function'){ try{ onDateOrProjectChange(); }catch(e){} }
   if(bD) bD.classList.toggle('active', !isSheets);
   if(bS) bS.classList.toggle('active', isSheets);
   if(isSheets){
@@ -10999,7 +11000,8 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
 async function memcoApplySheetToDay(o){
   const {date, project, rows, sheetNo} = o || {};
   if(!date || !project || !rows || !rows.length) return {applied: 0};
-  try{ const res = await window.storage.get(DAILY_LABOR_KEY, true); if(res && res.value) dailyLaborRecords = JSON.parse(res.value) || dailyLaborRecords; }catch(e){}
+  // the in-memory list is kept fresh from the server every few seconds; make sure it is loaded at least once
+  try{ if(!dailyLaborRecords.length){ const res = await window.storage.get(DAILY_LABOR_KEY, true); if(res && res.value){ const arr = JSON.parse(res.value); if(Array.isArray(arr) && arr.length) dailyLaborRecords.splice(0, dailyLaborRecords.length, ...arr); } } }catch(e){}
   const id = `${date}__${project}`;
   const cur = dailyLaborRecords.find(r => r.id === id || (r.date === date && r.project === project));
   const saved = !!(cur && cur.attendanceTaken);
@@ -24060,12 +24062,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       }catch(err){ path = ''; toast('The photo could not be kept: ' + (err.message || err), true); }
       const out = res.rows.map(r => ({hr: r.hr, present: !!marks[r.hr], ink: r.ink}));
       let s3 = null;
+      // the sheet's own "read" mark on the server — nice to have, never allowed to stop the attendance
       try{ s3 = await rpc('st_att_sheet_post', {p_id: sheet.id, p_rows: out, p_scan_path: path, p_scan_name: name}); }
-      catch(err){
-        // the attendance itself is still saved (next step); only the sheet's own "read" mark on the server is missing
-        if(!/permission|not allowed|access|denied/i.test(err.message || '')) throw err;
-        toast('Saved to attendance — the office list will show this sheet as read after the office opens it', false);
-      }
+      catch(err){ s3 = null; try{ console.warn('st_att_sheet_post:', err && err.message); }catch(e){} }
       if(extra && extra.length){
         try{ await rpc('st_att_set', {p_date: sheet.sheet_date, p_group: sheet.group_code,
           p_crew: (sheet.meta && sheet.meta.crew_id) || null,
@@ -24113,8 +24112,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <td class="tg"><b>${esc(r.hr)}</b></td><td class="tg">${esc(MEMCO_ATT.shortName(r.name))}${away ? `<div class="st-pill p-pending">${w.kind === 'task' ? '🧰 ' + esc(w.task_name || 'job') : '👷 ' + esc(w.crew_name || 'other foreman')} — not his day here</div>` : ''}</td>
               <td class="tg"><img src="${res.crops[i]}" style="height:24px;border-radius:3px;background:#fff"></td>
               <td class="tg"><span class="st-pill ${on ? 'p-live' : 'p-rejected'}">${on ? 'Present' : 'Absent'}</span></td>
-              <td><input type="time" class="ts-t" data-k="in" value="${esc(t.in)}" ${on ? '' : 'disabled'}></td>
-              <td><input type="time" class="ts-t" data-k="out" value="${esc(t.out)}" ${on ? '' : 'disabled'}></td>
+              <td><input type="time" class="ts-t" data-k="in" value="${on ? esc(t.in) : ''}" ${on ? '' : 'disabled'}></td>
+              <td><input type="time" class="ts-t" data-k="out" value="${on ? esc(t.out) : ''}" ${on ? '' : 'disabled'}></td>
               <td class="n"><input type="number" class="ts-o" min="0" max="16" step="0.5" value="${on ? esc(t.ot) : ''}" ${on ? '' : 'disabled'} title="${t.ct ? 'Contract: ' + esc(t.ct) : 'Worked out from IN and OUT — you can change it'}">${t.ct ? `<span class="ts-ct" title="${esc(t.ct)}">CT</span>` : ''}</td></tr>`; }).join('')}
             ${extra.map(x => `<tr style="background:rgba(56,189,248,.08)"><td><b>${esc(x.hr)}</b><div class="st-muted">added by hand</div></td><td>${esc(x.name)}</td>
               <td class="st-muted">written on the sheet</td><td><span class="st-pill p-live">Present</span></td><td colspan="3"></td></tr>`).join('')}
@@ -24160,19 +24159,29 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         });
         $('tsReadCancel').addEventListener('click', () => { host.innerHTML = ''; });
         $('tsReadSave').addEventListener('click', ev => busy(ev.currentTarget, async () => {
-          const s3 = await postRead(sheet, file, res, marks, extra);
-          // …and into the one official attendance of the day (P/A, times, OT, contract)
-          let applied = null;
-          if(typeof window.memcoApplySheetToDay === 'function'){
-            const rows = res.rows.map(r => { const t = tOf(r.hr); const on = !!marks[r.hr];
-              return {hr: String(r.hr), present: on, in: on ? t.in : '', out: on ? t.out : '', ot: on ? t.ot : '', ct: on ? t.ct : ''}; })
-              .concat(extra.map(x => ({hr: String(x.hr), present: true, in: allIn, out: allOut, ot: otFrom(allIn, allOut), ct: ''})));
-            applied = await window.memcoApplySheetToDay({date: sheet.sheet_date, project: sheet.group_code, rows, sheetNo: sheet.sheet_no});
-          }
-          if(qItem){ qItem.status = 'done'; qItem.msg = `${s3.present_cnt + extra.length} present · ${s3.absent_cnt} absent`; }
-          toast(applied && applied.kept ? 'Sheet kept — the attendance saved earlier was not changed'
-            : `Saved to attendance — ${s3.present_cnt + extra.length} present, ${s3.absent_cnt} absent`);
-          tsReload();
+          // 1) the one official attendance of the day (P/A, times, OT, contract) — this is what the office and Excel see
+          const rows = res.rows.map(r => { const t = tOf(r.hr); const on = !!marks[r.hr];
+            return {hr: String(r.hr), present: on, in: on ? t.in : '', out: on ? t.out : '', ot: on ? t.ot : '', ct: on ? t.ct : ''}; })
+            .concat(extra.map(x => ({hr: String(x.hr), present: true, in: allIn, out: allOut, ot: otFrom(allIn, allOut), ct: ''})));
+          const pN = rows.filter(r => r.present).length, aN = rows.length - pN;
+          const project = sheet.group_code || group;
+          if(typeof window.memcoApplySheetToDay !== 'function') throw new Error('The attendance screen is not loaded — open Attendance once, then try again.');
+          const applied = await window.memcoApplySheetToDay({date: sheet.sheet_date, project, rows, sheetNo: sheet.sheet_no});
+          if(applied && applied.kept){ toast('Nothing changed — you chose to keep the attendance saved earlier'); return; }
+          // 2) the sheet's photo and "read" mark on the server (may be closed to some roles — that is fine)
+          await postRead(sheet, file, res, marks, extra);
+          if(qItem){ qItem.status = 'done'; qItem.msg = `${pN} present · ${aN} absent`; }
+          host.innerHTML = `<div class="st-card ts-done">✅ <b>Saved to attendance</b> — ${esc(dmy(sheet.sheet_date))} · ${esc(project)}<br>
+            <b style="color:#4ade80">${pN} present</b> · <b style="color:#fca5a5">${aN} absent</b>
+            <div style="margin-top:8px"><button type="button" class="st-btn st-ok" id="tsSeeAtt">📋 See it on the attendance screen</button></div></div>`;
+          $('tsSeeAtt').addEventListener('click', () => {
+            try{
+              document.getElementById('attDate').value = sheet.sheet_date;
+              if(document.getElementById('attProject').value !== project) document.getElementById('attProject').value = project;
+            }catch(e){}
+            if(typeof attShowTab === 'function') attShowTab('daily');
+          });
+          toast(`Saved to attendance — ${pN} present, ${aN} absent`);
         }));
       };
       drawRead();
@@ -31003,16 +31012,22 @@ const MEMCO_ATT = (() => {
     });
 
     // small picture of each signature box, for the checking screen
+    // each signature box, drawn upright (the page may lie sideways or at an angle in the photo)
+    const src = cv.getContext('2d').getImageData(0, 0, W, H).data;
     const crops = out.map((r, i) => {
       const top = G.rowTop + i * G.rowH;
-      const c1 = at(u(SGN0), v(top)), c2 = at(u(SGN1), v(top)),
-            c3 = at(u(SGN0), v(top + G.rowH)), c4 = at(u(SGN1), v(top + G.rowH));
-      const x0 = Math.max(0, Math.floor(Math.min(c1.x, c3.x))), x1 = Math.min(W, Math.ceil(Math.max(c2.x, c4.x)));
-      const y0 = Math.max(0, Math.floor(Math.min(c1.y, c2.y))), y1 = Math.min(H, Math.ceil(Math.max(c3.y, c4.y)));
+      const cw = 160, ch = Math.round(160 * G.rowH / (SGN1 - SGN0));
       const cc = document.createElement('canvas');
-      cc.width = Math.max(8, x1 - x0); cc.height = Math.max(6, y1 - y0);
-      cc.getContext('2d').drawImage(cv, x0, y0, cc.width, cc.height, 0, 0, cc.width, cc.height);
-      return cc.toDataURL('image/jpeg', 0.6);
+      cc.width = cw; cc.height = ch;
+      const cx = cc.getContext('2d'), im = cx.createImageData(cw, ch);
+      for(let yy = 0; yy < ch; yy++) for(let xx = 0; xx < cw; xx++){
+        const p = at(u(SGN0 + (SGN1 - SGN0) * xx / cw), v(top + G.rowH * yy / ch));
+        const X = Math.max(0, Math.min(W - 1, Math.round(p.x))), Y = Math.max(0, Math.min(H - 1, Math.round(p.y)));
+        const si = (Y * W + X) * 4, di = (yy * cw + xx) * 4;
+        im.data[di] = src[si]; im.data[di + 1] = src[si + 1]; im.data[di + 2] = src[si + 2]; im.data[di + 3] = 255;
+      }
+      cx.putImageData(im, 0, 0);
+      return cc.toDataURL('image/jpeg', 0.7);
     });
 
     return {rows: out, crops, paper: Math.round(paper), threshold: Math.round(inkThr), code, marks: {TL, TR, BL, BR, turn: pick.r}, size: [W, H]};
@@ -31178,7 +31193,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v117';
+  const V = 'v118';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31312,6 +31327,33 @@ document.addEventListener('change', function(ev){
 #attSheetsHost .ts-rd input.ts-t{width:122px;padding:3px 6px}
 #attSheetsHost .ts-rd input.ts-o{width:64px;padding:3px 6px;text-align:center}
 #attSheetsHost .ts-ct{font-size:9.5px;font-weight:800;color:#d8b4fe;border:1px solid rgba(192,132,252,.6);border-radius:5px;padding:0 4px;margin-left:4px}
+/* v118: on a phone nothing in Time sheets may be wider than the screen — even with large phone text */
+@media (max-width:760px){
+  #attSheetsHost{overflow-x:hidden}
+  #attSheetsHost .st-card, #attSheetsHost .st-note, #attSheetsHost .st-tw, #attSheetsHost #tsRead, #attSheetsHost #tsQueue{max-width:100%;box-sizing:border-box;min-width:0}
+  #attSheetsHost #tsRead h3{word-break:break-all;font-size:15px;line-height:1.3}
+  #attSheetsHost .ts-scan .st-row{flex-wrap:wrap}
+  #attSheetsHost .ts-scan .st-row > div{flex:1 1 100%;min-width:0}
+  #attSheetsHost .st-note{word-break:break-word}
+  #attSheetsHost .ts-rd-bar label{flex:1 1 100%;justify-content:space-between}
+  #attSheetsHost .ts-rd-bar input{max-width:60%}
+  #attSheetsHost .ts-rd-bar .st-btn{flex:1 1 auto}
+  #attSheetsHost #tsRead .st-row{flex-wrap:wrap;gap:8px}
+  #attSheetsHost #tsRead .st-row > *{flex:1 1 auto}
+  #attSheetsHost #tsRead .st-btn{white-space:normal}
+  /* the list of pages being read: one card per page */
+  #attSheetsHost #tsQueue .st-tw{overflow:visible;max-height:none!important}
+  #attSheetsHost #tsQueue table, #attSheetsHost #tsQueue tbody{display:block;width:100%}
+  #attSheetsHost #tsQueue thead{display:none}
+  #attSheetsHost #tsQueue tr{display:grid;grid-template-columns:1fr auto;gap:6px;padding:8px 4px;border-bottom:1px solid rgba(148,163,184,.2)}
+  #attSheetsHost #tsQueue td{display:block;padding:0;border:0;min-width:0}
+  #attSheetsHost #tsQueue td:nth-child(1){grid-column:1 / -1;word-break:break-all;font-size:12px}
+  #attSheetsHost #tsQueue td:nth-child(2){grid-column:1 / -1}
+  #attSheetsHost #tsQueue td:nth-child(2) select{width:100%!important;min-width:0!important}
+  #attSheetsHost #tsQueue td:nth-child(3) .st-pill{white-space:normal}
+  #attSheetsHost #tsQueue + *, #attSheetsHost #tsQueue .st-row{flex-wrap:wrap}
+}
+#attSheetsHost .ts-done{border-color:rgba(74,222,128,.5)!important;background:rgba(34,197,94,.08)!important;font-size:14px;line-height:1.7}
 /* v113: the sheet check screen on a phone — one card per man, nothing cut off */
 @media (max-width:760px){
   #attSheetsHost .ts-rd-bar{gap:8px}
@@ -31319,22 +31361,22 @@ document.addEventListener('change', function(ev){
   #attSheetsHost .ts-rd-bar input{flex:1 1 auto;min-width:0}
   #attSheetsHost .ts-rd, #attSheetsHost .ts-rd tbody{display:block;width:100%}
   #attSheetsHost .ts-rd thead{display:none}
-  #attSheetsHost .ts-rd tr{display:grid;grid-template-columns:40px minmax(0,1fr) minmax(0,1fr) 78px;grid-template-areas:"hr nm nm res" "img img img img" "in in out ot";
+  #attSheetsHost .ts-rd tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"hr res" "nm nm" "img img" "in out" "ot ot";
     gap:6px 8px;align-items:center;padding:8px 6px;border-bottom:1px solid rgba(148,163,184,.2)}
   #attSheetsHost .ts-rd td{display:block;padding:0;border:0;min-width:0}
   #attSheetsHost .ts-rd td:nth-child(1){grid-area:hr}
   #attSheetsHost .ts-rd td:nth-child(2){grid-area:nm;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #attSheetsHost .ts-rd td:nth-child(3){grid-area:img}
-  #attSheetsHost .ts-rd td:nth-child(3) img{height:30px!important;max-width:100%}
+  #attSheetsHost .ts-rd td:nth-child(3) img{height:34px!important;width:auto;max-width:100%}
   #attSheetsHost .ts-rd td:nth-child(4){grid-area:res;text-align:right}
   #attSheetsHost .ts-rd td:nth-child(5){grid-area:in}
   #attSheetsHost .ts-rd td:nth-child(6){grid-area:out}
-  #attSheetsHost .ts-rd td:nth-child(7){grid-area:ot;display:block;white-space:nowrap}
+  #attSheetsHost .ts-rd td:nth-child(7){grid-area:ot;display:flex;align-items:center;gap:8px;white-space:nowrap}
   #attSheetsHost .ts-rd input.ts-t{width:100%!important;min-width:0}
-  #attSheetsHost .ts-rd input.ts-o{width:50px!important;padding:3px 2px!important}
+  #attSheetsHost .ts-rd input.ts-o{width:70px!important;padding:4px 6px!important}
   #attSheetsHost .ts-rd td:nth-child(5)::before{content:'IN';display:block;font-size:10px;color:#8fb3d1;font-weight:700}
   #attSheetsHost .ts-rd td:nth-child(6)::before{content:'OUT';display:block;font-size:10px;color:#8fb3d1;font-weight:700}
-  #attSheetsHost .ts-rd td:nth-child(7)::before{content:'OT';display:block;font-size:10px;color:#8fb3d1;font-weight:700}
+  #attSheetsHost .ts-rd td:nth-child(7)::before{content:'OT (hours)';display:inline;font-size:11px;color:#8fb3d1;font-weight:700}
   #attSheetsHost .ts-rd .ts-ct{margin-left:2px;font-size:9px;padding:0 2px}
   #attSheetsHost #tsRead .st-row{flex-wrap:wrap}
   #attSheetsHost #tsReadSave{flex:1 1 auto}
