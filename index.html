@@ -7780,7 +7780,15 @@ document.getElementById('usersCloseTop').onclick = () => { document.getElementBy
     const taken = (typeof USERS !== 'undefined' ? USERS : []).find(u => String(u.hrCode || '') === code
       && String(u.id) !== String(document.getElementById('uEditId').value));
     if(tEl) tEl.value = rec ? (rec.trade || rec.designation || '') : '';
-    if(sEl) sEl.value = rec ? (rec.site || 'no site') : '';
+    if(sEl){
+      // the same HR number can sit in BOTH the Labor list and the Staff list with
+      // different sites -- show both so the difference is visible, not hidden
+      const lab = (typeof laborRecords !== 'undefined' ? laborRecords : []).find(r => String(r.code) === code);
+      const stf = (typeof staffRecords !== 'undefined' ? staffRecords : []).find(r => String(r.code) === code);
+      if(lab && stf && String(lab.site || '') !== String(stf.site || '')) sEl.value = `Labor: ${lab.site || 'no site'} · Staff: ${stf.site || 'no site'}`;
+      else sEl.value = rec ? (rec.site || 'no site') : '';
+      sEl.title = sEl.value;
+    }
     if(taken){
       hint.innerHTML = `<span style="color:#fca5a5">⚠ HR ${escapeHtml(code)} already has an account: <b>${escapeHtml(taken.username)}</b> — click that row in the list to edit it instead.</span>`;
       return;
@@ -29057,16 +29065,25 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
       <div style="text-align:right"><span class="lt-pill ${CLS[t.status]}">${esc(STATUS[t.status])}</span><div style="margin-top:4px">${stepBar(t)}</div></div>
     </div>`;
   }
+  // where a man lives today (camp + room), from the Labor Camps rooms
+  function presentRoom(code){
+    try{ return (typeof findWorkerCampLocation === 'function') ? findWorkerCampLocation(code) : null; }catch(e){ return null; }
+  }
+  function presentRoomLabel(code){
+    const p = presentRoom(code);
+    const bed = p && p.occupant ? ((typeof occupantBed === 'function' ? occupantBed(p.occupant) : p.occupant.bed) || '') : '';
+    return p ? `${esc(p.camp.name)} · Room ${esc(p.room.number)}${bed ? ' · Bed ' + esc(bed) : ''}` : '<span class="lt-muted">no room</span>';
+  }
   function workerTable(t, opts){
     opts = opts || {};
     return `<div class="lt-wrap" style="margin-top:10px"><table><thead><tr>
       ${opts.pick ? '<th><input type="checkbox" id="ltAllW" checked></th>' : ''}
-      <th>HR</th><th>Name</th><th>Trade</th><th>Nationality</th>${opts.room ? '<th>Room</th>' : ''}</tr></thead><tbody>
+      <th>HR</th><th>Name</th><th>Trade</th><th>Nationality</th>${opts.room ? '<th>Lives now</th><th>New room</th>' : ''}</tr></thead><tbody>
       ${(t.workers || []).filter(w => !opts.onlyApproved || w.approved).map(w => `<tr data-w="${esc(w.code)}" ${w.approved ? '' : 'style="opacity:.45"'}>
         ${opts.pick ? `<td><input type="checkbox" class="ltW" ${w.approved ? 'checked' : ''}></td>` : ''}
         <td><b>${esc(w.code)}</b></td><td>${esc(w.name)}</td><td>${esc(w.trade)}</td>
         <td>${esc(w.nationality || natOf(w.code) || '—')}</td>
-        ${opts.room ? `<td>${w.room_no ? esc(w.room_no) : '<span class="lt-muted">not set</span>'}</td>` : ''}</tr>`).join('')}
+        ${opts.room ? `<td>${presentRoomLabel(w.code)}</td><td>${w.keep ? '<b style="color:#6ee7b7">🏠 same room</b>' : (w.room_no ? esc(w.room_no) : '<span class="lt-muted">not set</span>')}</td>` : ''}</tr>`).join('')}
     </tbody></table></div>`;
   }
 
@@ -29109,7 +29126,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                 const free = Math.max(tt.cap - tt.occ, 0);
                 return `<option value="${esc(c.id)}" ${t.to_camp === c.id ? 'selected' : ''}>${esc(c.name)}${c.city ? ' — ' + esc(c.city) : ''} · ${free} free</option>`; }).join('')}
             </select>
-            <button class="lt-btn" data-act="rooms">🛏 Allot rooms</button>
+            ${approvedOf(t).some(w => presentRoom(w.code)) ? '<button class="lt-btn lt-ok" data-act="keeprooms" title="The room does not change — only the site changes">🏠 Keep present rooms</button>' : ''}
+            <button class="lt-btn" data-act="rooms">🛏 Allot new rooms</button>
             <button class="lt-btn lt-danger" data-act="reject">✕ Reject</button>
           </div>
           <div data-rooms style="margin-top:10px"></div></div>`;
@@ -29212,7 +29230,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <button class="lt-btn lt-ghost lt-sm" id="ltCsv">⬇ Excel (CSV)</button>
       </div>
       <div class="lt-wrap" style="margin-top:10px;--tw-max:60vh;"><table><thead><tr>
-        <th>No</th><th>Date</th><th>From → To</th><th>Camp</th><th class="n">Men</th><th>Now with</th><th>Stage</th><th>Age</th><th></th>
+        <th>No</th><th>Date</th><th>From → To</th><th>Workers</th><th>Camp</th><th class="n">Men</th><th>Now with</th><th>Stage</th><th>Age</th><th></th>
       </tr></thead><tbody id="ltRows"></tbody></table></div></div>`;
   }
   function nowWith(t){
@@ -29222,6 +29240,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     if(t.status === 'camp'){ const c = mainCampRec(); return c ? ('Main camp — ' + (c.boss_name || c.name)) : 'Main camp'; }
     if(t.status === 'room'){ const c = campById(t.to_camp); return c ? ('Camp boss — ' + (c.boss_name || c.name)) : 'Camp boss'; }
     return '—';
+  }
+  // the men in a transfer: first two by HR + name, then "+N more" (all of them on hover)
+  function workersCell(t){
+    const ok = approvedOf(t);
+    const list = (t.status === 'pm_from' || !ok.length) ? (t.workers || []) : ok;
+    const shown = list.slice(0, 2).map(w => `<b>${esc(w.code)}</b> ${esc(w.name)}`).join('<br>');
+    return (shown || '—') + (list.length > 2 ? `<br><span class="lt-muted">+${list.length - 2} more</span>` : '');
   }
   function drawRows(){
     const f = $('ltFilter') ? $('ltFilter').value : '';
@@ -29236,12 +29261,13 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     });
     $('ltRows').innerHTML = rows.length ? rows.map(t => `<tr>
       <td><b>${esc(t.no)}</b></td><td>${esc(fmt(t.created_at))}</td><td>${esc(t.from_site)} → <b>${esc(t.to_site)}</b></td>
+      <td title="${esc((t.workers || []).map(w => w.code + ' ' + w.name).join(', '))}">${workersCell(t)}</td>
       <td>${esc(t.to_camp_name || '—')}</td><td>${approvedOf(t).length}</td><td>${esc(nowWith(t))}</td>
       <td><span class="lt-pill ${CLS[t.status]}">${esc(STATUS[t.status])}</span></td>
       <td>${['done','rejected','cancelled'].includes(t.status) ? '—' : days(t.created_at) + 'd'}</td>
       <td><button class="lt-btn lt-ghost lt-sm" data-hist="${esc(t.id)}">🕘</button>
         ${(isAdmin() && !['done','rejected','cancelled'].includes(t.status)) ? `<button class="lt-btn lt-ghost lt-sm" data-cancel="${esc(t.id)}">✕</button>` : ''}</td></tr>`).join('')
-      : '<tr><td colspan="9" style="text-align:center;padding:16px" class="lt-muted">Nothing found.</td></tr>';
+      : '<tr><td colspan="10" style="text-align:center;padding:16px" class="lt-muted">Nothing found.</td></tr>';
     $('ltRows').querySelectorAll('[data-hist]').forEach(b => b.addEventListener('click', () => showHistory(b.dataset.hist)));
     $('ltRows').querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', async () => {
       const t = LIST.find(x => x.id === b.dataset.cancel);
@@ -29408,7 +29434,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
         t.status = 'returned';
         t.returned_by = (me().name || 'camp');
         t.returned_reason = why;
-        approvedOf(t).forEach(w => { w.room = ''; w.room_no = ''; });
+        approvedOf(t).forEach(w => { w.room = ''; w.room_no = ''; w.keep = false; });
         log(t, `Sent back to the PMs — ${t.to_camp_name ? t.to_camp_name + ': ' : ''}no space / cannot take them`, why);
         toast('Sent back to both Project Managers');
       } else {
@@ -29422,6 +29448,33 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
       if(!confirm('Cancel this transfer completely?')) return;
       t.status = 'cancelled';
       log(t, 'Cancelled after being sent back', note);
+    } else if(what === 'keeprooms'){
+      const men = approvedOf(t);
+      const kept = men.filter(w => presentRoom(w.code));
+      const need = men.filter(w => !presentRoom(w.code));
+      kept.forEach(w => { const p = presentRoom(w.code); w.room = p.room.id; w.room_no = p.room.number; w.keep = true; });
+      if(!need.length){
+        if(!confirm(`All ${men.length} worker(s) stay in their present rooms.\nOnly the site changes: ${t.from_site} → ${t.to_site}.\n\nFinish this transfer now?`)){ kept.forEach(w => { w.room = ''; w.room_no = ''; w.keep = false; }); render(); return; }
+        t.to_camp_name = [...new Set(kept.map(w => presentRoom(w.code).camp.name))].join(', ');
+        try{
+          if(typeof laborRecords !== 'undefined'){
+            const codes = new Set(men.map(w => String(w.code)));
+            laborRecords.forEach(l => { if(codes.has(String(l.code))) l.site = t.to_site; });
+            await saveLaborRecords();
+            if(typeof staffRecords !== 'undefined' && staffRecords.some(x => codes.has(String(x.code)))){
+              staffRecords.forEach(x => { if(codes.has(String(x.code))) x.site = t.to_site; });
+              if(typeof saveStaffRecords === 'function') await saveStaffRecords();
+            }
+            if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
+          }
+        }catch(e){}
+        t.status = 'done';
+        log(t, `Kept in their present rooms (${t.to_camp_name}) — site changed to ${t.to_site}`, note);
+        toast('Transfer completed — same rooms, new site');
+      } else {
+        toast(`${kept.length} keep their rooms · ${need.length} still need a room — choose the camp and allot`);
+        renderKeepScroll(t.id, ''); return;
+      }
     } else if(what === 'rooms'){
       drawRooms(card, t); return;
     } else if(what === 'auto'){
@@ -29429,7 +29482,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
       if(camp){ autoFill(t, camp); renderKeepScroll(t.id, camp.id); }
       return;
     } else if(what === 'clearrooms'){
-      approvedOf(t).forEach(w => { w.room = ''; w.room_no = ''; });
+      approvedOf(t).forEach(w => { w.room = ''; w.room_no = ''; w.keep = false; });
       const camp = campById(card.querySelector('[data-camp]').value);
       renderKeepScroll(t.id, camp ? camp.id : ''); return;
     } else if(what === 'sendcamp'){
@@ -29459,6 +29512,13 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
           const codes = new Set(approvedOf(t).map(w => String(w.code)));
           laborRecords.forEach(l => { if(codes.has(String(l.code))) l.site = t.to_site; });
           await saveLaborRecords();
+          // the same man may also be in the Staff list -- move him there too,
+          // or he ends up with two different sites
+          if(typeof staffRecords !== 'undefined' && staffRecords.some(x => codes.has(String(x.code)))){
+            staffRecords.forEach(x => { if(codes.has(String(x.code))) x.site = t.to_site; });
+            if(typeof saveStaffRecords === 'function') await saveStaffRecords();
+          }
+          if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
         }
       }catch(e){}
       t.status = 'done';
@@ -30173,6 +30233,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     .bs-site:hover{background:rgba(129,140,248,.2);border-color:#818cf8}
     .bs-wait{}
     .bs-wait-on{background:rgba(245,158,11,.14);border-color:rgba(251,191,36,.55);color:#fcd34d}
+    .bs-dbl-on{background:rgba(220,38,38,.14);border-color:rgba(248,113,113,.6);color:#fca5a5}
     .bs-sel{flex:2 1 200px;min-width:160px;padding:8px 10px;border-radius:10px;font:inherit;font-size:12.5px;
       background:#051a2e;color:#e6eef7;border:1px solid rgba(129,140,248,.45)}
     @media (max-width:760px){.bs-b{flex:1 1 46%;font-size:12px}.bs-sel{flex:1 1 100%}}`;
@@ -30238,6 +30299,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   const toast = m => { if(typeof showToast === 'function') showToast(m); };
   const txt = v => String(v == null ? '' : v).trim();
   const WAITING = '';                       // empty site = waiting for a site
+  const SHEET_LOADS_KEY = 'site-sheet-loads-v1';   // {HR: {site, at}} — which site sheet each man was last in
   const canDo = () => { try{ return currentUser && (['Super Admin', 'Admin', 'HR'].includes(currentUser.role) || can('bulkPeopleExcel')); }catch(e){ return false; } };
 
   function sites(){
@@ -30251,6 +30313,23 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   }
   const waitingLabor = () => (typeof laborRecords !== 'undefined' ? laborRecords : []).filter(l => !txt(l.site));
   const waitingStaff = () => (typeof staffRecords !== 'undefined' ? staffRecords : []).filter(s => !txt(s.site));
+  // ⚠ Double site: one HR number with two different sites -- in the Labor and the
+  // Staff list, or written twice in the Labor list (usually after an old transfer)
+  function doubleSites(){
+    const by = new Map();
+    const add = (r, list) => {
+      const code = txt(r && r.code); if(!code) return;
+      if(!by.has(code)) by.set(code, {code, name: '', trade: '', labor: [], staff: []});
+      const e = by.get(code);
+      if(!e.name && r.name) e.name = r.name;
+      if(!e.trade && (r.trade || r.designation)) e.trade = r.trade || r.designation;
+      e[list].push(txt(r.site));
+    };
+    (typeof laborRecords !== 'undefined' ? laborRecords : []).forEach(r => add(r, 'labor'));
+    (typeof staffRecords !== 'undefined' ? staffRecords : []).forEach(r => add(r, 'staff'));
+    return [...by.values()].filter(e => new Set(e.labor.concat(e.staff)).size > 1 || e.labor.length > 1)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }
 
   /* ---------- read a site sheet: HR No + Name are enough ---------- */
   async function readSiteSheet(file){
@@ -30293,6 +30372,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   /* ---------- the panel on the Labor screen ---------- */
   function panelHtml(){
     const n = waitingLabor().length + waitingStaff().length;
+    const dbl = doubleSites().length;
     return `
       <div class="bs-bar bs-bar-site bs-bar-joined">
         <select id="ssSite" class="bs-sel">
@@ -30303,6 +30383,8 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
           <input type="file" id="ssFile" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
         <button class="bs-b ${n ? 'bs-wait-on' : 'bs-wait'}" id="ssWaitBtn" title="People with no site — their attendance is not being marked">
           <span class="bs-i">🕓</span><span>Waiting${n ? ` · ${n}` : ''}</span></button>
+        ${dbl ? `<button class="bs-b bs-dbl-on" id="ssDblBtn" title="The same HR number has two different sites — choose the right one">
+          <span class="bs-i">⚠</span><span>Double site · ${dbl}</span></button>` : ''}
       </div>
       <div id="ssBox" style="display:none"></div>`;
   }
@@ -30342,37 +30424,60 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
 
     const L = typeof laborRecords !== 'undefined' ? laborRecords : [];
     const S = typeof staffRecords !== 'undefined' ? staffRecords : [];
-    const findIn = code => L.find(x => String(x.code) === String(code)) || S.find(x => String(x.code) === String(code));
+    // EVERY copy of a man: his Labor row(s) and his Staff row -- all of them move
+    // together, so loading a sheet can never leave him on two sites
+    const copiesOf = code => L.filter(x => String(x.code) === String(code)).concat(S.filter(x => String(x.code) === String(code)));
+    const up = v => txt(v).toUpperCase();
     const fileCodes = new Set(info.rows.map(r => String(r.code)));
 
-    const unknown = [], coming = [], staying = [], nameOff = [];
+    // which site sheet each man was in last time (to catch one man in two sheets)
+    let loads = {};
+    try{ const res = await window.storage.get(SHEET_LOADS_KEY, true); loads = res && res.value ? JSON.parse(res.value) : {}; }catch(e){ loads = {}; }
+    const RECENT_MS = 45 * 86400000;
+
+    const unknown = [], coming = [], staying = [], nameOff = [], clash = [];
+    const seen = new Set();
     info.rows.forEach(r => {
-      const rec = findIn(r.code);
-      if(!rec){ unknown.push(r); return; }
+      const code = String(r.code);
+      if(seen.has(code)) return;                     // the same HR number twice in the sheet
+      seen.add(code);
+      const all = copiesOf(code);
+      if(!all.length){ unknown.push(r); return; }
+      const rec = all[0];
       if(r.name && rec.name && r.name.toLowerCase().slice(0, 6) !== rec.name.toLowerCase().slice(0, 6)) nameOff.push({r, rec});
-      if(txt(rec.site).toUpperCase() === site.toUpperCase()) staying.push(rec);
-      else coming.push({rec, from: txt(rec.site) || 'no site'});
+      const others = [...new Set(all.map(x => txt(x.site)).filter(x => up(x) !== up(site)))];
+      if(!others.length){ staying.push({code, all}); }
+      else coming.push({code, all, rec, from: others.map(x => x || 'no site').join(' + ')});
+      const last = loads[code];
+      if(last && up(last.site) !== up(site) && (Date.now() - new Date(last.at).getTime()) < RECENT_MS) clash.push({code, rec, last});
     });
-    const leaving = L.concat(S).filter(x => txt(x.site).toUpperCase() === site.toUpperCase() && !fileCodes.has(String(x.code)));
+    const leavingCodes = [...new Set(L.concat(S).filter(x => up(x.site) === up(site) && !fileCodes.has(String(x.code))).map(x => String(x.code)))];
+    const clashCodes = new Set(clash.map(c => c.code));
 
     show(`
       <b>📄 ${esc(file.name)}</b> — sheet “${esc(info.sheet)}”, header row ${info.headerRow}<br>
-      Site: <b>${esc(site)}</b> · <b>${info.rows.length}</b> HR number(s) in the sheet<br>
+      Site: <b>${esc(site)}</b> · <b>${seen.size}</b> HR number(s) in the sheet${info.rows.length > seen.size ? ` <span style="color:#fcd34d">(${info.rows.length - seen.size} written twice — counted once)</span>` : ''}<br>
       <b>${staying.length}</b> already on this site · <b style="color:#6ee7b7">${coming.length}</b> will move here
-      · <b style="color:#fcd34d">${leaving.length}</b> will go to “Waiting for site”
+      · <b style="color:#fcd34d">${leavingCodes.length}</b> will go to “Waiting for site”
       ${coming.length ? `<div style="margin-top:6px;opacity:.9">Coming from: ${esc([...new Set(coming.map(c => c.from))].join(' · '))}</div>` : ''}
-      ${unknown.length ? `<div style="margin-top:6px;color:#fca5a5">⚠ ${unknown.length} HR number(s) not in the app at all: ${esc(unknown.slice(0, 10).map(u => u.code).join(', '))}${unknown.length > 10 ? '…' : ''} — these are skipped. Load them first from the main list.</div>` : ''}
-      ${nameOff.length ? `<div style="margin-top:6px;color:#fcd34d">⚠ ${nameOff.length} name(s) do not match the HR number, e.g. ${esc(nameOff[0].r.code)} — sheet says “${esc(nameOff[0].r.name)}”, app says “${esc(nameOff[0].rec.name)}”</div>` : ''}
+      ${clash.length ? `<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(220,38,38,.14);border:1px solid rgba(248,113,113,.55)">
+        ⚠ <b>${clash.length} man/men are also in another site's sheet</b> loaded before — the last sheet decides where he is:
+        <div style="margin-top:4px;font-size:12.5px">${clash.slice(0, 12).map(c => `<b>${esc(c.code)}</b> ${esc(c.rec.name || '')} — in the <b>${esc(c.last.site)}</b> sheet of ${esc(new Date(c.last.at).toLocaleDateString('en-GB'))}`).join('<br>')}${clash.length > 12 ? '<br>…' : ''}</div>
+        <div style="margin-top:4px;font-size:12.5px;opacity:.9">If a man really moved, put him here. If you are not sure, choose “skip” — he stays where he is and you can check him later.</div></div>` : ''}
+      ${unknown.length ? `<div style="margin-top:6px;color:#fca5a5">⚠ ${unknown.length} HR number(s) not in the app at all: ${esc(unknown.slice(0, 10).map(u => u.code).join(', '))}${unknown.length > 10 ? '…' : ''} — these are skipped. Add them in HR first.</div>` : ''}
+      ${nameOff.length ? `<div style="margin-top:6px;color:#fcd34d">⚠ ${nameOff.length} name(s) do not match the HR number, e.g. ${esc(nameOff[0].r.code)} — sheet says “${esc(nameOff[0].r.name)}”, app says “${esc(nameOff[0].rec.name)}”. Check the sheet.</div>` : ''}
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <button class="btn btn-primary" id="ssGo" style="flex:1">✔ Put these ${coming.length + staying.length} on ${esc(site)}</button>
+        ${clash.length ? `<button class="btn btn-ghost" id="ssGoSkip" style="flex:1">✔ Put them on ${esc(site)}, but skip the ${clash.length} in another sheet</button>` : ''}
         <button class="btn btn-ghost" id="ssCancel" style="flex:1">Cancel</button>
       </div>`);
 
     document.getElementById('ssCancel').onclick = () => { box.style.display = 'none'; };
-    document.getElementById('ssGo').onclick = async (ev) => {
-      ev.currentTarget.disabled = true;
-      if(!confirm(`Site: ${site}\n\n${coming.length} will move here\n${leaving.length} will go to "Waiting for site"\n\nA backup is downloaded first.`)){
-        ev.currentTarget.disabled = false; return;
+    const go = async (ev, skipClash) => {
+      const btn = ev.currentTarget; btn.disabled = true;
+      const moving = coming.filter(c => !(skipClash && clashCodes.has(c.code)));
+      if(!confirm(`Site: ${site}\n\n${moving.length} will move here${skipClash ? `\n${clash.length} in another sheet are skipped` : ''}\n${leavingCodes.length} will go to "Waiting for site"\n\nA backup is downloaded first.`)){
+        btn.disabled = false; return;
       }
       try{
         const a = document.createElement('a');
@@ -30381,19 +30486,25 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
         document.body.appendChild(a); a.click();
         setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 400);
       }catch(e){}
-      coming.forEach(c => { c.rec.site = site; });
-      leaving.forEach(x => { x.site = WAITING; });
+      moving.forEach(c => c.all.forEach(x => { x.site = site; }));        // every copy moves
+      staying.forEach(c => c.all.forEach(x => { x.site = site; }));
+      leavingCodes.forEach(code => copiesOf(code).forEach(x => { x.site = WAITING; }));
+      const now = new Date().toISOString();
+      staying.concat(moving).forEach(c => { loads[c.code] = {site, at: now}; });
       try{
         if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
         await saveLaborRecords();
         await saveStaffRecords();
-        if(typeof logChange === 'function') logChange('Labor', `Site sheet loaded for ${site}: ${coming.length} moved in, ${leaving.length} to waiting`, {site});
+        try{ await window.storage.set(SHEET_LOADS_KEY, JSON.stringify(loads), true); }catch(e){}
+        if(typeof logChange === 'function') logChange('Labor', `Site sheet loaded for ${site}: ${moving.length} moved in, ${leavingCodes.length} to waiting${skipClash ? ', ' + clash.length + ' skipped (in another sheet)' : ''}`, {site});
         if(typeof renderLaborView === 'function') renderLaborView();
         box.style.display = 'none';
         refreshPanel();
-        toast(`${site}: ${coming.length} moved in · ${leaving.length} waiting for a site`);
+        toast(`${site}: ${moving.length} moved in · ${leavingCodes.length} waiting for a site`);
       }catch(e){ show(`❌ Could not save: ${esc(e.message || e)}`, 'bad'); }
     };
+    document.getElementById('ssGo').onclick = ev => go(ev, false);
+    if(document.getElementById('ssGoSkip')) document.getElementById('ssGoSkip').onclick = ev => go(ev, true);
   }
 
   /* ---------- the "waiting for site" window ---------- */
@@ -30493,8 +30604,96 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     draw();
   }
 
+  function openDouble(){
+    const w = document.createElement('div');
+    w.id = 'ssDblOverlay';
+    w.style.cssText = 'position:fixed;inset:0;z-index:9300;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:16px';
+    w.innerHTML = `<div style="background:#0b2137;border:1px solid rgba(248,113,113,.35);border-radius:14px;max-width:1100px;width:100%;
+        height:min(86vh,760px);display:flex;flex-direction:column;padding:16px;color:#e6eef7;font-size:13.5px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div><h3 style="margin:0">⚠ Double site</h3>
+          <div style="opacity:.8;font-size:12.5px">These men have two different sites (in the Labor list and the Staff list, or written twice). Choose where each one really works, then save — he will then have one site everywhere.</div></div>
+        <button class="btn btn-ghost" data-x style="padding:4px 12px">✕ Close</button></div>
+      <div class="att-one-line" style="margin:10px 0">
+        <input id="ssqD" placeholder="Search HR, name or site" style="flex:2;padding:8px;border-radius:8px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
+      </div>
+      <div id="ssDWrap" style="flex:1;min-height:0;overflow:auto;border:1px solid rgba(56,189,248,.15);border-radius:10px"></div>
+      <div class="att-one-line" style="margin-top:10px">
+        <span id="ssDCount" style="opacity:.85;flex:2"></span>
+        <button class="btn btn-primary" id="ssDSave" style="flex:1">💾 Save the chosen sites</button>
+      </div></div>`;
+    document.body.appendChild(w);
+    const chosen = {};
+    const all = sites();
+    const siteTxt = v => v ? esc(v) : '<span style="opacity:.6">no site</span>';
+    const roomOf = code => {
+      try{ const p = (typeof findWorkerCampLocation === 'function') ? findWorkerCampLocation(code) : null;
+        return p ? `${esc(p.camp.name)} · Room ${esc(p.room.number)}` : '<span style="opacity:.6">—</span>'; }catch(e){ return '—'; }
+    };
+    const draw = () => {
+      const q = (document.getElementById('ssqD').value || '').trim().toLowerCase();
+      let rows = doubleSites();
+      if(q) rows = rows.filter(r => (r.code + ' ' + r.name + ' ' + r.trade + ' ' + r.labor.join(' ') + ' ' + r.staff.join(' ')).toLowerCase().includes(q));
+      document.getElementById('ssDCount').textContent = `${rows.length} person(s) with a double site · ${Object.keys(chosen).length} chosen`;
+      document.getElementById('ssDWrap').innerHTML = !rows.length
+        ? '<div style="padding:24px;text-align:center;opacity:.8">Nobody has a double site. 👍</div>'
+        : `<table style="width:100%;border-collapse:collapse;font-size:12.5px">
+            <thead><tr style="background:#0d3358;position:sticky;top:0">
+              <th style="padding:7px;text-align:left">HR</th><th style="padding:7px;text-align:left">Name</th>
+              <th style="padding:7px;text-align:left">Trade</th><th style="padding:7px;text-align:left">Labor list</th>
+              <th style="padding:7px;text-align:left">Staff list</th><th style="padding:7px;text-align:left">Camp room</th>
+              <th style="padding:7px;text-align:left">Put him on</th></tr></thead>
+            <tbody>${rows.map(r => { const own = [...new Set(r.labor.concat(r.staff).filter(Boolean))];
+              return `<tr style="border-top:1px solid rgba(148,163,184,.15)">
+                <td style="padding:6px 7px"><b>${esc(r.code)}</b></td><td style="padding:6px 7px">${esc(r.name)}</td>
+                <td style="padding:6px 7px">${esc(r.trade)}</td>
+                <td style="padding:6px 7px">${r.labor.length ? r.labor.map(siteTxt).join('<br>') + (r.labor.length > 1 ? ` <b style="color:#fca5a5">(${r.labor.length} rows)</b>` : '') : '<span style="opacity:.6">not in list</span>'}</td>
+                <td style="padding:6px 7px">${r.staff.length ? r.staff.map(siteTxt).join('<br>') : '<span style="opacity:.6">not in list</span>'}</td>
+                <td style="padding:6px 7px">${roomOf(r.code)}</td>
+                <td style="padding:6px 7px"><select data-dcode="${esc(r.code)}" style="width:100%;padding:6px;border-radius:7px;background:#051a2e;color:#e6eef7;border:1px solid rgba(56,189,248,.3)">
+                  <option value="">— choose —</option>
+                  ${own.length ? `<optgroup label="His sites now">${own.map(x => `<option value="${esc(x)}" ${chosen[r.code] === x ? 'selected' : ''}>⭐ ${esc(x)}</option>`).join('')}</optgroup>` : ''}
+                  <optgroup label="Another project">${all.filter(x => !own.includes(x)).map(x => `<option value="${esc(x)}" ${chosen[r.code] === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</optgroup>
+                </select></td></tr>`; }).join('')}</tbody></table>`;
+      w.querySelectorAll('[data-dcode]').forEach(sel => sel.addEventListener('change', () => {
+        if(sel.value) chosen[sel.dataset.dcode] = sel.value; else delete chosen[sel.dataset.dcode];
+        document.getElementById('ssDCount').textContent = `${rows.length} person(s) with a double site · ${Object.keys(chosen).length} chosen`;
+      }));
+    };
+    document.getElementById('ssqD').addEventListener('input', draw);
+    document.getElementById('ssDSave').addEventListener('click', async () => {
+      const codes = Object.keys(chosen);
+      if(!codes.length){ toast('Choose a site for at least one person'); return; }
+      const extra = codes.reduce((n, c) => n + Math.max(0, (laborRecords || []).filter(x => String(x.code) === c).length - 1), 0);
+      if(!confirm(`Put ${codes.length} person(s) on the chosen site?` + (extra ? `\n\n${extra} extra copy/copies of the same man in the Labor list will be removed (one row is kept).` : ''))) return;
+      codes.forEach(code => {
+        const site = chosen[code];
+        let first = true;
+        for(let i = 0; i < laborRecords.length; i++){
+          if(String(laborRecords[i].code) !== code) continue;
+          if(first){ laborRecords[i].site = site; first = false; }
+          else { laborRecords.splice(i, 1); i--; }
+        }
+        (staffRecords || []).forEach(x => { if(String(x.code) === code) x.site = site; });
+      });
+      try{
+        if(typeof invalidateRosterIndex === 'function') invalidateRosterIndex();
+        await saveLaborRecords();
+        await saveStaffRecords();
+        if(typeof logChange === 'function') logChange('Labor', `Double site fixed for ${codes.length} person(s)`, {codes: codes.join(', ')});
+        if(typeof renderLaborView === 'function') renderLaborView();
+        codes.forEach(c => delete chosen[c]);
+        toast(`${codes.length} person(s) now have one site`);
+        draw(); refreshPanel();
+      }catch(e){ toast('Could not save — try again'); }
+    });
+    w.addEventListener('click', e => { if(e.target === w || e.target.closest('[data-x]')){ w.remove(); refreshPanel(); } });
+    draw();
+  }
+
   document.addEventListener('click', e => {
     if(e.target.closest('#ssWaitBtn')){ e.preventDefault(); openWaiting(); }
+    if(e.target.closest('#ssDblBtn')){ e.preventDefault(); openDouble(); }
   });
   document.addEventListener('change', async e => {
     const f = e.target.closest('#ssFile');
@@ -30508,7 +30707,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   });
   setInterval(() => { if(!document.hidden) mount(); }, 2500);
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
-  window.MemcoSiteSheet = {openWaiting, waitingLabor, waitingStaff};
+  window.MemcoSiteSheet = {openWaiting, waitingLabor, waitingStaff, openDouble, doubleSites, loadSite};
 })();
 </script>
 <!-- ============ END SITE-WISE UPLOAD ============ -->
