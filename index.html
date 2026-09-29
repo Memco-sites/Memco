@@ -5897,7 +5897,9 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
   };
   const BLOB = ['public-holidays-v1', 'projects-v1', 'driver-licenses-v1',
     // shared with every device: groups, sheets, holiday names, job no / location, project phases
-    'memco-crews-v1', 'memco-sheets-v1', 'memco-holiday-names', 'memco-siteinfo-v1', 'memco-project-families-v1', 'memco-phase-moves-v1'];
+    'memco-crews-v1', 'memco-sheets-v1', 'memco-holiday-names', 'memco-siteinfo-v1', 'memco-project-families-v1', 'memco-phase-moves-v1',
+    // attendance rules, which site sheet each man was last in, and closed payroll months
+    'attendance-rules-v1', 'site-sheet-loads-v1', 'att-month-close-v1'];
   const EPOCH_ID = 'records-epoch';
   const st = {};
   Object.keys(ROW).forEach(k => { st[k] = {loaded:false, loading:null, snap:new Map(), cur:[], lastSeen:null, queue:Promise.resolve(), dirty:false, served:false, epoch:undefined}; });
@@ -9505,6 +9507,7 @@ document.getElementById('attWho').addEventListener('change', e => {
 
 // everybody present in one tap, then untick the few who are away
 document.getElementById('attAllPresent').addEventListener('click', () => {
+  if(isDateLocked(document.getElementById('attProject').value, document.getElementById('attDate').value, 'attendance')){ showToast('Attendance is locked — press ✏ Edit above'); return; }
   const project = document.getElementById('attProject').value;
   const men = attWhoMen(laborRecords.filter(l => l.site === project));
   if(!men.length){ showToast('Nobody on this list'); return; }
@@ -9535,13 +9538,13 @@ function attOtRulesFor(code){
   const cap = !on ? 0 : (isHolidayOrSunday(otDate) ? null : (s.maxOtCap ? Number(s.maxOtCap) : null));
   const absentThatDay = currentOtDateAbsentMap.hasOwnProperty(code);
   const onLeave = currentLeaveAuto.has(code);          // on leave in HR (VAC, EMG …): no overtime
-  return {ok: on && !absentThatDay && !onLeave && !isDateLocked(project, otDate), cap};
+  return {ok: on && !absentThatDay && !onLeave && !isDateLocked(project, otDate, 'overtime'), cap};
 }
 // ⏱ the same OT for everybody on the list (contract men keep their own hours)
 document.getElementById('attOtAllBtn').addEventListener('click', () => {
   const project = document.getElementById('attProject').value;
   const otDate = document.getElementById('attOtDate').value;
-  if(isDateLocked(project, otDate)){ showToast(`${formatDMY(otDate)} is locked — request approval first`); return; }
+  if(isDateLocked(project, otDate, 'overtime')){ showToast(`Overtime of ${formatDMY(otDate)} is locked — press ✏ Edit above`); return; }
   const s = projectOtSettings[project] || {};
   const capTxt = isHolidayOrSunday(otDate) ? 'no cap today (Sunday / holiday)' : (s.maxOtCap ? `cap ${s.maxOtCap} h` : 'no cap');
   const x = prompt(`Overtime on ${formatDMY(otDate)} for everybody on this list (${capTxt}).\nHours (0 clears it):`, s.maxOtCap || '2');
@@ -9566,6 +9569,7 @@ document.getElementById('attOtAllBtn').addEventListener('click', () => {
 });
 // 📝 contract OT: tick the men of this list, their hours and the job
 document.getElementById('attCtBtn').addEventListener('click', async () => {
+  if(isDateLocked(document.getElementById('attProject').value, document.getElementById('attOtDate').value, 'overtime')){ showToast('Overtime is locked — press ✏ Edit above'); return; }
   const project = document.getElementById('attProject').value;
   const list = attWhoMen(laborRecords.filter(l => l.site === project)).filter(l => !currentLeaveAuto.has(l.code))
     .map(l => ({hr: String(l.code), name: l.name, trade: l.trade || ''}));
@@ -9584,6 +9588,7 @@ document.getElementById('homeScanBtn').addEventListener('click', async e => {
   attOpenScan();
 });
 document.getElementById('attAllAbsent').addEventListener('click', () => {
+  if(isDateLocked(document.getElementById('attProject').value, document.getElementById('attDate').value, 'attendance')){ showToast('Attendance is locked — press ✏ Edit above'); return; }
   const project = document.getElementById('attProject').value;
   const men = attWhoMen(laborRecords.filter(l => l.site === project)).filter(l => !currentLeaveAuto.has(l.code));
   if(!men.length){ showToast('Nobody on this list'); return; }
@@ -9594,6 +9599,7 @@ document.getElementById('attAllAbsent').addEventListener('click', () => {
   showToast(`${men.length} men absent`);
 });
 document.getElementById('attHoliday').addEventListener('click', async () => {
+  if(isDateLocked(document.getElementById('attProject').value, document.getElementById('attDate').value, 'attendance')){ showToast('Attendance is locked — press ✏ Edit above'); return; }
   const date = document.getElementById('attDate').value;
   const r = await memcoHolidayDialog(date);
   if(!r) return;
@@ -9657,6 +9663,7 @@ async function onDateOrProjectChange(){
     holidayDatesLoaded = true;
   }
   await loadAttRules();
+  await loadAttMonthClose();
   const existing = findAttRecord(date, project);
   if(existing){
     document.getElementById('attOverallLabor').value = existing.overallLabor || '';
@@ -9839,10 +9846,134 @@ function hasActiveDateUnlock(project, date){
     r.approvedUntil && new Date(r.approvedUntil) > new Date()
   );
 }
-function isDateLocked(project, date){
-  if(!isDateEditRestricted()) return false;
-  if(!isPastDate(date)) return false;
-  return !hasActiveDateUnlock(project, date);
+// ---- 🔒 Saved attendance / overtime is locked ----
+// A day's attendance (and, separately, an OT date's hours) locks as soon as it
+// is saved, so a stray tap changes nothing. ✏ Edit opens it again -- a reason
+// is required and every change is written to the day's history.
+//  · whoever marks attendance may edit up to ATT_EDIT_WINDOW_DAYS days back;
+//  · older days: Admin / HR / PM / Super Admin (or an approved edit request);
+//  · a month closed for payroll is locked for everybody until a Super Admin reopens it.
+const ATT_EDIT_WINDOW_DAYS = 7;
+const ATT_MONTH_CLOSE_KEY = 'att-month-close-v1';
+let attMonthClose = {};                 // "PROJECT|YYYY-MM" -> {by, at}
+let attMonthCloseLoaded = false;
+const attEditOpen = {};                 // "project|date|type" -> {reason, at}   (this device, until Save)
+const attLockKey = (p, d, t) => `${p}|${d}|${t}`;
+function attLocalToday(){
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+}
+function attDaysOld(date){
+  if(!date) return 0;
+  return Math.round((new Date(attLocalToday() + 'T00:00:00') - new Date(date + 'T00:00:00')) / 86400000);
+}
+function attIsSenior(){ try{ return !!(currentUser && canApproveDateEdits()); }catch(e){ return false; } }
+function attIsSuper(){ return !!(currentUser && currentUser.role === 'Super Admin'); }
+function attCanCloseMonth(){ return !!(currentUser && ['Super Admin', 'Admin', 'HR'].includes(currentUser.role)); }
+function attMonthClosedInfo(project, date){ return (project && date) ? (attMonthClose[`${project}|${String(date).slice(0, 7)}`] || null) : null; }
+async function loadAttMonthClose(force){
+  if(attMonthCloseLoaded && !force) return;
+  try{
+    const res = await window.storage.get(ATT_MONTH_CLOSE_KEY, true);
+    const v = res && res.value ? JSON.parse(res.value) : {};
+    attMonthClose = (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  }catch(e){ attMonthClose = {}; }
+  attMonthCloseLoaded = true;
+}
+async function saveAttMonthClose(){
+  try{ await window.storage.set(ATT_MONTH_CLOSE_KEY, JSON.stringify(attMonthClose), true); }catch(e){ showToast('Could not save — try again'); }
+}
+function attSavedInfo(project, date, type){
+  const r = dailyLaborRecords.find(x => x.date === date && x.project === project);
+  if(!r) return null;
+  if(type === 'overtime') return r.otTs ? {by: r.otEnteredBy || '', at: r.otTs} : null;
+  return r.attendanceTaken ? {by: r.enteredBy || '', at: r.ts} : null;
+}
+// may this person open (✏ Edit) or first-enter this date?
+function attMayEdit(project, date){
+  if(attMonthClosedInfo(project, date)) return false;
+  if(attIsSenior()) return true;
+  if(attDaysOld(date) <= ATT_EDIT_WINDOW_DAYS) return true;
+  return hasActiveDateUnlock(project, date);          // an Admin/HR/PM approved his request
+}
+function isDateLocked(project, date, type){
+  if(!project || !date) return false;
+  type = type || 'attendance';
+  if(attMonthClosedInfo(project, date)) return true;               // closed for payroll
+  if(!attMayEdit(project, date)) return true;                      // too old for this person
+  if(attEditOpen[attLockKey(project, date, type)]) return false;   // ✏ Edit opened with a reason
+  return !!attSavedInfo(project, date, type);                      // saved = locked
+}
+function attStartEdit(project, date, type){
+  if(!attMayEdit(project, date)){ showToast('You cannot open this date — ask Admin / HR / PM'); return; }
+  const label = type === 'overtime' ? 'overtime' : 'attendance';
+  const why = (prompt(`Why are you changing the ${label} of ${formatDMY(date)}?\n(This is kept in the day's history.)`, '') || '').trim();
+  if(!why){ showToast('A reason is needed to edit'); return; }
+  attEditOpen[attLockKey(project, date, type)] = {reason: why, at: new Date().toISOString()};
+  renderDateLockBanner(); renderLaborAttChecklist();
+  showToast(`✏ ${label} of ${formatDMY(date)} is open — make the change and press Save`);
+}
+function attCancelEdit(){
+  Object.keys(attEditOpen).forEach(k => delete attEditOpen[k]);
+  if(typeof onDateOrProjectChange === 'function') onDateOrProjectChange();   // back to what was saved
+}
+// what changed, for the history
+function attDiffAttendance(prev, absentees, project){
+  const was = {}, now = {};
+  (prev.absentees || []).forEach(a => { was[String(a.code)] = a.reason || 'A'; });
+  absentees.forEach(a => { now[String(a.code)] = a.reason || 'A'; });
+  const out = [];
+  laborRecords.filter(l => l.site === project).forEach(l => {
+    const c = String(l.code), a = was[c] || 'P', b = now[c] || 'P';
+    if(a !== b) out.push({code: c, name: l.name || '', from: a, to: b});
+  });
+  return out;
+}
+function attDiffOt(prevOt, nextOt){
+  const out = [], codes = new Set(Object.keys(prevOt || {}).concat(Object.keys(nextOt || {})));
+  codes.forEach(c => {
+    const a = (prevOt || {})[c], b = (nextOt || {})[c];
+    if(String(a == null ? '' : a) !== String(b == null ? '' : b)){
+      const w = laborRecords.find(l => String(l.code) === String(c));
+      out.push({code: c, name: w ? w.name : '', from: (a == null || a === '') ? '0' : String(a), to: (b == null || b === '') ? '0' : String(b)});
+    }
+  });
+  return out;
+}
+function attShowHistory(project, date){
+  const r = dailyLaborRecords.find(x => x.date === date && x.project === project) || {};
+  const log = (r.editLog || []).slice().reverse();
+  const w = document.createElement('div');
+  w.className = 'hol-wrap';
+  w.innerHTML = `<div class="hol-box" style="max-width:640px">
+    <div class="hol-head"><b>📜 History — ${escapeHtml(project)} · ${formatDMY(date)}</b><button type="button" class="hol-x" data-x>✕</button></div>
+    <div class="hol-note">${r.attendanceTaken ? `Attendance first saved by <b>${escapeHtml(r.firstBy || r.enteredBy || '')}</b>${r.firstTs || r.ts ? ' on ' + escapeHtml(new Date(r.firstTs || r.ts).toLocaleString('en-GB')) : ''}` : 'Attendance not saved yet.'}${r.otTs ? `<br>Overtime last saved by <b>${escapeHtml(r.otEnteredBy || '')}</b> on ${escapeHtml(new Date(r.otTs).toLocaleString('en-GB'))}` : ''}</div>
+    <div style="max-height:52vh;overflow:auto">${log.length ? log.map(e => `
+      <div style="border-top:1px solid rgba(148,163,184,.2);padding:8px 2px">
+        <div><b>${e.type === 'overtime' ? '⏱ Overtime' : '📋 Attendance'}</b> changed by <b>${escapeHtml(e.by || '')}</b> · ${escapeHtml(new Date(e.at).toLocaleString('en-GB'))}</div>
+        <div style="opacity:.85;font-size:12.5px">Reason: ${escapeHtml(e.reason || '—')}</div>
+        <div style="font-size:12.5px;margin-top:3px">${(e.changes || []).length ? e.changes.map(c => `<b>${escapeHtml(c.code)}</b> ${escapeHtml(c.name || '')}: ${escapeHtml(c.from)} → <b>${escapeHtml(c.to)}</b>`).join('<br>') : '<span style="opacity:.7">no change in the end</span>'}</div>
+      </div>`).join('') : '<div style="padding:14px;opacity:.75">No changes after the first save. 👍</div>'}</div>
+    <div class="hol-foot"><button type="button" class="btn btn-ghost" data-x>Close</button></div></div>`;
+  document.body.appendChild(w);
+  w.addEventListener('click', e => { if(e.target === w || e.target.closest('[data-x]')) w.remove(); });
+}
+async function attToggleMonth(project, date, close){
+  const key = `${project}|${String(date).slice(0, 7)}`;
+  const mon = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', {month: 'long', year: 'numeric'});
+  if(close){
+    if(!attCanCloseMonth()) return;
+    if(!confirm(`Close ${mon} of ${project} for payroll?\n\nNobody can change its attendance or overtime after this. Only a Super Admin can open it again.`)) return;
+    attMonthClose[key] = {by: currentUserName || (currentUser && currentUser.name) || 'Unknown', at: new Date().toISOString()};
+  } else {
+    if(!attIsSuper()) return;
+    if(!confirm(`Open ${mon} of ${project} again for changes?`)) return;
+    delete attMonthClose[key];
+  }
+  await saveAttMonthClose();
+  if(typeof logChange === 'function') logChange('Attendance', `${close ? 'Closed' : 'Reopened'} ${mon} for payroll`, {project});
+  renderDateLockBanner(); renderLaborAttChecklist();
+  showToast(close ? `🔒 ${mon} closed for ${project}` : `${mon} opened again`);
 }
 function myPendingRequestFor(project, date, dateType){
   if(!currentUser) return null;
@@ -9880,25 +10011,58 @@ function renderDateLockBanner(){
   const project = document.getElementById('attProject').value;
   const attDateVal = document.getElementById('attDate').value;
   const otDateVal = document.getElementById('attOtDate').value;
-  const items = [];
-  if(isDateLocked(project, attDateVal)) items.push({ type: 'attendance', date: attDateVal, label: 'Attendance' });
-  if(otDateVal !== attDateVal && isDateLocked(project, otDateVal)) items.push({ type: 'overtime', date: otDateVal, label: 'Overtime' });
-  if(items.length === 0){ el.innerHTML = ''; el.style.display = 'none'; return; }
+  if(!project || !attDateVal){ el.innerHTML = ''; el.style.display = 'none'; return; }
+  const when = t => t ? new Date(t).toLocaleString('en-GB', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
+  const btn = (attrs, txt) => `<button type="button" class="btn btn-ghost" style="flex-shrink:0;font-size:11px;padding:5px 10px" ${attrs}>${txt}</button>`;
+  const items = [{type: 'attendance', date: attDateVal, label: 'Attendance'}];
+  if(otDateVal) items.push({type: 'overtime', date: otDateVal, label: 'Overtime'});
+  const rows = items.map(it => {
+    const closed = attMonthClosedInfo(project, it.date);
+    const saved = attSavedInfo(project, it.date, it.type);
+    const open = attEditOpen[attLockKey(project, it.date, it.type)];
+    const r = dailyLaborRecords.find(x => x.date === it.date && x.project === project) || {};
+    const nLog = (r.editLog || []).length;
+    const hist = (saved || nLog) ? btn(`data-att-hist="${escapeAttr(it.date)}"`, `📜 History${nLog ? ' (' + nLog + ')' : ''}`) : '';
+    const tag = `data-lock-project="${escapeAttr(project)}" data-lock-date="${escapeAttr(it.date)}" data-lock-type="${it.type}"`;
+    if(closed){
+      return `<div class="date-lock-banner" ${tag}><span>🔒 <b>${it.label}</b> ${formatDMY(it.date)} — this month is <b>closed for payroll</b> by ${escapeHtml(closed.by)}.</span>
+        ${hist}${attIsSuper() ? btn(`data-month-open="${escapeAttr(it.date)}"`, '🔓 Reopen month') : ''}</div>`;
+    }
+    if(!attMayEdit(project, it.date)){
+      const pending = myPendingRequestFor(project, it.date, it.type);
+      return `<div class="date-lock-banner" ${tag}><span>🔒 <b>${it.label}</b> ${formatDMY(it.date)} is older than ${ATT_EDIT_WINDOW_DAYS} days — only Admin / HR / PM can change it.</span>
+        ${hist}${pending ? '<span style="color:var(--ink-faint);font-style:italic;flex-shrink:0">Request pending approval</span>' : btn('data-request-edit', 'Request edit')}</div>`;
+    }
+    if(open){
+      return `<div class="date-lock-banner" ${tag} style="border-color:rgba(251,191,36,.6)"><span>✏ <b>${it.label}</b> ${formatDMY(it.date)} is <b>open for editing</b> — reason: “${escapeHtml(open.reason)}”. Press 💾 Save to lock it again.</span>
+        ${hist}${btn('data-att-cancel', '✕ Cancel edit')}</div>`;
+    }
+    if(saved){
+      return `<div class="date-lock-banner" ${tag}><span>🔒 <b>${it.label}</b> ${formatDMY(it.date)} saved by <b>${escapeHtml(saved.by || '—')}</b> ${when(saved.at)} — locked.</span>
+        ${hist}${btn('data-att-edit', '✏ Edit')}</div>`;
+    }
+    return '';
+  }).filter(Boolean);
+  const mon = new Date(attDateVal + 'T00:00:00').toLocaleDateString('en-GB', {month: 'long', year: 'numeric'});
+  if(attCanCloseMonth() && !attMonthClosedInfo(project, attDateVal)){
+    rows.push(`<div class="date-lock-banner" style="opacity:.85"><span>📅 <b>${mon}</b> of ${escapeHtml(project)} is open. When payroll is done, close it so nobody can change it.</span>
+      ${btn(`data-month-close="${escapeAttr(attDateVal)}"`, '🔒 Close month')}</div>`);
+  }
+  if(!rows.length){ el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = '';
-  el.innerHTML = items.map(it => {
-    const pending = myPendingRequestFor(project, it.date, it.type);
-    return `
-    <div class="date-lock-banner" data-lock-project="${escapeAttr(project)}" data-lock-date="${escapeAttr(it.date)}" data-lock-type="${it.type}">
-      <span>🔒 <b>${escapeHtml(it.label)}</b> for <b>${formatDMY(it.date)}</b> is locked — past dates need Admin/HR/PM approval to edit.</span>
-      ${pending ? '<span style="color:var(--ink-faint);font-style:italic;flex-shrink:0;">Request pending approval</span>' : '<button type="button" class="btn btn-ghost" style="flex-shrink:0;font-size:11px;padding:5px 10px;" data-request-edit>Request Past Date Edit</button>'}
-    </div>`;
-  }).join('');
-  el.querySelectorAll('[data-request-edit]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const wrap = btn.closest('[data-lock-project]');
-      submitDateEditRequest(wrap.dataset.lockProject, wrap.dataset.lockDate, wrap.dataset.lockType);
-    });
-  });
+  el.innerHTML = rows.join('');
+  el.querySelectorAll('[data-request-edit]').forEach(b => b.addEventListener('click', () => {
+    const w = b.closest('[data-lock-project]');
+    submitDateEditRequest(w.dataset.lockProject, w.dataset.lockDate, w.dataset.lockType);
+  }));
+  el.querySelectorAll('[data-att-edit]').forEach(b => b.addEventListener('click', () => {
+    const w = b.closest('[data-lock-project]');
+    attStartEdit(w.dataset.lockProject, w.dataset.lockDate, w.dataset.lockType);
+  }));
+  el.querySelectorAll('[data-att-cancel]').forEach(b => b.addEventListener('click', attCancelEdit));
+  el.querySelectorAll('[data-att-hist]').forEach(b => b.addEventListener('click', () => attShowHistory(project, b.dataset.attHist)));
+  el.querySelectorAll('[data-month-close]').forEach(b => b.addEventListener('click', () => attToggleMonth(project, b.dataset.monthClose, true)));
+  el.querySelectorAll('[data-month-open]').forEach(b => b.addEventListener('click', () => attToggleMonth(project, b.dataset.monthOpen, false)));
 }
 
 const DATE_EDIT_REQUESTS_KEY = "date-edit-requests-v1";
@@ -10443,8 +10607,8 @@ function renderLaborAttChecklist(){
   const attDateVal = document.getElementById('attDate').value;
   // Historical Date Lock: Attendance and OT dates are gated independently,
   // since a foreman can have one open in the past while the other is today.
-  const attDateLocked = isDateLocked(project, attDateVal);
-  const otDateLocked = isDateLocked(project, otDate);
+  const attDateLocked = isDateLocked(project, attDateVal, 'attendance');
+  const otDateLocked = isDateLocked(project, otDate, 'overtime');
   const otSettings = projectOtSettings[project] || {};
   const otEnabled = otSettings.otEnabled !== false;
   const isFlexDay = isHolidayOrSunday(otDate);
@@ -10481,7 +10645,7 @@ function renderLaborAttChecklist(){
     const otDisabled = !workerOtOn || absentOnOtDate || otDateLocked || currentLeaveAuto.has(l.code);
     const otVal = otDisabled ? '' : (currentOTMap[l.code] || '');
     const otTitle = otDateLocked
-      ? `${formatDMY(otDate)} is locked for editing — request Admin/HR/PM approval above`
+      ? `${formatDMY(otDate)} is locked — press ✏ Edit above to change it above`
       : (currentLeaveAuto.has(l.code) ? `On ${hrStatusLabel(l.status)} — no overtime`
       : !workerOtOn
         ? 'Overtime is disabled for this project'
@@ -10501,7 +10665,7 @@ function renderLaborAttChecklist(){
         <span class="l2-hr">${escapeHtml(l.code)}</span>
         <span class="l2-nm" title="${escapeAttr(l.name || '')}">${escapeHtml(two(l.name))}${srcOf(l.code) ? ` <span class="l2-src" title="From signed sheet ${escapeAttr(srcOf(l.code))}${(dayRec.times || {})[l.code] ? ' · IN ' + escapeAttr(dayRec.times[l.code].in || '—') + ' · OUT ' + escapeAttr(dayRec.times[l.code].out || '—') : ''}">📄</span>` : ''}${ctOf(l.code) ? ` <span class="l2-ct" title="Contract: ${escapeAttr(ctOf(l.code))}">CT</span>` : ''}${isExempt && !otEnabled ? ' <span class="latt-vip-badge" title="Overtime Exception List (VIP Pass)">🛂</span>' : ''}</span>
         <span class="l2-td" title="${escapeAttr(l.trade || '')}">${escapeHtml(l.trade || '')}</span>
-        <button class="l2-tg l2-${state}" data-toggle-code="${escapeAttr(l.code)}" ${attDateLocked ? 'disabled' : ''} title="${attDateLocked ? `${formatDMY(attDateVal)} is locked for editing — request Admin/HR/PM approval above` : (state === 'lv' ? `On ${escapeAttr(hrStatusLabel(l.status))} in HR — tap when he is back on duty` : state === 'h' ? 'Public holiday — tap if he came to work' : state === 'u' ? 'Not marked yet — tap for Present' : (state === 'p' ? 'Present — tap to mark Absent' : 'Absent — tap to mark Present'))}">${label}</button>
+        <button class="l2-tg l2-${state}" data-toggle-code="${escapeAttr(l.code)}" ${attDateLocked ? 'disabled' : ''} title="${attDateLocked ? `${formatDMY(attDateVal)} is locked — press ✏ Edit above to change it above` : (state === 'lv' ? `On ${escapeAttr(hrStatusLabel(l.status))} in HR — tap when he is back on duty` : state === 'h' ? 'Public holiday — tap if he came to work' : state === 'u' ? 'Not marked yet — tap for Present' : (state === 'p' ? 'Present — tap to mark Absent' : 'Absent — tap to mark Present'))}">${label}</button>
         <input type="number" min="0" ${rowCap != null ? `max="${rowCap}"` : 'max="24"'} step="0.5" class="l2-ot" data-ot-code="${escapeAttr(l.code)}" placeholder="OT" value="${escapeAttr(otVal)}" title="${escapeAttr(otTitle)}" ${otDisabled ? 'disabled' : ''}>
         ${isAbsent && !isHol && !onLeave ? `<div class="latt-reasons l2-reasons">${LATT_REASONS.map(r => `<span class="latt-reason-chip ${reason===r?'selected':''}" data-reason-code="${escapeAttr(l.code)}" data-reason="${escapeAttr(r)}" title="${escapeAttr(LATT_REASON_LABELS[r])}">${r}</span>`).join('')}</div>` : ''}
       </div>
@@ -10510,7 +10674,7 @@ function renderLaborAttChecklist(){
 
   listEl.querySelectorAll('[data-toggle-code]').forEach(btn => {
     btn.addEventListener('click', () => {
-      if(attDateLocked){ showToast(`${formatDMY(attDateVal)} is locked — request Admin/HR/PM approval above`); return; }
+      if(attDateLocked){ showToast(`Attendance of ${formatDMY(attDateVal)} is locked — press ✏ Edit above`); return; }
       const code = btn.dataset.toggleCode;
       if(currentLeaveAuto.has(code)){
         // back from leave: he is present, and his HR record goes back to ACTIVE
@@ -10530,7 +10694,7 @@ function renderLaborAttChecklist(){
   listEl.querySelectorAll('[data-reason-code]').forEach(chip => {
     chip.addEventListener('click', (e) => {
       e.stopPropagation();
-      if(attDateLocked){ showToast(`${formatDMY(attDateVal)} is locked — request Admin/HR/PM approval above`); return; }
+      if(attDateLocked){ showToast(`Attendance of ${formatDMY(attDateVal)} is locked — press ✏ Edit above`); return; }
       currentAbsentMap[chip.dataset.reasonCode] = chip.dataset.reason;
       syncOtDateAbsentIfSameDay();
       renderLaborAttChecklist();
@@ -11308,6 +11472,12 @@ async function memcoApplySheetToDay(o){
   const id = `${date}__${project}`;
   const cur = dailyLaborRecords.find(r => r.id === id || (r.date === date && r.project === project));
   const saved = !!(cur && cur.attendanceTaken);
+  // 🔒 a closed month, or a day too old for this person, cannot be changed by a sheet either
+  if(typeof attMonthClosedInfo === 'function'){
+    try{ await loadAttMonthClose(); }catch(e){}
+    if(attMonthClosedInfo(project, date)) throw new Error(`${formatDMY(date)} is in a month closed for payroll — the sheet was not applied`);
+    if(!attMayEdit(project, date)) throw new Error(`${formatDMY(date)} is older than ${ATT_EDIT_WINDOW_DAYS} days — only Admin / HR / PM can change it`);
+  }
   // the day was already saved by hand: show what differs and ask
   if(saved){
     const diff = rows.filter(r => { const wasAbs = (cur.absentees || []).some(a => a.code === r.hr && a.reason !== 'H'); return wasAbs === !!r.present; });
@@ -11339,6 +11509,15 @@ async function memcoApplySheetToDay(o){
   Object.assign(patch, {times, otHours, otContract, sheetSrc});
   if(saved){ patch.absentees = absentees; patch.presentCount = (cur.total || 0) - absentees.length; }
   else patch.sheetMarks = sheetMarks;
+  // a saved (locked) day changed by a signed sheet goes into the day's history
+  if(cur && (saved || cur.otTs) && typeof attDiffAttendance === 'function'){
+    const log = (cur.editLog || []).slice();
+    const who = (typeof currentUserName !== 'undefined' && currentUserName) || 'Unknown';
+    const reason = `Signed sheet ${sheetNo || ''}`.trim();
+    if(saved){ const ch = attDiffAttendance(cur, absentees, project); if(ch.length) log.push({type: 'attendance', at: new Date().toISOString(), by: who, reason, changes: ch}); }
+    if(cur.otTs){ const ch = attDiffOt(cur.otHours, otHours); if(ch.length) log.push({type: 'overtime', at: new Date().toISOString(), by: who, reason, changes: ch}); }
+    if(log.length !== (cur.editLog || []).length) patch.editLog = log;
+  }
   upsertDailyLaborRecord(date, project, patch);
   try{ await window.storage.set(DAILY_LABOR_KEY, JSON.stringify(dailyLaborRecords), true); }catch(e){ throw new Error('The day could not be saved — try again'); }
   // the attendance screen, if it shows that day, shows it at once
@@ -11478,10 +11657,19 @@ async function doSaveAttendance(){
   // Historical Date Lock: block the Save action itself, not just the
   // individual row controls -- a locked page with no row edits could
   // otherwise still slip a save through.
-  if(isDateLocked(project, date)){ showToast(`Cannot save — ${formatDMY(date)} is locked. Request Admin/HR/PM approval above.`); return; }
-  // a locked OT date must not stop today's attendance: the attendance is saved, the OT is left as it was
-  const otLocked = !!(otDate && otDate !== date && isDateLocked(project, otDate));
-  {
+  // 🔒 each part saves only while it is open: a locked attendance keeps what was
+  // saved, a locked OT date keeps its hours
+  const attLocked = isDateLocked(project, date, 'attendance');
+  const otLocked = !otDate || isDateLocked(project, otDate, 'overtime');
+  if(attLocked && otLocked){ showToast(`Nothing to save — ${formatDMY(date)} is locked. Press ✏ Edit above to change it.`); return; }
+  const attEdit = attEditOpen[attLockKey(project, date, 'attendance')];
+  const otEdit = otDate ? attEditOpen[attLockKey(project, otDate, 'overtime')] : null;
+  const who = currentUserName || 'Unknown';
+  const pushLog = (d, entry) => {
+    const r = dailyLaborRecords.find(x => x.date === d && x.project === project) || {};
+    upsertDailyLaborRecord(d, project, {editLog: (r.editLog || []).concat([entry])});
+  };
+  if(!attLocked){
     // nobody is counted present by accident: warn about men nobody has marked
     const siteMen = laborRecords.filter(l => l.site === project);
     const loose = siteMen.filter(l => !currentMarkedSet.has(l.code) && !currentAbsentMap.hasOwnProperty(l.code));
@@ -11491,6 +11679,8 @@ async function doSaveAttendance(){
       loose.forEach(l => currentMarkedSet.add(l.code));
     }
   }
+  const siteLaborTotal = laborRecords.filter(l => l.site === project).length;
+  if(!attLocked){
   const cleanRows = currentSubRows.filter(r => r.company && r.company.trim());
   const record = {
     id: `${date}__${project}`,
@@ -11504,8 +11694,6 @@ async function doSaveAttendance(){
   if(idx > -1) attendanceRecords[idx] = record;
   else attendanceRecords.push(record);
 
-  const siteLaborTotal = laborRecords.filter(l => l.site === project).length;
-
   // Present/Absent is recorded against the Attendance date (Foreman
   // Traceability: enteredBy/ts identify who submitted it).
   const absentees = Object.keys(currentAbsentMap)
@@ -11514,14 +11702,22 @@ async function doSaveAttendance(){
       const w = laborRecords.find(l => l.code === code);
       return { code, name: w ? w.name : '', reason: currentAbsentMap[code] || '' };
     });
+  const prevDay = dailyLaborRecords.find(r => r.date === date && r.project === project) || {};
+  const nowTs = new Date().toISOString();
   upsertDailyLaborRecord(date, project, {
     total: siteLaborTotal,
     presentCount: siteLaborTotal - absentees.length,
     absentees,
     attendanceTaken: true,
-    enteredBy: currentUserName || 'Unknown',
-    ts: new Date().toISOString()
+    enteredBy: who,
+    ts: nowTs,
+    firstBy: prevDay.firstBy || (prevDay.attendanceTaken ? (prevDay.enteredBy || '') : who),
+    firstTs: prevDay.firstTs || (prevDay.attendanceTaken ? (prevDay.ts || '') : nowTs)
   });
+  if(prevDay.attendanceTaken){
+    pushLog(date, {type: 'attendance', at: nowTs, by: who, reason: attEdit ? attEdit.reason : '', changes: attDiffAttendance(prevDay, absentees, project)});
+  }
+  }
 
   // OT hours are recorded against the independently-selected OT date (kept
   // as its own otEnteredBy/otTs trail) so the Excel export always maps
@@ -11535,16 +11731,21 @@ async function doSaveAttendance(){
       }
     });
     const prevOt = dailyLaborRecords.find(r => r.date === otDate && r.project === project) || {};
+    const otChanges = prevOt.otTs ? attDiffOt(prevOt.otHours, otHours) : null;
     const otContract = Object.assign({}, prevOt.otContract || {}, attContractPending);
     Object.keys(otContract).forEach(c => { if(!otHours[c]) delete otContract[c]; });
     attContractPending = {};
     upsertDailyLaborRecord(otDate, project, {
       otHours,
       otContract,
-      otEnteredBy: currentUserName || 'Unknown',
+      otEnteredBy: who,
       otTs: new Date().toISOString()
     });
+    if(otChanges) pushLog(otDate, {type: 'overtime', at: new Date().toISOString(), by: who, reason: otEdit ? otEdit.reason : '', changes: otChanges});
   }
+  // saved = locked again
+  delete attEditOpen[attLockKey(project, date, 'attendance')];
+  if(otDate) delete attEditOpen[attLockKey(project, otDate, 'overtime')];
 
   try{
     await window.storage.set(ATTENDANCE_KEY, JSON.stringify(attendanceRecords), true);
@@ -11553,12 +11754,14 @@ async function doSaveAttendance(){
     }
     try{ const me = dailyLaborRecords.find(r => r.date === date && r.project === project); window.__attDayTs = me && me.ts; }catch(e){}
     try{ attSnapTake(); }catch(e){}
-    showToast('Attendance saved for ' + formatDMY(date) + (otLocked ? ` · OT of ${formatDMY(otDate)} is locked — not changed` : (otDate && otDate !== date ? ` · OT saved for ${formatDMY(otDate)}` : '')));
+    showToast((attLocked ? 'Attendance unchanged (locked)' : 'Attendance saved for ' + formatDMY(date)) + (otLocked ? ` · OT of ${formatDMY(otDate)} is locked — not changed` : (otDate && otDate !== date ? ` · OT saved for ${formatDMY(otDate)}` : '')));
   }catch(e){
     showToast('Could not save — try again');
   }
   renderAttHistory();
   renderOtControls();
+  renderDateLockBanner();
+  renderLaborAttChecklist();
 }
 
 function renderAttHistory(){
