@@ -995,6 +995,19 @@ body{
   padding:9px 12px; margin-bottom:8px; font-size:12px; color: var(--ink);
 }
 .date-lock-banner b{ color: var(--red); }
+/* 🔒 attendance / OT / month -- one slim line */
+.alb{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.alb-seg{display:flex;align-items:center;gap:6px;flex:1 1 240px;min-width:0;padding:5px 6px 5px 10px;border-radius:10px;font-size:12px;
+  border:1px solid rgba(148,163,184,.3);background:rgba(15,23,42,.35)}
+.alb-txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alb-saved{border-color:rgba(248,113,113,.45)}.alb-saved b{color:#fca5a5}
+.alb-open{border-color:rgba(251,191,36,.7);background:rgba(245,158,11,.10)}.alb-open b{color:#fcd34d}
+.alb-closed{border-color:rgba(248,113,113,.6);background:rgba(220,38,38,.10)}.alb-closed b{color:#fca5a5}
+.alb-new b{color:#93c5fd}
+.alb-month{flex:0 1 auto}.alb-month b{color:#fdba74}
+.alb-btn{flex-shrink:0;font-size:11px;padding:3px 8px;border-radius:7px;cursor:pointer;background:rgba(255,255,255,.06);color:inherit;border:1px solid rgba(148,163,184,.35)}
+.alb-btn:hover{background:rgba(255,255,255,.14)}
+.alb-note{flex-shrink:0;font-size:11px;font-style:italic;opacity:.75}
 .approval-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
 .approval-row:last-child{ border-bottom:none; }
 .approval-main{ flex:1; min-width:200px; }
@@ -10012,45 +10025,48 @@ function renderDateLockBanner(){
   const attDateVal = document.getElementById('attDate').value;
   const otDateVal = document.getElementById('attOtDate').value;
   if(!project || !attDateVal){ el.innerHTML = ''; el.style.display = 'none'; return; }
-  const when = t => t ? new Date(t).toLocaleString('en-GB', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '';
-  const btn = (attrs, txt) => `<button type="button" class="btn btn-ghost" style="flex-shrink:0;font-size:11px;padding:5px 10px" ${attrs}>${txt}</button>`;
+  // one slim line: [Attendance] [Overtime] [Month] -- full wording on hover
+  const dm = d => { const p = String(d || '').split('-'); return p.length === 3 ? `${p[2]}/${p[1]}` : d; };
+  const hm = t => t ? new Date(t).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) : '';
+  const btn = (attrs, txt, title) => `<button type="button" class="alb-btn" ${attrs} ${title ? `title="${escapeAttr(title)}"` : ''}>${txt}</button>`;
+  const seg = (cls, tag, title, text, buttons) => `<div class="alb-seg ${cls}" ${tag} title="${escapeAttr(title)}"><span class="alb-txt">${text}</span>${buttons}</div>`;
   const items = [{type: 'attendance', date: attDateVal, label: 'Attendance'}];
-  if(otDateVal) items.push({type: 'overtime', date: otDateVal, label: 'Overtime'});
-  const rows = items.map(it => {
+  if(otDateVal) items.push({type: 'overtime', date: otDateVal, label: 'OT'});
+  const segs = items.map(it => {
     const closed = attMonthClosedInfo(project, it.date);
     const saved = attSavedInfo(project, it.date, it.type);
     const open = attEditOpen[attLockKey(project, it.date, it.type)];
     const r = dailyLaborRecords.find(x => x.date === it.date && x.project === project) || {};
     const nLog = (r.editLog || []).length;
-    const hist = (saved || nLog) ? btn(`data-att-hist="${escapeAttr(it.date)}"`, `📜 History${nLog ? ' (' + nLog + ')' : ''}`) : '';
+    const hist = (saved || nLog) ? btn(`data-att-hist="${escapeAttr(it.date)}"`, `📜${nLog ? ' ' + nLog : ''}`, 'History of changes') : '';
     const tag = `data-lock-project="${escapeAttr(project)}" data-lock-date="${escapeAttr(it.date)}" data-lock-type="${it.type}"`;
+    const name = `<b>${it.label} ${dm(it.date)}</b>`;
     if(closed){
-      return `<div class="date-lock-banner" ${tag}><span>🔒 <b>${it.label}</b> ${formatDMY(it.date)} — this month is <b>closed for payroll</b> by ${escapeHtml(closed.by)}.</span>
-        ${hist}${attIsSuper() ? btn(`data-month-open="${escapeAttr(it.date)}"`, '🔓 Reopen month') : ''}</div>`;
+      return seg('alb-closed', tag, `${it.label} ${formatDMY(it.date)}: this month is closed for payroll by ${closed.by}`,
+        `🔒 ${name} · month closed`, hist + (attIsSuper() ? btn(`data-month-open="${escapeAttr(it.date)}"`, '🔓 Reopen', 'Open this month again') : ''));
     }
     if(!attMayEdit(project, it.date)){
       const pending = myPendingRequestFor(project, it.date, it.type);
-      return `<div class="date-lock-banner" ${tag}><span>🔒 <b>${it.label}</b> ${formatDMY(it.date)} is older than ${ATT_EDIT_WINDOW_DAYS} days — only Admin / HR / PM can change it.</span>
-        ${hist}${pending ? '<span style="color:var(--ink-faint);font-style:italic;flex-shrink:0">Request pending approval</span>' : btn('data-request-edit', 'Request edit')}</div>`;
+      return seg('alb-closed', tag, `${it.label} ${formatDMY(it.date)} is older than ${ATT_EDIT_WINDOW_DAYS} days — only Admin / HR / PM can change it`,
+        `🔒 ${name} · over ${ATT_EDIT_WINDOW_DAYS} days`, hist + (pending ? '<span class="alb-note">request pending</span>' : btn('data-request-edit', 'Request edit')));
     }
     if(open){
-      return `<div class="date-lock-banner" ${tag} style="border-color:rgba(251,191,36,.6)"><span>✏ <b>${it.label}</b> ${formatDMY(it.date)} is <b>open for editing</b> — reason: “${escapeHtml(open.reason)}”. Press 💾 Save to lock it again.</span>
-        ${hist}${btn('data-att-cancel', '✕ Cancel edit')}</div>`;
+      return seg('alb-open', tag, `${it.label} ${formatDMY(it.date)} is open for editing — reason: ${open.reason}. Press Save to lock it again.`,
+        `✏ ${name} · open: “${escapeHtml(open.reason.length > 22 ? open.reason.slice(0, 22) + '…' : open.reason)}”`, hist + btn('data-att-cancel', '✕', 'Cancel edit — back to what was saved'));
     }
     if(saved){
-      return `<div class="date-lock-banner" ${tag}><span>🔒 <b>${it.label}</b> ${formatDMY(it.date)} saved by <b>${escapeHtml(saved.by || '—')}</b> ${when(saved.at)} — locked.</span>
-        ${hist}${btn('data-att-edit', '✏ Edit')}</div>`;
+      return seg('alb-saved', tag, `${it.label} ${formatDMY(it.date)} saved by ${saved.by || '—'} at ${hm(saved.at)} — locked`,
+        `🔒 ${name} · ${escapeHtml(saved.by || '—')} ${hm(saved.at)}`, hist + btn('data-att-edit', '✏ Edit', 'Open it to change — a reason is asked'));
     }
-    return '';
-  }).filter(Boolean);
-  const mon = new Date(attDateVal + 'T00:00:00').toLocaleDateString('en-GB', {month: 'long', year: 'numeric'});
+    return seg('alb-new', tag, `${it.label} ${formatDMY(it.date)} not saved yet`, `${name} · not saved`, '');
+  });
+  const monTxt = new Date(attDateVal + 'T00:00:00').toLocaleDateString('en-GB', {month: 'short', year: 'numeric'});
   if(attCanCloseMonth() && !attMonthClosedInfo(project, attDateVal)){
-    rows.push(`<div class="date-lock-banner" style="opacity:.85"><span>📅 <b>${mon}</b> of ${escapeHtml(project)} is open. When payroll is done, close it so nobody can change it.</span>
-      ${btn(`data-month-close="${escapeAttr(attDateVal)}"`, '🔒 Close month')}</div>`);
+    segs.push(seg('alb-month', '', `${monTxt} of ${project} is open. When payroll is done, close it so nobody can change it.`,
+      `📅 <b>${monTxt}</b> open`, btn(`data-month-close="${escapeAttr(attDateVal)}"`, '🔒 Close month', 'Close this month for payroll')));
   }
-  if(!rows.length){ el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = '';
-  el.innerHTML = rows.join('');
+  el.innerHTML = `<div class="alb">${segs.join('')}</div>`;
   el.querySelectorAll('[data-request-edit]').forEach(b => b.addEventListener('click', () => {
     const w = b.closest('[data-lock-project]');
     submitDateEditRequest(w.dataset.lockProject, w.dataset.lockDate, w.dataset.lockType);
