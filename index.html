@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v125 — Al Muhanad</title>
+<title>MEMCO Operations Console v128 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4902,6 +4902,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <button class="btn btn-ghost" id="campShiftBtn">🔁 Shift Labor</button>
         <button class="btn btn-ghost" id="campLaborSearchBtn">🔍 Search Labor</button>
         <button class="btn btn-ghost" id="campTemplateBtn">📄 Excel format</button>
+        <button class="btn btn-ghost" id="campExportBtn" title="The whole camp list as it is in the app — in the same format that can be loaded back">📤 Export camp list</button>
         <label class="btn btn-primary" style="cursor:pointer;text-align:center;">📥 Load from Excel
           <input type="file" id="campImportFile" accept=".xlsx,.xlsm,.csv" style="display:none;"></label>
       </div>
@@ -14645,7 +14646,9 @@ async function handleCampImportFile(file){
   (typeof laborRecords !== 'undefined' && Array.isArray(laborRecords) ? laborRecords : []).forEach(l => { if(l && l.code) laborByCode[String(l.code).trim()] = l; });
   rows.forEach(r => {
     const campName = String(r[col.camp] || '').trim();
-    const roomNo = String(r[col.room] || '').trim();
+    // room numbers made tidy: "Room No-144" → 144 · "Room No (A) -146" → 146-A · "F- 13" → F-13
+    let roomNo = String(r[col.room] == null ? '' : r[col.room]).trim().replace(/^room\s*(no\.?|number|#)?\s*/i, '').replace(/\s*-\s*/g, '-').replace(/^-+/, '').trim();
+    { const m = roomNo.match(/^\(([A-Za-z])\)-?(.+)$/); if(m) roomNo = m[2].trim() + '-' + m[1].toUpperCase(); }
     if(!campName || !roomNo){ bad++; return; }
     if(!camps.has(campName)) camps.set(campName, new Map());
     const roomMap = camps.get(campName);
@@ -14659,12 +14662,15 @@ async function handleCampImportFile(file){
     const room = roomMap.get(roomNo);
     const cap = col.capacity >= 0 ? parseInt(String(r[col.capacity] || '').replace(/[^0-9]/g, ''), 10) : 0;
     if(cap > 0) room.capacity = Math.max(room.capacity, cap);
-    const hr = col.hr >= 0 ? String(r[col.hr] || '').trim() : '';
+    let hr = col.hr >= 0 ? String(r[col.hr] == null ? '' : r[col.hr]).trim().replace(/\.0$/, '') : '';
+    if(hr && !/^\d+$/.test(hr)) hr = '';            // e.g. "SUPPLIER" — kept by name, without an HR number
     const nm = col.name >= 0 ? String(r[col.name] || '').trim() : '';
     if(!hr && !nm) return;
     const known = hr ? laborByCode[hr] : null;
     if(hr && !known) unknownHr.add(hr);
+    const bedNo = col.bed >= 0 ? String(r[col.bed] == null ? '' : r[col.bed]).trim() : '';
     room.occupants.push({
+      bed: bedNo,
       name: nm || (known ? known.name : ('HR ' + hr)),
       code: hr,
       trade: (col.trade >= 0 ? String(r[col.trade] || '').trim() : '') || (known ? (known.trade || known.designation || '') : ''),
@@ -14692,6 +14698,17 @@ async function handleCampImportFile(file){
   });
   const existingNames = new Set(campRecords.map(c => String(c.name || '').trim().toUpperCase()));
   const willReplace = list.filter(c => existingNames.has(c.name.toUpperCase()));
+  // bed checks, room by room: more men than beds · one bed given twice · a bed number above the room's beds
+  const bedIssues = [], nightRooms = [];
+  list.forEach(c => c.rooms.forEach(rm => {
+    const occ = rm.occupants || [];
+    const night = occ.length > rm.capacity;
+    if(night) nightRooms.push(`${c.name} / ${rm.number}: ${occ.length} men for ${rm.capacity} beds`);
+    const byBed = {};
+    occ.forEach(o => { if(o.bed) (byBed[o.bed] = byBed[o.bed] || []).push(o.code || o.name); });
+    Object.keys(byBed).forEach(b => { if(byBed[b].length > 1 && !night) bedIssues.push(`${c.name} / ${rm.number}: bed ${b} given to ${byBed[b].join(' and ')}`); });
+    occ.forEach(o => { if(o.bed && /^\d+$/.test(o.bed) && (Number(o.bed) < 1 || Number(o.bed) > rm.capacity)) bedIssues.push(`${c.name} / ${rm.number}: bed ${o.bed} is not a bed of this room (1–${rm.capacity}) — ${o.code || o.name}`); });
+  }));
   window.__campImport = list;
   campImportBox(`
     <b>📄 ${escapeHtml(file.name)}</b> — sheet “${escapeHtml(info.sheet)}”, header row ${info.headerRow}<br>
@@ -14699,6 +14716,10 @@ async function handleCampImportFile(file){
     ${bad ? ` · ${bad} row(s) without camp/room skipped` : ''}
     ${unknownHr.size ? `<br>⚠ ${unknownHr.size} HR number(s) are not in the labor list (they will still be placed): ${escapeHtml([...unknownHr].slice(0, 15).join(', '))}${unknownHr.size > 15 ? ' …' : ''}` : ''}
     ${willReplace.length ? `<br>⚠ These camps already exist and will be <b>replaced completely</b>: ${escapeHtml(willReplace.map(c => c.name).join(', '))}` : ''}
+    ${nightRooms.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;color:#93c5fd">🌙 ${nightRooms.length} room(s) with more men than beds — night-shift sharing, loaded as they are</summary>
+      <div style="max-height:140px;overflow:auto;font-size:12px;margin-top:4px">${nightRooms.map(x => escapeHtml(x)).join('<br>')}</div></details>` : ''}
+    ${bedIssues.length ? `<details style="margin-top:6px"><summary style="cursor:pointer;color:#fcd34d">🛏 ${bedIssues.length} bed problem(s) in the file — tap to see (fix them in Excel, or load and give the beds in the room screen)</summary>
+      <div style="max-height:160px;overflow:auto;font-size:12px;margin-top:4px">${bedIssues.map(x => escapeHtml(x)).join('<br>')}</div></details>` : ''}
     <div style="margin-top:8px;overflow:auto;max-height:200px">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px">
         <tr style="text-align:left"><th style="padding:3px 6px">Camp</th><th style="padding:3px 6px">City</th><th style="padding:3px 6px">Rooms</th><th style="padding:3px 6px">Beds</th><th style="padding:3px 6px">Men</th><th style="padding:3px 6px">Status</th></tr>
@@ -14708,6 +14729,10 @@ async function handleCampImportFile(file){
           <td style="padding:3px 6px">${existingNames.has(c.name.toUpperCase()) ? 'replaces the old camp' : 'new camp'}</td></tr>`).join('')}
       </table>
     </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="campImportFull" style="width:auto;margin-top:3px">
+      <span><b>This file is the complete camp list</b> — camps that are not in it are removed
+        ${(() => { const inFile = new Set(list.map(c => c.name.toUpperCase())); const gone = campRecords.filter(c => !inFile.has(String(c.name || '').trim().toUpperCase())); return gone.length ? `(<span style="color:#fca5a5">${gone.length}: ${escapeHtml(gone.map(c => c.name).join(', '))}</span>)` : '(none would be removed)'; })()}</span></label>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <button class="btn btn-primary" id="campImportGo" style="flex:1">✔ Load these camps</button>
       <button class="btn btn-ghost" id="campImportCancel" style="flex:1">Cancel</button>
@@ -14717,7 +14742,10 @@ async function handleCampImportFile(file){
     const btn = ev.currentTarget;
     btn.disabled = true;
     const incoming = window.__campImport || [];
-    if(!confirm(`Load ${incoming.length} camp(s)?\n\nCamps with the same name will be replaced completely.\nA backup of the present camps is downloaded first.`)){
+    const full = !!(document.getElementById('campImportFull') || {}).checked;
+    const inFile = new Set(incoming.map(c => c.name.toUpperCase()));
+    const gone = full ? campRecords.filter(c => !inFile.has(String(c.name || '').trim().toUpperCase())) : [];
+    if(!confirm(`Load ${incoming.length} camp(s)?\n\nCamps with the same name will be replaced completely.${full ? `\nCamps NOT in the file will be REMOVED (${gone.length}): ${gone.map(c => c.name).join(', ') || 'none'}` : ''}\nA backup of the present camps is downloaded first.`)){
       btn.disabled = false; return;
     }
     try{
@@ -14728,6 +14756,7 @@ async function handleCampImportFile(file){
       document.body.appendChild(a); a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 400);
     }catch(e){}
+    if(full && gone.length){ const goneIds = new Set(gone.map(c => c.id)); for(let i = campRecords.length - 1; i >= 0; i--) if(goneIds.has(campRecords[i].id)) campRecords.splice(i, 1); }
     if(incoming.some(c => c.is_main)) campRecords.forEach(x => { x.is_main = false; });
     incoming.forEach(c => {
       const idx = campRecords.findIndex(x => String(x.name || '').trim().toUpperCase() === c.name.toUpperCase());
@@ -15240,6 +15269,63 @@ document.getElementById('campShiftBtn').onclick = openShiftLaborModal;
 document.getElementById('campShiftBtn2').onclick = openShiftLaborModal;
 
 document.getElementById('campTemplateBtn').onclick = downloadCampTemplate;
+// 📤 the whole camp list as the app has it — same columns as the upload format, so it can be corrected and loaded back
+document.getElementById('campExportBtn').onclick = async () => {
+  let ExcelJS;
+  try{ ExcelJS = await window.ensureExcelJs(); }catch(e){ showToast('Excel could not load — check the internet'); return; }
+  const labByCode = {};
+  (typeof laborRecords !== 'undefined' && laborRecords.length ? laborRecords : LABOR_DATA).forEach(l => { if(l && l.code) labByCode[String(l.code).trim()] = l; });
+  const stfByCode = {};
+  (typeof staffRecords !== 'undefined' && staffRecords.length ? staffRecords : (typeof STAFF_DATA !== 'undefined' ? STAFF_DATA : [])).forEach(x => { if(x && x.code) stfByCode[String(x.code).trim()] = x; });
+  const wb = new ExcelJS.Workbook();
+  const head = ['Camp', 'Room', 'Capacity', 'Bed No', 'HR No', 'Name', 'Trade', 'Mobile', 'City', 'Main Camp', 'Boss HR', 'Boss Name', 'In labor list', 'Site (labor list)', 'Status (labor list)'];
+  const ws = wb.addWorksheet('Camp list');
+  ws.addRow(head);
+  const seen = {};
+  const camps = campRecords.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  camps.forEach(c => {
+    const rooms = (c.rooms || []).slice().sort((a, b) => { const ka = roomFloorSortKey(a.number), kb = roomFloorSortKey(b.number); return ka[0] - kb[0] || ka[1] - kb[1] || String(ka[2]).localeCompare(String(kb[2])); });
+    rooms.forEach(r => {
+      const occ = r.occupants || [];
+      const base = [c.name, r.number, r.capacity || occ.length];
+      const tail = [c.city || '', c.is_main ? 'Yes' : 'No', c.boss_hr || '', c.boss_name || ''];
+      if(!occ.length){ ws.addRow(base.concat(['', '', '', '', ''], tail, ['', '', ''])); return; }
+      occ.slice().sort((a, b) => (Number(occupantBed(a)) || 999) - (Number(occupantBed(b)) || 999)).forEach(o => {
+        const code = String(o.code || '').trim();
+        const l = code ? (labByCode[code] || null) : null, st = code && !l ? stfByCode[code] : null;
+        if(code) (seen[code] = seen[code] || []).push(c.name + ' / ' + r.number);
+        ws.addRow(base.concat([occupantBed(o), code, o.name || (l && l.name) || '', o.trade || (l && (l.trade || l.designation)) || '', o.mobile || (l && l.mobile) || ''], tail,
+          [code ? (l ? 'Yes' : (st ? 'Staff' : 'NO')) : '', l ? (l.site || '') : '', l ? (l.status || '') : '']));
+      });
+    });
+  });
+  // the checks that matter before loading a new list
+  const sum = wb.addWorksheet('Summary');
+  sum.addRow(['Camp', 'City', 'Main', 'Rooms', 'Beds', 'Men', 'Over capacity rooms']);
+  camps.forEach(c => { const t = campTotals(c); const over = (c.rooms || []).filter(r => (r.occupants || []).length > (r.capacity || 0)).map(r => r.number);
+    sum.addRow([c.name, c.city || '', c.is_main ? 'Yes' : '', t.rooms, t.cap, t.occ, over.join(', ')]); });
+  const dup = wb.addWorksheet('In two places');
+  dup.addRow(['HR No', 'Name', 'Where']);
+  Object.keys(seen).filter(k => seen[k].length > 1).forEach(k => { const l = labByCode[k]; dup.addRow([k, l ? l.name : '', seen[k].join('  |  ')]); });
+  const nohome = wb.addWorksheet('Labor not in any camp');
+  nohome.addRow(['HR No', 'Name', 'Trade', 'Site', 'Status']);
+  Object.values(labByCode).filter(l => !seen[String(l.code)]).sort((a, b) => String(a.site || '').localeCompare(String(b.site || '')) || Number(a.code) - Number(b.code))
+    .forEach(l => nohome.addRow([l.code, l.name || '', l.trade || l.designation || '', l.site || '', l.status || '']));
+  [ws, sum, dup, nohome].forEach(w => {
+    w.getRow(1).font = {bold: true, color: {argb: 'FFFFFFFF'}};
+    w.getRow(1).fill = {type: 'pattern', pattern: 'solid', fgColor: {argb: 'FF1F3A5F'}};
+    w.views = [{state: 'frozen', ySplit: 1}];
+    w.columns.forEach(col => { let m = 8; col.eachCell({includeEmpty: false}, cell => { m = Math.max(m, String(cell.value == null ? '' : cell.value).length + 2); }); col.width = Math.min(m, 45); });
+    if(w.rowCount > 1) w.autoFilter = {from: {row: 1, column: 1}, to: {row: 1, column: w.columnCount}};
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  a.download = `MEMCO_Camp_List_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 600);
+  showToast(`Camp list exported — ${camps.length} camps`);
+};
 document.getElementById('campImportFile').addEventListener('change', async (e) => {
   const f = e.target.files[0]; e.target.value = '';
   if(f) await handleCampImportFile(f);
@@ -15430,6 +15516,33 @@ function renderRoomModal(){
     `${occCount}/${room.capacity} beds occupied · ${roomGroupLabel(room)}`
     + (awayHere ? ` · ${awayHere} on leave (beds free)` : '');
   const listEl = document.getElementById('roomOccupantsList');
+  // bed by bed: bed 1 … bed N, who sleeps where; men without a bed (or on a bed given twice) are shown to be placed
+  const occs = room.occupants || [];
+  const cap = Math.max(Number(room.capacity) || 0, 0);
+  const onBed = {};
+  occs.forEach((o, i) => { const b = occupantBed(o); if(b) (onBed[b] = onBed[b] || []).push(i); });
+  const freeBeds = Array.from({length: cap}, (_, k) => String(k + 1)).filter(b => !onBed[b]);
+  const nightRoomEarly = occs.length > cap;
+  const noBed = occs.map((o, i) => i).filter(i => { const b = occupantBed(occs[i]); return !b || (!nightRoomEarly && onBed[b] && onBed[b].length > 1 && onBed[b][0] !== i) || (/^\d+$/.test(b) && (Number(b) < 1 || Number(b) > cap)); });
+  const bedGrid = cap ? `<div class="bed-grid">${Array.from({length: cap}, (_, k) => {
+      const b = String(k + 1), who = (onBed[b] || []).map(i => occs[i]);
+      return `<div class="bed ${who.length ? (who.length > 1 ? (nightRoomEarly ? 'shared' : 'twice') : 'taken') : 'free'}"><b>🛏 ${b}${who.length > 1 && nightRoomEarly ? ' 🌙' : ''}</b>${who.length ? who.map(o => `<span>${escapeHtml(String(o.name || '').split(/\s+/).slice(0, 2).join(' '))}${o.code ? ' · ' + escapeHtml(o.code) : ''}</span>`).join('') : '<span class="e">empty</span>'}</div>`;
+    }).join('')}</div>` : '';
+  const nightRoom = occs.length > cap;
+  const nightNote = nightRoom ? `<div class="bed-night">🌙 <b>${occs.length}</b> men for <b>${cap}</b> beds — night-shift sharing (a bed is used by day and by night)</div>` : '';
+  const allBeds = Array.from({length: cap}, (_, k) => String(k + 1));
+  const placeBox = noBed.length ? `<div class="bed-place">⚠ <b>${noBed.length}</b> man(men) without a bed number — give one${nightRoom ? ' (a taken bed can be shared)' : ''}
+      ${noBed.map(i => `<div class="bp-row"><span>${escapeHtml(occs[i].name)}${occs[i].code ? ' · ' + escapeHtml(occs[i].code) : ''}${occupantBed(occs[i]) ? ` <i>(bed ${escapeHtml(occupantBed(occs[i]))})</i>` : ''}</span>
+        ${(freeBeds.length || nightRoom) ? `<select data-give-bed="${i}"><option value="">give bed…</option>${freeBeds.map(b => `<option value="${b}">🛏 ${b} — free</option>`).join('')}${nightRoom ? allBeds.filter(b => !freeBeds.includes(b)).map(b => `<option value="${b}">🛏 ${b} — share (night)</option>`).join('') : ''}</select>` : '<span class="e">no free bed</span>'}</div>`).join('')}</div>` : '';
+  const topEl = document.getElementById('roomBedView') || (() => { const d = document.createElement('div'); d.id = 'roomBedView'; listEl.parentNode.insertBefore(d, listEl); return d; })();
+  topEl.innerHTML = nightNote + bedGrid + placeBox;
+  topEl.querySelectorAll('[data-give-bed]').forEach(sel => sel.addEventListener('change', () => ensureName(async () => {
+    const occ = room.occupants[Number(sel.dataset.giveBed)]; if(!occ || !sel.value) return;
+    occ.bed = sel.value;
+    await saveCampRecords();
+    showToast(`Bed ${sel.value} → ${occ.name}`);
+    renderRoomModal(); renderRoomsList();
+  })));
   listEl.innerHTML = (room.occupants||[]).length
     ? room.occupants.map((o,i) => {
         const mobile = o.mobile || getWorkerMobile(o.code);
@@ -15449,8 +15562,11 @@ function renderRoomModal(){
     btn.addEventListener('click', () => ensureName(async () => {
       const occ = room.occupants[Number(btn.dataset.bedOcc)];
       if(!occ) return;
-      const val = prompt(`Bed number for ${occ.name} — Room ${room.number}\n(leave blank to clear)`, occupantBed(occ));
+      const taken = new Set((room.occupants || []).filter(x => x !== occ).map(x => occupantBed(x)).filter(Boolean));
+      const free = Array.from({length: Number(room.capacity) || 0}, (_, k) => String(k + 1)).filter(b => !taken.has(b));
+      const val = prompt(`Bed number for ${occ.name} — Room ${room.number}\nFree beds: ${free.length ? free.join(', ') : 'none (room full)'}\n(leave blank to clear)`, occupantBed(occ) || free[0] || '');
       if(val === null) return;
+      if(String(val).trim() && taken.has(String(val).trim()) && !confirm(`Bed ${String(val).trim()} is already given to someone else in this room. Give it anyway?`)) return;
       occ.bed = String(val).trim();
       await saveCampRecords();
       showToast(occ.bed ? `Bed ${occ.bed} allocated` : 'Bed cleared');
@@ -22697,13 +22813,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     qty:   ['qty','quantity','stock','balance','closing qty','closing stock','counted qty','order qty','po qty'],
     camp:  ['camp','camp name','accommodation','labour camp','labor camp'],
     room:  ['room','room no','room number','room #','bed room'],
-    capacity:['capacity','beds','bed','no of persons','persons','pax','seats'],
-    hr:    ['hr no','hr','hr code','code','employee id','emp id','emp code','staff id'],
-    city:  ['city','area','emirate','location city','camp city'],
+    capacity:['capacity','room capacity','bed capacity','no of beds','total beds','beds','no of persons','persons','pax','seats'],
+    bed:   ['bed no','bed no.','bed number','bed #','bed'],
+    hr:    ['hr no','hr','hr code','hr number','code','employee id','emp id','emp code','emp','emp no','emp no.','employee no','staff id','staff no'],
+    name:  ['name','employee name','emp name','worker name','full name','labour name','labor name'],
+    city:  ['city','area','emirate','location city','camp city','camp location','camp area'],
     mainCamp: ['main camp','is main','main'],
     bossHr:['boss hr','camp boss hr','boss hr no','incharge hr'],
     bossName:['boss name','camp boss','camp boss name','incharge'],
-    mobile:['mobile','phone','contact','mobile no','contact no'],
+    mobile:['mobile','mobile number','mobile no.','phone','phone number','contact','mobile no','contact no','contact number'],
     lpo:   ['lpo no','lpo','po no','po number','purchase order','order no','lpo ref','po ref'],
     date:  ['date','lpo date','po date','order date'],
     supplier:['supplier','vendor','supplier name','vendor name','party'],
@@ -22712,7 +22830,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     project:['project','project code','job no','cost center','cost centre'],
     pr:    ['pr no','pr','purchase request','requisition no'],
     group: ['group','bgroup','is group'],
-    trade: ['trade','discipline','department','material trade','material discipline']
+    trade: ['trade','designation','position','job title','discipline','department','material trade','material discipline']
   };
   function mapHeader(row){
     const cells = row.map(v => String(v || '').trim().toLowerCase());
@@ -31363,7 +31481,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v125';
+  const V = 'v128';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -31645,6 +31763,18 @@ document.addEventListener('change', function(ev){
 #attendanceView .l2-tg.l2-lv{background:rgba(249,115,22,.16);border-color:rgba(251,146,60,.75);color:#fdba74;font-size:11.5px}
 #attendanceView .att-quickbar .att-allabs{border-color:rgba(248,113,113,.55)!important;color:#fca5a5!important}
 #attendanceView .att-quickbar .att-scan{border-color:rgba(56,189,248,.6)!important;color:#7dd3fc!important}
+.bed-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin:4px 0 10px}
+.bed-grid .bed{border-radius:9px;padding:6px 8px;font-size:12px;border:1px solid;min-height:44px;display:flex;flex-direction:column;gap:2px}
+.bed-grid .bed b{font-size:12.5px}
+.bed-grid .bed.taken{border-color:rgba(74,222,128,.45);background:rgba(34,197,94,.08)}
+.bed-grid .bed.free{border-color:rgba(148,163,184,.3);background:rgba(148,163,184,.05)}
+.bed-grid .bed.shared{border-color:rgba(147,197,253,.6);background:rgba(59,130,246,.12)}
+.bed-night{border:1px solid rgba(147,197,253,.5);background:rgba(59,130,246,.1);border-radius:10px;padding:7px 10px;margin:4px 0 8px;font-size:13px;color:#bfdbfe}
+.bed-grid .bed.twice{border-color:rgba(248,113,113,.7);background:rgba(239,68,68,.12)}
+.bed-grid .bed .e, .bed-place .e{opacity:.55;font-style:italic}
+.bed-place{border:1px solid rgba(251,191,36,.55);background:rgba(251,191,36,.08);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:13px}
+.bed-place .bp-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-top:1px solid rgba(148,163,184,.15);margin-top:5px}
+.bed-place select{width:auto;max-width:46%;padding:4px 6px}
 #attUnsavedBar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 18px);z-index:9700;display:none;
   background:linear-gradient(135deg,#16a34a,#059669);color:#fff;border:2px solid #86efac;border-radius:999px;padding:11px 20px;
   font:800 14px system-ui,sans-serif;box-shadow:0 8px 26px rgba(0,0,0,.5);cursor:pointer;max-width:92vw;white-space:nowrap}
