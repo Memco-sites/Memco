@@ -5419,7 +5419,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <button type="button" class="btn btn-primary" id="attAllPresent">✅ All present</button>
         <button type="button" class="btn btn-ghost att-allabs" id="attAllAbsent">⛔ All absent</button>
         <button type="button" class="btn btn-ghost att-holi" id="attHoliday">🎉 Holiday</button>
-        <button type="button" class="btn btn-ghost att-rules" id="attRulesBtn" title="How each code (leave, medical, absent…) is counted — changed by HR / Super Admin">⚙ Rules</button>
+        <button type="button" class="btn btn-ghost att-rules" id="attRulesBtn" title="How each code (leave, medical, absent…) is counted — changed by HR / Admin / Super Admin">⚙ Rules</button>
         <button type="button" class="btn btn-ghost att-scan" id="attScanBtn">📷 Scan signed sheet</button>
         <button type="button" class="btn btn-ghost att-otall" id="attOtAllBtn" title="The same overtime for everybody present on this list">⏱ OT for all</button>
         <button type="button" class="btn btn-ghost att-ctbtn" id="attCtBtn" title="Overtime given for a contract job, not from IN/OUT">📝 Contract OT</button>
@@ -6503,7 +6503,7 @@ const USERS_KEY = "users-v1";
 const SESSION_KEY = "session-v1";
 const CUSTOM_ROLES_KEY = "custom-roles-v1";
 const ROLE_PERMS_KEY = "role-perms-matrix-v2";
-const BASE_ROLE_LIST = ["Super Admin","Site Engineer","Camp Manager","Camp Incharge","Camp Boss","Transport Manager","Transport Incharge","Project Manager","Project Engineer","Site Supervisor","Foreman","Document Controller","HR","Timekeeper","Store Manager","Store Incharge","Storekeeper","Worker","Driver"];
+const BASE_ROLE_LIST = ["Super Admin","Admin","Site Engineer","Camp Manager","Camp Incharge","Camp Boss","Transport Manager","Transport Incharge","Workshop Manager","Workshop Incharge","Workshop Supervisor","Project Manager","Project Engineer","Site Supervisor","Foreman","Document Controller","HR","Timekeeper","Store Manager","Store Incharge","Storekeeper","Worker","Driver"];
 let CUSTOM_ROLES = [];
 let ROLE_LIST = BASE_ROLE_LIST.slice();
 // Roles whose data is restricted to a single assigned site. Camp Boss is
@@ -6521,6 +6521,10 @@ const ALL_HOME_CARDS = ["homeDirectoryCard","homeAttendanceCard","homeLaborCard"
 // for an existing role+key combination.
 const LEGACY_ROLE_CARDS = {
   "Super Admin": ALL_HOME_CARDS.slice(),
+  // Admin: every card and every action, but never a Super Admin's jobs --
+  // cannot see/edit/block/delete a Super Admin, cannot hand out Super Admin,
+  // no Permission Matrix (unless a Super Admin ticks it), no Super-User Bypass.
+  "Admin": ALL_HOME_CARDS.slice(),
   "Site Engineer": ["homeDirectoryCard","homeAttendanceCard","homeLaborCard","homeVillasCard","homeStaffCard","homeStoresCard"],
   "Camp Boss": ["homeCampsCard","homePpeCard","homeStoresCard"],
   // Camp Manager (all camps) and Camp Incharge (all camps, covers a Camp Boss on leave)
@@ -6536,6 +6540,10 @@ const LEGACY_ROLE_CARDS = {
   // Transport Incharge: works under the Transport Manager, sees every vehicle and
   // covers for the manager (drivers only ever see their own vehicle)
   "Transport Incharge": ["homeVehiclesCard","homeStoresCard"],
+  // Workshop (WORK SHOP site): the duct workshop, its stores, and its own men's attendance
+  "Workshop Manager": ["homeWorkshopCard","homeStoresCard","homeAttendanceCard","homeLaborCard"],
+  "Workshop Incharge": ["homeWorkshopCard","homeStoresCard","homeAttendanceCard","homeLaborCard"],
+  "Workshop Supervisor": ["homeWorkshopCard","homeAttendanceCard","homeLaborCard"],
   // Site Supervisor: "view site progress and log attendance/labor requests".
   "Site Supervisor": ["homeAttendanceCard","homeLaborCard","homeVillasCard"],
   // Foreman: "restricted strictly to basic daily attendance marking and
@@ -6559,7 +6567,10 @@ const LEGACY_ROLE_PERMISSIONS = {
   // Both can mark attendance; neither can edit project progress, view
   // agreement links, or touch camps/vehicles.
   "Site Supervisor": { markAttendance:true },
-  "Foreman": { markAttendance:true }
+  "Foreman": { markAttendance:true },
+  "Workshop Manager": { markAttendance:true },
+  "Workshop Incharge": { markAttendance:true },
+  "Workshop Supervisor": { markAttendance:true }
 };
 // Central registry of every ACTION-level permission the app can gate (as
 // opposed to a whole dashboard card — those are discovered automatically,
@@ -6629,6 +6640,7 @@ function fullPermissionRegistry(){
 }
 function defaultPermValue(role, key){
   if(role === "Super Admin") return true;
+  if(role === "Admin") return key !== 'managePermissions' && key !== 'siteLocked';
   if(LEGACY_ROLE_CARDS[role] && LEGACY_ROLE_CARDS[role].includes(key)) return true;
   if(LEGACY_ROLE_PERMISSIONS[role] && LEGACY_ROLE_PERMISSIONS[role][key]) return true;
   return false;
@@ -6747,7 +6759,7 @@ async function loadRoles(){
       CUSTOM_ROLES = res && res.value ? JSON.parse(res.value) : [];
     }catch(e){ CUSTOM_ROLES = []; }
   }
-  ROLE_LIST = BASE_ROLE_LIST.concat(CUSTOM_ROLES);
+  ROLE_LIST = [...new Set(BASE_ROLE_LIST.concat(CUSTOM_ROLES))];
 }
 async function saveRoles(){
   try{ await window.storage.set(CUSTOM_ROLES_KEY, JSON.stringify(CUSTOM_ROLES)); }catch(e){}
@@ -6760,7 +6772,7 @@ async function saveRoles(){
 function applyRemoteCustomRolesUpdate(newRoles){
   if(!Array.isArray(newRoles)) return;
   CUSTOM_ROLES = newRoles;
-  ROLE_LIST = BASE_ROLE_LIST.concat(CUSTOM_ROLES);
+  ROLE_LIST = [...new Set(BASE_ROLE_LIST.concat(CUSTOM_ROLES))];
   if(currentUser){ applyRoleUI(); applyPermissionUI(); }
   const permOverlayEl = document.getElementById('permMatrixOverlay');
   if(permOverlayEl && permOverlayEl.classList.contains('open')) renderPermMatrix();
@@ -7728,7 +7740,7 @@ async function renderPermMatrix(){
         const role = x.dataset.delRole;
         if(!confirm(`Remove the "${role}" role? Users assigned to it will keep the label but lose all access until reassigned.`)) return;
         CUSTOM_ROLES = CUSTOM_ROLES.filter(r => r !== role);
-        ROLE_LIST = BASE_ROLE_LIST.concat(CUSTOM_ROLES);
+        ROLE_LIST = [...new Set(BASE_ROLE_LIST.concat(CUSTOM_ROLES))];
         delete ROLE_PERM_MATRIX[role];
         await saveRoles();
         await saveRolePermMatrix();
@@ -7803,7 +7815,7 @@ document.getElementById('addRoleBtn').onclick = async () => {
   if(!name){ showToast('Enter a role name'); return; }
   if(ROLE_LIST.some(r => r.toLowerCase() === name.toLowerCase())){ showToast('That role already exists'); return; }
   CUSTOM_ROLES.push(name);
-  ROLE_LIST = BASE_ROLE_LIST.concat(CUSTOM_ROLES);
+  ROLE_LIST = [...new Set(BASE_ROLE_LIST.concat(CUSTOM_ROLES))];
   await saveRoles();
   await loadRolePermMatrix();
   input.value = '';
@@ -9793,7 +9805,7 @@ const DATE_LOCK_RESTRICTED_ROLES = ["Foreman", "Site Supervisor"];
 // Also the set of roles the Admin Control Hub itself opens for (renamed in
 // spirit to "Admin / PM / HR Hub" -- see the Pending Approvals tab), since
 // approving a past-date edit request is one of that hub's own actions.
-const ADMIN_HUB_ROLES = ["Super Admin", "HR", "Project Manager"];
+const ADMIN_HUB_ROLES = ["Super Admin", "Admin", "HR", "Project Manager"];
 function canOpenAdminHub(){
   return !!(currentUser && (ADMIN_HUB_ROLES.includes(currentUser.role) || currentUser.superUserBypass || can('openAdminHub')));
 }
@@ -10314,7 +10326,7 @@ async function loadAttRules(force){
 }
 function attCanEditRules(){
   const role = (typeof currentUser !== 'undefined' && currentUser && currentUser.role) || '';
-  return role === 'Super Admin' || role === 'HR';
+  return role === 'Super Admin' || role === 'Admin' || role === 'HR';
 }
 function memcoAttRulesDialog(){
   const can = attCanEditRules();
@@ -10326,7 +10338,7 @@ function memcoAttRulesDialog(){
   const draw = () => {
     w.innerHTML = `<div class="hol-box ar-box">
       <div class="hol-head"><b>⚙ Attendance rules</b><button type="button" class="hol-x" data-x>✕</button></div>
-      <div class="hol-note">How each code is counted in the monthly Excel sheet, for every site. <b>P</b> Present, <b>A</b> Absent (Sunday after it is Absent) and <b>H</b> Holiday are fixed.${can ? '' : '<br><b>Only HR or Super Admin can change these rules.</b>'}${attRulesMeta.by ? `<br>Last changed by <b>${escapeHtml(attRulesMeta.by)}</b>${attRulesMeta.ts ? ' on ' + escapeHtml(new Date(attRulesMeta.ts).toLocaleString('en-GB')) : ''}` : ''}</div>
+      <div class="hol-note">How each code is counted in the monthly Excel sheet, for every site. <b>P</b> Present, <b>A</b> Absent (Sunday after it is Absent) and <b>H</b> Holiday are fixed.${can ? '' : '<br><b>Only HR, Admin or Super Admin can change these rules.</b>'}${attRulesMeta.by ? `<br>Last changed by <b>${escapeHtml(attRulesMeta.by)}</b>${attRulesMeta.ts ? ' on ' + escapeHtml(new Date(attRulesMeta.ts).toLocaleString('en-GB')) : ''}` : ''}</div>
       <div class="ar-hd"><span>Code</span><span>Name</span><span>Counts as</span><span>Sunday, if this is on Saturday</span><span>Keeps showing daily until Present</span><span></span></div>
       ${rows.map((r, i) => `<div class="ar-row" data-i="${i}">
         <span class="ar-code">${ATT_DEFAULT_CODES.includes(r.code) && r.saved !== false ? `<b>${escapeHtml(r.code)}</b>` : `<input data-f="code" maxlength="4" placeholder="Code" value="${escapeAttr(r.code)}" ${dis}>`}<input type="color" data-f="color" value="${escapeAttr(r.color)}" ${dis} title="Colour in the Excel legend"></span>
@@ -10559,7 +10571,7 @@ document.getElementById('attOverallLabor').addEventListener('input', updateAttSu
 // a foreman marks his own men and never sees the other companies' headcount (unless ticked for his role)
 function canSubconAttendance(){
   if(!currentUser) return false;
-  if(currentUser.role === 'Super Admin' || currentUser.superUserBypass) return true;
+  if(currentUser.role === 'Super Admin' || currentUser.role === 'Admin' || currentUser.superUserBypass) return true;
   if(builtInPerm(currentUser.role, 'subconAttendance')) return true;
   const m = (typeof ROLE_PERM_MATRIX !== 'undefined') ? ROLE_PERM_MATRIX[currentUser.role] : null;
   return !!(m && m.subconAttendance);
@@ -11846,7 +11858,7 @@ function familyOfSite(site){
 function sameFamily(a, b){ const fa = familyOfSite(a); return !!fa && fa === familyOfSite(b); }
 function canMovePhases(fromSite){
   if(!currentUser) return false;
-  if(currentUser.role === 'Super Admin' || currentUser.superUserBypass || currentUser.role === 'HR') return true;
+  if(currentUser.role === 'Super Admin' || currentUser.role === 'Admin' || currentUser.superUserBypass || currentUser.role === 'HR') return true;
   const builtIn = ['Project Manager', 'Project Engineer', 'Site Engineer', 'Site Supervisor'].includes(currentUser.role);
   if(!builtIn && !can('movePhases')) return false;
   // a man tied to his own site may only move men inside his own project
@@ -14994,7 +15006,7 @@ function mainCamps(){ return campRecords.filter(isMainCamp); }
 /* Camp scope: Camp Manager / Camp Incharge (and Admin) see and act on every camp;
    a Camp Boss sees and acts only on the camp(s) where his HR number is the camp boss.
    An acting role given in the Admin Command Hub (e.g. Camp Incharge while the boss is on leave) counts too. */
-const CAMP_ALL_ROLES = ['Super Admin', 'Camp Manager', 'Camp Incharge'];
+const CAMP_ALL_ROLES = ['Super Admin', 'Admin', 'Camp Manager', 'Camp Incharge'];
 function myEffectiveRoles(){
   const u = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
   if(!u) return [];
@@ -16704,7 +16716,9 @@ document.getElementById('bypassRegisterBtn').addEventListener('click', async () 
   const username = document.getElementById('bypassNewUser').value.trim();
   const password = document.getElementById('bypassNewPass').value.trim();
   if(!name || !username || !password){ showToast('Name, username and password are all needed'); return; }
+  if(!(currentUser && currentUser.role === 'Super Admin')){ showToast('Only a Super Admin can give Super-User Bypass'); return; }
   const clash = USERS.find(u => u.username.toLowerCase() === username.toLowerCase());
+  if(clash && clash.role === 'Super Admin'){ showToast('A Super Admin account cannot be changed here'); return; }
   if(clash){
     // Existing account: turn the bypass on rather than refusing outright.
     clash.password = password;
@@ -16746,6 +16760,7 @@ function renderAdminBypassList(){
     cb.addEventListener('change', async () => {
       const u = USERS.find(x => x.id === Number(row.dataset.bypassUser));
       if(!u) return;
+      if(!(currentUser && currentUser.role === 'Super Admin')){ cb.checked = !!u.superUserBypass; showToast('Only a Super Admin can turn Super-User Bypass on or off'); return; }
       u.superUserBypass = cb.checked;
       await saveUsers();
       showToast(`${u.name}'s Super-User Admin Bypass ${cb.checked ? 'enabled' : 'disabled'}`);
@@ -28596,7 +28611,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     try{
       if(!signedIn()) return false;
       const r = (currentUser && currentUser.role) || '';
-      return ['Super Admin','HR','Project Manager','Project Engineer','Site Engineer'].includes(r)
+      return ['Super Admin','Admin','HR','Project Manager','Project Engineer','Site Engineer'].includes(r)
         || (typeof can === 'function' && can('siteAccess'));
     }catch(e){ return false; }
   }
@@ -28930,7 +28945,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   const me = () => (typeof currentUser !== 'undefined' && currentUser) ? currentUser : {};
   const myRole = () => String(me().role || '');
   const myHr = () => String(me().hrCode || me().hr_code || '').trim();
-  const isAdmin = () => myRole() === 'Super Admin';
+  const isAdmin = () => myRole() === 'Super Admin' || myRole() === 'Admin';
 
   async function loadList(){
     try{
@@ -30036,7 +30051,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   }
 
   function canBulk(){
-    try{ return currentUser && (['Super Admin', 'HR'].includes(currentUser.role) || can('bulkPeopleExcel')); }catch(e){ return false; }
+    try{ return currentUser && (['Super Admin', 'Admin', 'HR'].includes(currentUser.role) || can('bulkPeopleExcel')); }catch(e){ return false; }
   }
 
   function mount(){
@@ -30223,7 +30238,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   const toast = m => { if(typeof showToast === 'function') showToast(m); };
   const txt = v => String(v == null ? '' : v).trim();
   const WAITING = '';                       // empty site = waiting for a site
-  const canDo = () => { try{ return currentUser && (['Super Admin', 'HR'].includes(currentUser.role) || can('bulkPeopleExcel')); }catch(e){ return false; } };
+  const canDo = () => { try{ return currentUser && (['Super Admin', 'Admin', 'HR'].includes(currentUser.role) || can('bulkPeopleExcel')); }catch(e){ return false; } };
 
   function sites(){
     try{
