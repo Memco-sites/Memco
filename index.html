@@ -5443,7 +5443,8 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
 
     <div class="att-export-actions-v7 att-export-actions-v9 att-export-actions-v10">
       <button class="btn att-action-print" id="attSiteTimesheetBtn">🖨 Print Daily Signature Sheets</button>
-      <button class="btn att-action-save" id="attSaveBtn">💾 Save Day's Attendance</button>
+      <button class="btn att-action-save" id="attSaveBtn" title="Saves only the Present / Absent of this date — overtime is saved on its own">💾 Save Attendance</button>
+      <button class="btn att-action-save att-action-saveot" id="attSaveOtBtn" title="Saves only the overtime of the OT date — attendance is not touched">⏱ Save OT</button>
       <button class="btn att-action-daily" id="attTodayPrintBtn">📄 Export Today Attendance Sheet</button>
       <button class="btn att-action-monthly" id="attExcelExportBtn">📊 Export Monthly Attendance Sheet</button>
     </div>
@@ -7032,6 +7033,7 @@ function applyPermissionUI(){
     if(el) el.style.display = (!currentUser || can(key)) ? '' : 'none';
   };
   gate('attSaveBtn', 'markAttendance');
+  gate('attSaveOtBtn', 'markAttendance');
   gate('villaSaveBtn', 'updateVillaProgress');
   gate('addCampBtn', 'manageCamp');
   gate('addRoomBtn', 'manageCamp');
@@ -9003,6 +9005,7 @@ let currentAbsentMap = {}; // code -> reason
 let currentMarkedSet = new Set(); // men whose attendance was marked on the screen (present or absent)
 let currentLeaveAuto = new Set(); // men put 'on leave' by their HR record, until someone marks them back on duty
 let attContractPending = {};      // code -> contract job, for the OT date, saved with the day
+const attReasonOpen = new Set();   // rows whose reason chips are showing (open after tapping A, closed after choosing)
 let currentOTMap = {}; // code -> OT hours (number, as string while typing), keyed against the selected OT date (see attOtDate), not necessarily the Attendance date
 let currentOtDateAbsentMap = {}; // read-only snapshot: code -> reason, who was Absent ON THE SELECTED OT DATE specifically (may differ from the Attendance-date absentee map above) — used only to disable/zero the OT box for them
 const PROJECT_OT_SETTINGS_KEY = "project-ot-settings-v1";
@@ -9638,6 +9641,7 @@ function findAttRecord(date, project){
 }
 
 async function onDateOrProjectChange(){
+  try{ attReasonOpen.clear(); }catch(e){}
   attContractPending = {};
   const date = document.getElementById('attDate').value;
   const project = document.getElementById('attProject').value;
@@ -10661,7 +10665,7 @@ function renderLaborAttChecklist(){
     const otDisabled = !workerOtOn || absentOnOtDate || otDateLocked || currentLeaveAuto.has(l.code);
     const otVal = otDisabled ? '' : (currentOTMap[l.code] || '');
     const otTitle = otDateLocked
-      ? `${formatDMY(otDate)} is locked — press ✏ Edit above to change it above`
+      ? `${formatDMY(otDate)} is locked — press ✏ Edit above to change it`
       : (currentLeaveAuto.has(l.code) ? `On ${hrStatusLabel(l.status)} — no overtime`
       : !workerOtOn
         ? 'Overtime is disabled for this project'
@@ -10681,9 +10685,9 @@ function renderLaborAttChecklist(){
         <span class="l2-hr">${escapeHtml(l.code)}</span>
         <span class="l2-nm" title="${escapeAttr(l.name || '')}">${escapeHtml(two(l.name))}${srcOf(l.code) ? ` <span class="l2-src" title="From signed sheet ${escapeAttr(srcOf(l.code))}${(dayRec.times || {})[l.code] ? ' · IN ' + escapeAttr(dayRec.times[l.code].in || '—') + ' · OUT ' + escapeAttr(dayRec.times[l.code].out || '—') : ''}">📄</span>` : ''}${ctOf(l.code) ? ` <span class="l2-ct" title="Contract: ${escapeAttr(ctOf(l.code))}">CT</span>` : ''}${isExempt && !otEnabled ? ' <span class="latt-vip-badge" title="Overtime Exception List (VIP Pass)">🛂</span>' : ''}</span>
         <span class="l2-td" title="${escapeAttr(l.trade || '')}">${escapeHtml(l.trade || '')}</span>
-        <button class="l2-tg l2-${state}" data-toggle-code="${escapeAttr(l.code)}" ${attDateLocked ? 'disabled' : ''} title="${attDateLocked ? `${formatDMY(attDateVal)} is locked — press ✏ Edit above to change it above` : (state === 'lv' ? `On ${escapeAttr(hrStatusLabel(l.status))} in HR — tap when he is back on duty` : state === 'h' ? 'Public holiday — tap if he came to work' : state === 'u' ? 'Not marked yet — tap for Present' : (state === 'p' ? 'Present — tap to mark Absent' : 'Absent — tap to mark Present'))}">${label}</button>
+        <button class="l2-tg l2-${state}" data-toggle-code="${escapeAttr(l.code)}" ${attDateLocked ? 'disabled' : ''} title="${attDateLocked ? `${formatDMY(attDateVal)} is locked — press ✏ Edit above to change it` : (state === 'lv' ? `On ${escapeAttr(hrStatusLabel(l.status))} in HR — tap when he is back on duty` : state === 'h' ? 'Public holiday — tap if he came to work' : state === 'u' ? 'Not marked yet — tap for Present' : (state === 'p' ? 'Present — tap to mark Absent' : 'Absent — tap to mark Present'))}">${label}</button>
         <input type="number" min="0" ${rowCap != null ? `max="${rowCap}"` : 'max="24"'} step="0.5" class="l2-ot" data-ot-code="${escapeAttr(l.code)}" placeholder="OT" value="${escapeAttr(otVal)}" title="${escapeAttr(otTitle)}" ${otDisabled ? 'disabled' : ''}>
-        ${isAbsent && !isHol && !onLeave ? `<div class="latt-reasons l2-reasons">${LATT_REASONS.map(r => `<span class="latt-reason-chip ${reason===r?'selected':''}" data-reason-code="${escapeAttr(l.code)}" data-reason="${escapeAttr(r)}" title="${escapeAttr(LATT_REASON_LABELS[r])}">${r}</span>`).join('')}</div>` : ''}
+        ${isAbsent && !isHol && !onLeave && !attDateLocked && attReasonOpen.has(l.code) ? `<div class="latt-reasons l2-reasons"><span class="latt-reason-chip ${!reason ? 'selected' : ''}" data-reason-code="${escapeAttr(l.code)}" data-reason="" title="Absent — no reason">A</span>${LATT_REASONS.map(r => `<span class="latt-reason-chip ${reason===r?'selected':''}" data-reason-code="${escapeAttr(l.code)}" data-reason="${escapeAttr(r)}" title="${escapeAttr(LATT_REASON_LABELS[r])}">${r}</span>`).join('')}</div>` : ''}
       </div>
     `;
   }).join('');
@@ -10699,9 +10703,13 @@ function renderLaborAttChecklist(){
         currentLeaveAuto.delete(code); delete currentAbsentMap[code]; currentMarkedSet.add(code);
         if(man){ man.status = 'ACTIVE'; try{ saveLaborRecords(); }catch(e){} }
       }
-      else if(currentAbsentMap.hasOwnProperty(code)){ delete currentAbsentMap[code]; currentMarkedSet.add(code); }
+      else if(currentAbsentMap.hasOwnProperty(code) && currentAbsentMap[code] !== 'H' && !attReasonOpen.has(code)){
+        // absent with the reasons hidden: this tap shows them again (next tap = Present)
+        attReasonOpen.add(code); renderLaborAttChecklist(); return;
+      }
+      else if(currentAbsentMap.hasOwnProperty(code)){ delete currentAbsentMap[code]; currentMarkedSet.add(code); attReasonOpen.delete(code); }
       else if(!currentMarkedSet.has(code)) currentMarkedSet.add(code);
-      else currentAbsentMap[code] = '';
+      else { currentAbsentMap[code] = ''; attReasonOpen.add(code); }
       syncOtDateAbsentIfSameDay();
       renderLaborAttChecklist();
       renderAttSnapshot();
@@ -10712,6 +10720,7 @@ function renderLaborAttChecklist(){
       e.stopPropagation();
       if(attDateLocked){ showToast(`Attendance of ${formatDMY(attDateVal)} is locked — press ✏ Edit above`); return; }
       currentAbsentMap[chip.dataset.reasonCode] = chip.dataset.reason;
+      attReasonOpen.delete(chip.dataset.reasonCode);          // chosen: the chips hide (tap the A button to show them again)
       syncOtDateAbsentIfSameDay();
       renderLaborAttChecklist();
       renderAttSnapshot();
@@ -10840,7 +10849,8 @@ function renderAttSnapshot(){
   `;
 }
 
-document.getElementById('attSaveBtn').onclick = () => ensureName(doSaveAttendance);
+document.getElementById('attSaveBtn').onclick = () => ensureName(() => doSaveAttendance('att'));
+document.getElementById('attSaveOtBtn').onclick = () => ensureName(() => doSaveAttendance('ot'));
 
 
 /* ===== v9: category-wise Daily Site Timesheets =====
@@ -11554,7 +11564,32 @@ function attSiteCodes(){
   const project = (document.getElementById('attProject') || {}).value || '';
   return laborRecords.filter(l => l.site === project).map(l => String(l.code));
 }
-function attSnapTake(){ ATT_SNAP = {}; attSiteCodes().forEach(c => { ATT_SNAP[c] = attStateOf(c); }); attDirtyPaint(); }
+// part: '' = everything · 'att' = only Present/Absent was saved · 'ot' = only overtime was saved
+function attSnapTake(part){
+  const old = ATT_SNAP || {};
+  ATT_SNAP = {};
+  attSiteCodes().forEach(c => {
+    const now = attStateOf(c), was = old[c];
+    if(!part || was === undefined) ATT_SNAP[c] = now;
+    else {
+      const [nA, ...nR] = now.split('|'), [wA, ...wR] = was.split('|');
+      ATT_SNAP[c] = part === 'att' ? [nA, ...wR].join('|') : [wA, ...nR].join('|');
+    }
+  });
+  attDirtyPaint();
+}
+// how many rows have unsaved attendance / unsaved overtime
+function attDirtyParts(){
+  const out = {att: 0, ot: 0};
+  if(!ATT_SNAP) return out;
+  attSiteCodes().forEach(c => {
+    const was = ATT_SNAP[c]; if(was === undefined) return;
+    const [nA, ...nR] = attStateOf(c).split('|'), [wA, ...wR] = was.split('|');
+    if(nA !== wA) out.att++;
+    if(nR.join('|') !== wR.join('|')) out.ot++;
+  });
+  return out;
+}
 function attSnapSet(code){ if(ATT_SNAP) ATT_SNAP[code] = attStateOf(code); }
 function attDirtyCount(){
   if(!ATT_SNAP) return 0;
@@ -11574,7 +11609,9 @@ function attDirtyPaint(){
     bar.addEventListener('click', () => { doSaveAttendance(); });
     document.body.appendChild(bar);
   }
-  bar.innerHTML = `💾 <b>${n}</b> change${n === 1 ? '' : 's'} not saved — tap to save`;
+  const dp = attDirtyParts();
+  const what = [dp.att ? `${dp.att} attendance` : '', dp.ot ? `${dp.ot} OT` : ''].filter(Boolean).join(' + ');
+  bar.innerHTML = `💾 <b>${what || n}</b> change${n === 1 ? '' : 's'} not saved — tap to save`;
   bar.style.display = 'block';
 }
 setInterval(() => { try{ attDirtyPaint(); }catch(e){} }, 800);
@@ -11665,7 +11702,9 @@ function upsertDailyLaborRecord(date, project, patch){
   return merged;
 }
 
-async function doSaveAttendance(){
+// mode: 'att' = only Present/Absent · 'ot' = only overtime · 'both' (the floating bar) = whatever has changes
+async function doSaveAttendance(mode){
+  if(mode !== 'att' && mode !== 'ot') mode = 'both';
   const date = document.getElementById('attDate').value;
   const otDate = document.getElementById('attOtDate').value;
   const project = document.getElementById('attProject').value;
@@ -11675,9 +11714,17 @@ async function doSaveAttendance(){
   // otherwise still slip a save through.
   // 🔒 each part saves only while it is open: a locked attendance keeps what was
   // saved, a locked OT date keeps its hours
-  const attLocked = isDateLocked(project, date, 'attendance');
-  const otLocked = !otDate || isDateLocked(project, otDate, 'overtime');
-  if(attLocked && otLocked){ showToast(`Nothing to save — ${formatDMY(date)} is locked. Press ✏ Edit above to change it.`); return; }
+  const dirty = (typeof attDirtyParts === 'function') ? attDirtyParts() : {att: 1, ot: 1};
+  const attWanted = mode === 'att' || (mode === 'both' && (dirty.att > 0 || !attSavedInfo(project, date, 'attendance')));
+  const otWanted = mode === 'ot' || (mode === 'both' && dirty.ot > 0);
+  const attLocked = !attWanted || isDateLocked(project, date, 'attendance');
+  const otLocked = !otWanted || !otDate || isDateLocked(project, otDate, 'overtime');
+  if(attLocked && otLocked){
+    if(mode === 'att') showToast(`Attendance of ${formatDMY(date)} is locked — press ✏ Edit above to change it`);
+    else if(mode === 'ot') showToast(otDate ? `Overtime of ${formatDMY(otDate)} is locked — press ✏ Edit above to change it` : 'Pick the OT date first');
+    else showToast('Nothing to save');
+    return;
+  }
   const attEdit = attEditOpen[attLockKey(project, date, 'attendance')];
   const otEdit = otDate ? attEditOpen[attLockKey(project, otDate, 'overtime')] : null;
   const who = currentUserName || 'Unknown';
@@ -11769,8 +11816,8 @@ async function doSaveAttendance(){
       await window.storage.set(DAILY_LABOR_KEY, JSON.stringify(dailyLaborRecords), true);
     }
     try{ const me = dailyLaborRecords.find(r => r.date === date && r.project === project); window.__attDayTs = me && me.ts; }catch(e){}
-    try{ attSnapTake(); }catch(e){}
-    showToast((attLocked ? 'Attendance unchanged (locked)' : 'Attendance saved for ' + formatDMY(date)) + (otLocked ? ` · OT of ${formatDMY(otDate)} is locked — not changed` : (otDate && otDate !== date ? ` · OT saved for ${formatDMY(otDate)}` : '')));
+    try{ attSnapTake(!attLocked && !otLocked ? '' : (!attLocked ? 'att' : 'ot')); }catch(e){}
+    showToast([attLocked ? '' : `✔ Attendance saved for ${formatDMY(date)} — locked`, otLocked ? '' : `✔ OT saved for ${formatDMY(otDate)} — locked`].filter(Boolean).join(' · '));
   }catch(e){
     showToast('Could not save — try again');
   }
