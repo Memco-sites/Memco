@@ -995,6 +995,15 @@ body{
   padding:9px 12px; margin-bottom:8px; font-size:12px; color: var(--ink);
 }
 .date-lock-banner b{ color: var(--red); }
+/* one message box for the whole app */
+.memco-msg{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:2147483000;display:none;align-items:flex-start;gap:10px;
+  max-width:min(640px,92vw);padding:12px 12px 12px 16px;border-radius:12px;font-size:14.5px;line-height:1.45;color:#fff;cursor:pointer;
+  background:#0f172a;border:1px solid #38bdf8;box-shadow:0 10px 30px rgba(0,0,0,.55)}
+.memco-msg-ok{border-color:#22c55e;background:#052e1a}
+.memco-msg-err{border:2px solid #ef4444;background:#3b0d0d;font-weight:600}
+.memco-msg-i{font-size:17px;line-height:1.2}
+.memco-msg-t{flex:1;white-space:pre-line}
+.memco-msg-x{background:none;border:none;color:inherit;font-size:15px;cursor:pointer;opacity:.8;padding:0 2px}
 /* 🔒 attendance / OT / month -- one slim line */
 .alb{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .alb-seg{display:flex;align-items:center;gap:6px;flex:1 1 240px;min-width:0;padding:5px 6px 5px 10px;border-radius:10px;font-size:12px;
@@ -8057,11 +8066,37 @@ const countNum = document.getElementById('countNum');
 const overlay = document.getElementById('overlay');
 const toast = document.getElementById('toast');
 
+// ---- one message box for the whole app: always on top of every screen, long
+// enough to read (errors stay until tapped away or 12 s), tap ✕ to close ----
+function memcoMsg(msg, kind){
+  msg = String(msg == null ? '' : msg).trim();
+  if(!msg) return;
+  let box = document.getElementById('memcoMsgBox');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'memcoMsgBox';
+    box.setAttribute('role', 'status');
+    box.addEventListener('click', () => { box.style.display = 'none'; });
+    document.body.appendChild(box);
+  }
+  const err = kind === 'err';
+  box.className = 'memco-msg' + (err ? ' memco-msg-err' : (kind === 'ok' ? ' memco-msg-ok' : ''));
+  box.innerHTML = '';
+  const icon = document.createElement('span'); icon.className = 'memco-msg-i'; icon.textContent = err ? '⚠' : 'ℹ';
+  const txt = document.createElement('span'); txt.className = 'memco-msg-t'; txt.textContent = msg;
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'memco-msg-x'; x.textContent = '✕'; x.title = 'Close';
+  box.append(icon, txt, x);
+  box.style.display = 'flex';
+  clearTimeout(memcoMsg._t);
+  const ms = err ? 12000 : Math.min(9000, Math.max(3500, msg.length * 60));
+  memcoMsg._t = setTimeout(() => { box.style.display = 'none'; }, ms);
+}
+window.memcoMsg = memcoMsg;
 function showToast(msg){
-  toast.textContent = msg;
-  toast.classList.add('show');
-  clearTimeout(showToast._t);
-  showToast._t = setTimeout(()=> toast.classList.remove('show'), 1800);
+  const t = String(msg == null ? '' : msg);
+  // messages that say something went wrong are shown as errors
+  const bad = /^(❌|⚠)|could not|couldn.t|cannot|can.t |failed|error|not allowed|permission|denied|is locked|try again/i.test(t);
+  memcoMsg(t, bad ? 'err' : 'info');
 }
 
 // Two short, clearly-distinct beeps for real-time incoming alerts, built
@@ -21824,6 +21859,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     return r.data || [];
   }
   function toast(msg, isErr){
+    if(typeof window.memcoMsg === 'function'){ window.memcoMsg(msg, isErr ? 'err' : 'ok'); return; }
     const t = $('stToast'); if(!t) return;
     t.textContent = msg; t.className = 'st-toast' + (isErr ? ' err' : ''); t.style.display = 'block';
     clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none'; }, isErr ? 6500 : 3200);
@@ -23941,7 +23977,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
                   ${c.supervisor_name ? ` · Supervisor: ${esc(c.supervisor_name)}` : ''}</div></div>
               <div class="st-actions">
                 <button type="button" class="st-btn st-ghost st-sm" data-cprint="${esc(c.id)}">🖨 Sheet</button>
-                <button type="button" class="st-btn st-ghost st-sm" data-coff="${esc(c.id)}">Close group</button></div>
+                <button type="button" class="st-btn st-ghost st-sm" data-coff="${esc(c.id)}" style="color:#fca5a5;border-color:rgba(248,113,113,.55)" title="Remove this group — its men go back to “Not in any group”">🗑 Remove group</button></div>
             </div>
             <div class="ts-gbody">
             <div class="st-row ts-gadd" style="margin-top:8px;align-items:center;gap:6px">
@@ -23966,7 +24002,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <select id="tsFreeTrade" title="Show only">${['— all trades —','Electrical','Plumbing','HVAC','ELV','Fire Fighting','Civil','Transport','HSE','Store','Other']
                   .map(t => `<option ${t === (S.tsFreeTrade || '— all trades —') ? 'selected' : ''}>${t}</option>`).join('')}</select>
               <span class="ts-freearrow">→</span>
-              <select id="tsFreeGroup">${crewOptions('', '— to which group? —')}</select>
+              <select id="tsFreeGroup">${crewOptions('', crews.length ? '— to which group? —' : '— no group yet —')}<option value="__new">➕ New group — the foreman written above</option></select>
               <button type="button" class="st-btn st-ok st-sm" id="tsFreeGo">Move ticked men</button>
               <span class="st-muted" id="tsFreeCount" style="white-space:nowrap;margin-left:auto"></span></div>
             <div class="ts-scroll" style="max-height:44vh"><div class="ts-grid" id="tsFreeRows">
@@ -24051,6 +24087,24 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           }
         });
 
+        // makes a group from the foreman written at the top; returns its name, or null if the user said no
+        async function tsMakeCrewFromTop(){
+          const hr = $('tsCfHr').value.trim();
+          const p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
+          const typed = $('tsCfName').value.trim();
+          const nm = typed || (p ? p.name : '');
+          if(!nm && !hr) throw new Error('Write the foreman HR number (or his name) at the top first.');
+          if(p && typed && !tsSameMan(typed, p.name)){
+            if(!confirm(`HR ${hr} is ${p.name}.\n\nYou typed "${typed}".\n\nUse the typed name anyway?`)) return null;
+          }
+          if(p && !/foreman|chargehand|charge hand|supervisor/i.test(String(p.trade || ''))){
+            if(!confirm(`${p.name} (HR ${hr}) is "${p.trade || 'not set'}", not a foreman.\n\nMake him the foreman of this crew anyway?`)) return null;
+          }
+          const tradeTxt = $('tsCtrade').value.trim();
+          const crewName = tradeTxt ? (tradeTxt + ' — ' + (nm || 'Group')) : (nm || 'Group');
+          await rpc('st_crew_save', {p: {group_code: group, name: crewName, trade: tradeTxt, foreman_hr: hr, foreman_name: nm}});
+          return {crewName, hr, nm};
+        }
         $('tsCadd').addEventListener('click', e => busy(e.currentTarget, async () => {
           const hr = $('tsCfHr').value.trim();
           const p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
@@ -24130,9 +24184,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         })));
         body.querySelectorAll('[data-coff]').forEach(b => b.addEventListener('click', e => busy(e.currentTarget, async () => {
           const c = crews.find(x => x.id === b.dataset.coff);
-          if(!confirm(`Close the group "${c.name}"? The men go back to "not in any crew".`)) return;
+          if(!c) return;
+          const n = (c.members || []).length;
+          if(!confirm(`Remove the group "${c.name}"${c.foreman_name ? ' (foreman ' + c.foreman_name + ')' : ''}?\n\n${n ? `Its ${n} men go back to "Not in any group" — from there you can put them in another group.` : 'It has no men.'}\n\nSheets already printed and signed stay as they are.`)) return;
+          // first the men are taken out, so none of them stays tied to a removed group
+          const hrs = (c.members || []).map(m => String(m.hr)).filter(Boolean);
+          for(let i = 0; i < hrs.length; i += 200) await rpc('st_crew_remove', {p_crew: c.id, p_hrs: hrs.slice(i, i + 200)});
           await rpc('st_crew_save', {p: {id: c.id, group_code: c.group_code, name: c.name, trade: c.trade,
             foreman_hr: c.foreman_hr, foreman_name: c.foreman_name, active: false}});
+          toast(`Group removed${n ? ' — ' + n + ' men are back in “Not in any group”' : ''}`);
           tsReload();
         })));
         body.querySelectorAll('[data-cprint]').forEach(b => b.addEventListener('click', () => {
@@ -24140,7 +24200,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         }));
         // choosing the group shows that group's trade below by itself
         if($('tsFreeGroup')) $('tsFreeGroup').addEventListener('change', e => {
-          const c = crews.find(x => x.id === e.target.value);
+          const c = e.target.value === '__new' ? {trade: ($('tsCtrade') || {}).value || ''} : crews.find(x => x.id === e.target.value);
           if(c && c.trade){
             S.tsFreeTrade = c.trade;
             const sel = $('tsFreeTrade');
@@ -24150,10 +24210,21 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         });
 
         if($('tsFreeGo')) $('tsFreeGo').addEventListener('click', e => busy(e.currentTarget, async () => {
-          const cid = $('tsFreeGroup').value;
-          if(!cid) throw new Error('Choose the group first.');
+          let cid = $('tsFreeGroup').value;
+          if(!cid) throw new Error(crews.length ? 'Choose the group first.' : 'There is no group on this site yet — choose “➕ New group” in the list, or press ➕ New group at the top.');
           const hrs = [...body.querySelectorAll('.tsFree:checked')].map(i => i.value);
           if(!hrs.length) throw new Error('Tick the men you want to move.');
+          if(cid === '__new'){
+            // make the group of the foreman written at the top, then move the men into it
+            const made = await tsMakeCrewFromTop();
+            if(!made) return;
+            const fresh = await rpc('st_crew_list', {p_group: group}).catch(() => []) || [];
+            const c = fresh.filter(x => x.name === made.crewName && String(x.foreman_hr || '') === String(made.hr || '')).pop()
+                   || fresh.filter(x => x.name === made.crewName).pop();
+            if(!c) throw new Error('The group was made, but could not be found — press refresh and move the men again.');
+            crews.push(c);
+            cid = c.id;
+          }
           const list = hrs.map(h => people.find(x => x.hr === h)).filter(Boolean).map(p => ({hr: p.hr, name: p.name, trade: p.trade}));
           const crew2 = crews.find(x => x.id === cid);
           const odd = crew2 && crew2.trade ? list.filter(m => !tsTradeFits(m.trade, crew2.trade)) : [];
