@@ -21806,7 +21806,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const c = client();
     if(!c) throw new Error('Server connection is still loading — try again in a moment.');
     const r = await wait(c.rpc(name, args || {}), 25000);
-    if(!r) throw new Error('Server did not respond. Check your internet connection.');
+    if(!r) throw new Error(`The server did not answer in 25 seconds [${name}]. Check the internet — if the internet is fine, this user may not be allowed to do this on the server.`);
     if(r.error) throw new Error(cleanErr(r.error.message) + (/permission|not allowed|access/i.test(r.error.message || '') ? ` [${name}]` : ''));
     // printed sheets: the office's list is kept in the shared store, a foreman's phone reads his own from it
     if(name === 'st_att_sheet_list' && Array.isArray(r.data)){
@@ -21854,7 +21854,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   }
   async function query(builder){
     const r = await wait(builder, 25000);
-    if(!r) throw new Error('Server did not respond. Check your internet connection.');
+    if(!r) throw new Error(`The server did not answer in 25 seconds [query]. Check the internet — if the internet is fine, this user may not be allowed to do this on the server.`);
     if(r.error) throw new Error(cleanErr(r.error.message));
     return r.data || [];
   }
@@ -21864,11 +21864,20 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     t.textContent = msg; t.className = 'st-toast' + (isErr ? ' err' : ''); t.style.display = 'block';
     clearTimeout(toast._t); toast._t = setTimeout(() => { t.style.display = 'none'; }, isErr ? 6500 : 3200);
   }
+  // a pressed button shows ⏳ while it works, and a message comes if the server is slow --
+  // so nobody is left looking at a button that seems to do nothing
   async function busy(btn, fn){
-    if(btn){ if(btn.disabled) return; btn.disabled = true; }
+    let label = null, slow = null;
+    if(btn){
+      if(btn.disabled) return;
+      btn.disabled = true;
+      label = btn.innerHTML;
+      btn.innerHTML = '⏳ ' + btn.textContent.replace(/^[^\w]*\s*/, '');
+      slow = setTimeout(() => { if(typeof window.memcoMsg === 'function') window.memcoMsg('Working… waiting for the server (up to 25 seconds).', 'info'); }, 2500);
+    }
     try{ return await fn(); }
     catch(e){ toast(e.message || String(e), true); }
-    finally{ if(btn) btn.disabled = false; }
+    finally{ if(slow) clearTimeout(slow); if(btn){ btn.disabled = false; if(label != null) btn.innerHTML = label; } }
   }
   const pill = (st, label) => `<span class="st-pill p-${esc(st)}">${esc(label || STATUS_LABEL[st] || st)}</span>`;
   const storeById = id => S.stores.find(s => s.id === id);
@@ -28939,7 +28948,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     const c = cli();
     if(!c) throw new Error('Server connection is still loading — try again in a moment.');
     const r = await wait(c.rpc(name, args || {}), 25000);
-    if(!r) throw new Error('Server did not respond. Check your internet connection.');
+    if(!r) throw new Error(`The server did not answer in 25 seconds [${name}]. Check the internet — if the internet is fine, this user may not be allowed to do this on the server.`);
     if(r.error){
       let m = r.error.message || String(r.error);
       if(/function .* does not exist|schema cache/i.test(m)) m = 'Site Access is not set up in the database yet. Run 9_memco_site_access.sql in Supabase.';
