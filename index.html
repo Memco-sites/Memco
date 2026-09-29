@@ -5419,6 +5419,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
         <button type="button" class="btn btn-primary" id="attAllPresent">✅ All present</button>
         <button type="button" class="btn btn-ghost att-allabs" id="attAllAbsent">⛔ All absent</button>
         <button type="button" class="btn btn-ghost att-holi" id="attHoliday">🎉 Holiday</button>
+        <button type="button" class="btn btn-ghost att-rules" id="attRulesBtn" title="How each code (leave, medical, absent…) is counted — changed by HR / Super Admin">⚙ Rules</button>
         <button type="button" class="btn btn-ghost att-scan" id="attScanBtn">📷 Scan signed sheet</button>
         <button type="button" class="btn btn-ghost att-otall" id="attOtAllBtn" title="The same overtime for everybody present on this list">⏱ OT for all</button>
         <button type="button" class="btn btn-ghost att-ctbtn" id="attCtBtn" title="Overtime given for a contract job, not from IN/OUT">📝 Contract OT</button>
@@ -9635,6 +9636,7 @@ async function onDateOrProjectChange(){
     }catch(e){}
     holidayDatesLoaded = true;
   }
+  await loadAttRules();
   const existing = findAttRecord(date, project);
   if(existing){
     document.getElementById('attOverallLabor').value = existing.overallLabor || '';
@@ -10238,7 +10240,7 @@ function attWhoMen(siteLabor){
   return siteLabor.filter(l => hrs.has(String(l.code)));
 }
 
-const LATT_REASONS = ['SL','AL','EL','PR','UL','HL','VM','TT','VB','SA','OS'];
+const LATT_REASONS = ['SL','AL','EL','PR','UL','HL','VM','TT','VB','SA'];  // OS (Other Site) dropped: a man is marked Present wherever he works
 // 'H' = public holiday: paid, not absent, overtime still allowed (set by the 🎉 Holiday button)
 const LATT_REASON_LABELS = {
   SL:'Sick Leave', AL:'Annual Leave', EL:'Emergency Leave', PR:'Passport Renewal',
@@ -10253,6 +10255,141 @@ function leaveReasonFor(st){
 // holiday names, kept with the holiday dates
 let holidayNames = {};
 try{ holidayNames = JSON.parse(localStorage.getItem('memco-holiday-names') || '{}') || {}; }catch(e){ holidayNames = {}; }
+
+// ---- ⚙ Attendance rules: HR / Super Admin decide how every code is counted ----
+// Saved once for the whole company (shared storage). The monthly Excel sheet,
+// the reason chips on the attendance screen and the legend all follow them.
+// P (Present), A (Absent) and H (Holiday) are fixed.
+const ATT_RULES_KEY = 'attendance-rules-v1';
+const ATT_RULES_DEFAULT = [
+  {code:'SL', label:'Sick Leave',       count:'present', sunday:'give',   carry:false, color:'#FFD966'},
+  {code:'AL', label:'Annual Leave',     count:'leave',   sunday:'same',   carry:true,  color:'#A9D18E'},
+  {code:'EL', label:'Emergency Leave',  count:'leave',   sunday:'same',   carry:true,  color:'#FF8A8A'},
+  {code:'PR', label:'Passport Renewal', count:'absent',  sunday:'absent', carry:false, color:'#B4C7E7'},
+  {code:'UL', label:'Umrah Leave',      count:'leave',   sunday:'same',   carry:true,  color:'#C6E0B4'},
+  {code:'HL', label:'Hajj Leave',       count:'leave',   sunday:'same',   carry:true,  color:'#D9D2E9'},
+  {code:'VM', label:'Visa Medical',     count:'present', sunday:'give',   carry:false, color:'#F8CBAD'},
+  {code:'TT', label:'Taujee Training',  count:'present', sunday:'give',   carry:false, color:'#BDD7EE'},
+  {code:'VB', label:'Visa Biometric',   count:'present', sunday:'give',   carry:false, color:'#FFE699'},
+  {code:'SA', label:'Site Accident',    count:'present', sunday:'give',   carry:false, color:'#FF9999'}
+];
+const ATT_DEFAULT_CODES = ATT_RULES_DEFAULT.map(r => r.code);
+let attRules = ATT_RULES_DEFAULT.map(r => ({...r}));
+let attRulesMeta = {};
+let attRulesLoaded = false;
+function attApplyRules(){
+  LATT_REASONS.splice(0, LATT_REASONS.length, ...attRules.map(r => r.code));
+  attRules.forEach(r => { LATT_REASON_LABELS[r.code] = r.label; });
+}
+function attSetRules(obj){
+  if(typeof obj === 'string'){ try{ obj = JSON.parse(obj); }catch(e){ return; } }
+  const list = obj && Array.isArray(obj.rules) ? obj.rules : null;
+  if(!list || !list.length) return;
+  const seen = new Set(['P','A','H']);
+  const next = [];
+  list.forEach(r => {
+    const code = String((r && r.code) || '').trim().toUpperCase();
+    if(!/^[A-Z]{1,4}$/.test(code) || seen.has(code)) return;
+    seen.add(code);
+    next.push({
+      code, label: String(r.label || code),
+      count: ['present','absent','leave'].includes(r.count) ? r.count : 'present',
+      sunday: ['give','absent','same'].includes(r.sunday) ? r.sunday : 'give',
+      carry: !!r.carry,
+      color: /^#[0-9a-f]{6}$/i.test(r.color || '') ? r.color : '#D9D9D9'
+    });
+  });
+  ATT_RULES_DEFAULT.forEach(d => { if(!seen.has(d.code)) next.push({...d}); });   // a default code is never lost
+  attRules = next;
+  attRulesMeta = {by: obj.by || '', ts: obj.ts || ''};
+  attApplyRules();
+}
+async function loadAttRules(force){
+  if(attRulesLoaded && !force) return;
+  try{
+    const res = await window.storage.get(ATT_RULES_KEY, true);
+    if(res && res.value) attSetRules(res.value);
+  }catch(e){}
+  attRulesLoaded = true;
+}
+function attCanEditRules(){
+  const role = (typeof currentUser !== 'undefined' && currentUser && currentUser.role) || '';
+  return role === 'Super Admin' || role === 'HR';
+}
+function memcoAttRulesDialog(){
+  const can = attCanEditRules();
+  const dis = can ? '' : 'disabled';
+  let rows = attRules.map(r => ({...r}));
+  const opt = (v, cur, label) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${label}</option>`;
+  const w = document.createElement('div');
+  w.className = 'hol-wrap';
+  const draw = () => {
+    w.innerHTML = `<div class="hol-box ar-box">
+      <div class="hol-head"><b>⚙ Attendance rules</b><button type="button" class="hol-x" data-x>✕</button></div>
+      <div class="hol-note">How each code is counted in the monthly Excel sheet, for every site. <b>P</b> Present, <b>A</b> Absent (Sunday after it is Absent) and <b>H</b> Holiday are fixed.${can ? '' : '<br><b>Only HR or Super Admin can change these rules.</b>'}${attRulesMeta.by ? `<br>Last changed by <b>${escapeHtml(attRulesMeta.by)}</b>${attRulesMeta.ts ? ' on ' + escapeHtml(new Date(attRulesMeta.ts).toLocaleString('en-GB')) : ''}` : ''}</div>
+      <div class="ar-hd"><span>Code</span><span>Name</span><span>Counts as</span><span>Sunday, if this is on Saturday</span><span>Keeps showing daily until Present</span><span></span></div>
+      ${rows.map((r, i) => `<div class="ar-row" data-i="${i}">
+        <span class="ar-code">${ATT_DEFAULT_CODES.includes(r.code) && r.saved !== false ? `<b>${escapeHtml(r.code)}</b>` : `<input data-f="code" maxlength="4" placeholder="Code" value="${escapeAttr(r.code)}" ${dis}>`}<input type="color" data-f="color" value="${escapeAttr(r.color)}" ${dis} title="Colour in the Excel legend"></span>
+        <input data-f="label" placeholder="Name" value="${escapeAttr(r.label)}" ${dis}>
+        <select data-f="count" ${dis}>${opt('present', r.count, 'Present')}${opt('absent', r.count, 'Absent')}${opt('leave', r.count, 'Leave')}</select>
+        <select data-f="sunday" ${dis}>${opt('give', r.sunday, 'Sunday given (H)')}${opt('absent', r.sunday, 'Sunday Absent (A)')}${opt('same', r.sunday, 'Same code on Sunday')}</select>
+        <label class="ar-chk"><input type="checkbox" data-f="carry" ${r.carry ? 'checked' : ''} ${dis}> <span class="ar-m">Keeps showing till Present:</span> Yes</label>
+        ${can && !ATT_DEFAULT_CODES.includes(r.code) ? `<button type="button" class="ar-del" data-del="${i}" title="Remove this code">✕</button>` : '<span></span>'}
+      </div>`).join('')}
+      <div class="hol-foot ar-foot">${can ? '<button type="button" class="btn btn-ghost" id="arAdd">＋ New code</button><button type="button" class="btn btn-ghost" id="arReset">↺ Default</button>' : ''}<button type="button" class="btn btn-ghost" data-x>${can ? 'Cancel' : 'Close'}</button>${can ? '<button type="button" class="btn btn-primary" id="arSave">💾 Save rules</button>' : ''}</div>
+    </div>`;
+  };
+  const readBack = () => {
+    w.querySelectorAll('.ar-row').forEach(el => {
+      const r = rows[+el.dataset.i];
+      el.querySelectorAll('[data-f]').forEach(inp => {
+        const f = inp.dataset.f;
+        r[f] = f === 'carry' ? inp.checked : (f === 'code' ? inp.value.trim().toUpperCase() : inp.value);
+      });
+    });
+  };
+  draw();
+  document.body.appendChild(w);
+  w.addEventListener('click', async e => {
+    if(e.target === w || e.target.closest('[data-x]')){ w.remove(); return; }
+    if(!can) return;
+    const del = e.target.closest('[data-del]');
+    if(del){ readBack(); rows.splice(+del.dataset.del, 1); draw(); return; }
+    if(e.target.closest('#arAdd')){
+      readBack();
+      rows.push({code:'', label:'', count:'leave', sunday:'same', carry:true, color:'#C9DAF8', saved:false});
+      draw();
+      const ins = w.querySelectorAll('input[data-f="code"]'); if(ins.length) ins[ins.length - 1].focus();
+      return;
+    }
+    if(e.target.closest('#arReset')){
+      if(!confirm('Put all rules back to the company default? (Your new codes will be removed.)')) return;
+      rows = ATT_RULES_DEFAULT.map(r => ({...r})); draw(); return;
+    }
+    if(e.target.closest('#arSave')){
+      readBack();
+      const seen = new Set(['P','A','H']);
+      for(const r of rows){
+        if(!/^[A-Z]{1,4}$/.test(r.code)){ alert('Every code must be 1 to 4 English letters, for example ML.'); return; }
+        if(seen.has(r.code)){ alert(`The code ${r.code} is used twice (P, A and H are already fixed).`); return; }
+        seen.add(r.code);
+        if(!String(r.label || '').trim()) r.label = r.code;
+      }
+      const obj = {rules: rows.map(r => ({code:r.code, label:r.label, count:r.count, sunday:r.sunday, carry:!!r.carry, color:r.color})), by: currentUserName || 'Unknown', ts: new Date().toISOString()};
+      try{ await window.storage.set(ATT_RULES_KEY, JSON.stringify(obj), true); }
+      catch(err){ alert('Could not save the rules — check the internet and try again.'); return; }
+      attSetRules(obj);
+      w.remove();
+      showToast('Attendance rules saved — the next Excel sheet follows them');
+      try{ renderLaborAttChecklist(); }catch(err){}
+    }
+  });
+}
+(function(){
+  const b = document.getElementById('attRulesBtn');
+  if(b) b.addEventListener('click', async () => { await loadAttRules(true); memcoAttRulesDialog(); });
+  try{ startSupabasePolling(ATT_RULES_KEY, data => { attSetRules(data); try{ renderLaborAttChecklist(); }catch(e){} }); }catch(e){}
+})();
 
 function renderLaborAttChecklist(){
   const project = document.getElementById('attProject').value;
@@ -10836,6 +10973,7 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   // math below can never drift a day depending on the browser's timezone
   // offset -- the root cause behind the previous sheet's broken date
   // sequence.
+  await loadAttRules(true);   // always the latest rules HR saved
   const refDateStr = document.getElementById('attDate').value || new Date().toISOString().slice(0,10);
   const refDate = new Date(refDateStr + 'T00:00:00');
   const year = refDate.getFullYear();
@@ -10863,6 +11001,58 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
     dayInfoMap[dayNum] = { absentMap, otMap: r.otHours || {}, hasRecord: !!r.attendanceTaken, sheetMarks: r.sheetMarks || {}, otContract: r.otContract || {} };
   });
 
+  // ---- Company Sunday rule ----
+  // Sunday is given (H, counted Present) only if the man was Present on
+  // Saturday, or on Visa Medical / other medical or official work that day.
+  // Absent on Saturday -> Sunday is Absent. On a leave on Saturday (Hajj,
+  // Emergency, Annual, Umrah) -> Sunday is the same leave; duty restarts on
+  // Monday. Saturday not marked yet -> Sunday stays blank. A leave (AL, EL,
+  // HL, UL) keeps showing on every day not yet marked, up to today, until
+  // the man is marked Present again (it may have started last month). If Saturday was a
+  // public holiday, the last working day before it decides.
+  const attPad2 = n => String(n).padStart(2, '0');
+  const attYmd = dt => `${dt.getFullYear()}-${attPad2(dt.getMonth() + 1)}-${attPad2(dt.getDate())}`;
+  const attDayRecs = {};
+  dailyLaborRecords.forEach(r => { if(r.project === project) attDayRecs[r.date] = r; });
+  const attMarkedCodeOn = (wCode, dateStr) => {
+    const r = attDayRecs[dateStr];
+    if(r && r.attendanceTaken){
+      const a = (r.absentees || []).find(x => String(x.code) === String(wCode));
+      if(a && a.reason === 'OS') return 'P';                      // old 'Other Site' marks count as Present
+      return a ? (a.reason || 'A') : 'P';
+    }
+    if(r && r.sheetMarks && r.sheetMarks[wCode] !== undefined) return r.sheetMarks[wCode] ? 'P' : 'A';  // from a signed sheet, before the day was saved
+    return undefined;
+  };
+  // ⚙ rules: what every code counts as, what Sunday becomes, which codes keep showing
+  const attRuleMap = {}; attRules.forEach(r => { attRuleMap[r.code] = r; });
+  const ATT_CARRY = attRules.filter(r => r.carry).map(r => r.code);
+  const ATT_PRESENT = ['P','H', ...attRules.filter(r => r.count === 'present').map(r => r.code)];
+  const ATT_ABSENT = ['A', ...attRules.filter(r => r.count === 'absent').map(r => r.code)];
+  const ATT_LEAVE = attRules.filter(r => r.count === 'leave').map(r => r.code);
+  const attTodayStr = attYmd(new Date());
+  const attSundayCode = (wCode, sunday) => {
+    const own = attMarkedCodeOn(wCode, attYmd(sunday));
+    if(own === 'P') return 'P';                                   // came to work on Sunday
+    if(own !== undefined && own !== 'A' && own !== 'H') return own; // a leave already written on Sunday itself
+    for(let back = 1; back <= 6; back++){
+      const prev = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() - back);
+      const ds = attYmd(prev);
+      const c = attMarkedCodeOn(wCode, ds);
+      if(c === undefined){
+        if(holidayDates.includes(ds)) continue;                   // public holiday, no attendance taken
+        return undefined;                                         // Saturday not marked yet
+      }
+      if(c === 'H') continue;                                     // public holiday for him
+      if(c === 'A') return 'A';
+      if(c === 'P') return 'H';
+      const rule = attRuleMap[c];
+      if(!rule) return 'H';
+      return rule.sunday === 'absent' ? 'A' : (rule.sunday === 'same' ? c : 'H');   // per ⚙ rules
+    }
+    return undefined;
+  };
+
   const FONT_NAME = 'Century Gothic';
   const HEADER_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFD0CFCF' } };
   const PRESENT_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF8FAADC' } };
@@ -10883,10 +11073,12 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   // that dependency entirely -- they're simply always right, in Excel,
   // Google Sheets, or any viewer, with or without recalculation.
   ws.getCell('A1').value = 'Month';
-  ws.getCell('D1').value = new Date(year, month, 1);
+  // Date.UTC: ExcelJS writes dates as UTC -- a local-midnight date in the
+  // UAE (UTC+4) landed on the previous day (showed Aug-2026 / 31/8/2026).
+  ws.getCell('D1').value = new Date(Date.UTC(year, month, 1));
   ws.getCell('D1').numFmt = 'mmm-yyyy';
   ws.getCell('A2').value = 'Start of month';
-  ws.getCell('D2').value = new Date(year, month, 1);
+  ws.getCell('D2').value = new Date(Date.UTC(year, month, 1));
   ws.getCell('D2').numFmt = 'd/m/yyyy';
   ws.getCell('A3').value = 'First Day of the month';
   ws.getCell('D3').value = new Date(year, month, 1).toLocaleString('en-US', { weekday: 'short' });
@@ -10918,10 +11110,12 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   const totalOTCol = DAY_COL_START + daysInMonth;
   const presentCol = totalOTCol + 1;
   const absentCol = presentCol + 1;
-  const remarksCol = absentCol + 1;
+  const leaveCol = absentCol + 1;
+  const remarksCol = leaveCol + 1;
   headerRow.getCell(totalOTCol).value = 'Total OT';
   headerRow.getCell(presentCol).value = 'Present';
   headerRow.getCell(absentCol).value = 'Absent';
+  headerRow.getCell(leaveCol).value = 'Leave';
   headerRow.getCell(remarksCol).value = 'Remarks';
 
   for(let c=1; c<=remarksCol; c++){
@@ -10935,6 +11129,7 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   }
   ws.getCell(7, presentCol).fill = PRESENT_FILL;
   ws.getCell(7, absentCol).fill = ABSENT_FILL;
+  ws.getCell(7, leaveCol).fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFA9D18E' } };
 
   // ---- Employee rows: two rows per worker (Attendance + OT) ----
   let currentRow = 8;
@@ -10951,18 +11146,29 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
     attRow.getCell(5).value = '';
     otRow.getCell(7).value = 'OT';
 
+    // a leave that started before this month (last marked day before the 1st)
+    let leaveCarry = null;
+    for(let back = 1; back <= 90; back++){
+      const c = attMarkedCodeOn(w.code, attYmd(new Date(year, month, 1 - back)));
+      if(c === undefined || c === 'H') continue;
+      if(ATT_CARRY.includes(c)) leaveCarry = c;
+      break;
+    }
     for(let d=1; d<=daysInMonth; d++){
       const col = DAY_COL_START + d - 1;
       const dow = new Date(year, month, d).getDay();
       const dayInfo = dayInfoMap[d];
       let code, ot;
-      if(dayInfo && dayInfo.hasRecord){
-        code = dayInfo.absentMap[w.code] ? (dayInfo.absentMap[w.code] || 'A') : 'P';
-      }else if(dayInfo && dayInfo.sheetMarks && dayInfo.sheetMarks[w.code] !== undefined){
-        code = dayInfo.sheetMarks[w.code] ? 'P' : 'A';           // from a signed sheet, before the day was saved
-      }else if(dow === 0 || holidayDates.includes(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)){
-        code = 'H';
+      const dayStr = attYmd(new Date(year, month, d));
+      if(dow === 0){
+        code = attSundayCode(w.code, new Date(year, month, d));  // company Sunday rule
+      }else{
+        code = attMarkedCodeOn(w.code, dayStr);
       }
+      if(ATT_CARRY.includes(code)) leaveCarry = code;
+      else if(code !== undefined && code !== 'H') leaveCarry = null;          // back on duty (or absent) -> leave ends
+      if(code === undefined && leaveCarry && dayStr <= attTodayStr) code = leaveCarry;  // still on leave
+      if(code === undefined && dow !== 0 && holidayDates.includes(dayStr)) code = 'H';  // public holiday
       // Synchronized OT Alignment: OT hours are looked up independently of
       // whether Attendance was itself formally "taken" for that date, so
       // OT entered for yesterday always lands in yesterday's own day
@@ -10981,15 +11187,20 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
     const dayRangeStart = ws.getColumn(DAY_COL_START).letter;
     const dayRangeEnd = ws.getColumn(DAY_COL_START + daysInMonth - 1).letter;
     attRow.getCell(totalOTCol).value = { formula: `SUM(${dayRangeStart}${attR}:${dayRangeEnd}${attR})+SUM(${dayRangeStart}${otR}:${dayRangeEnd}${otR})` };
-    attRow.getCell(presentCol).value = { formula: `COUNTIF(${dayRangeStart}${attR}:${dayRangeEnd}${attR},"P")+COUNTIF(${dayRangeStart}${attR}:${dayRangeEnd}${attR},"H")+COUNTIF(${dayRangeStart}${attR}:${dayRangeEnd}${attR},"SL")+COUNTIF(${dayRangeStart}${attR}:${dayRangeEnd}${attR},"VB")+COUNTIF(${dayRangeStart}${attR}:${dayRangeEnd}${attR},"SA")` };
-    attRow.getCell(absentCol).value = { formula: `COUNTIF(${dayRangeStart}${attR}:${dayRangeEnd}${attR},"A")+COUNTIF(${dayRangeStart}${attR}:${dayRangeEnd}${attR},"EL")` };
+    const rng = `${dayRangeStart}${attR}:${dayRangeEnd}${attR}`;
+    const cif = codes => codes.map(c => `COUNTIF(${rng},"${c}")`).join('+');
+    // Present = worked or paid days; Absent = A and Passport Renewal; Leave = AL/EL/HL/UL, each shown in Remarks
+    attRow.getCell(presentCol).value = { formula: cif(ATT_PRESENT) };
+    attRow.getCell(absentCol).value = { formula: cif(ATT_ABSENT) };
+    attRow.getCell(leaveCol).value = ATT_LEAVE.length ? { formula: cif(ATT_LEAVE) } : 0;
+    if(ATT_LEAVE.length) attRow.getCell(remarksCol).value = { formula: 'TRIM(' + ATT_LEAVE.map(c => `IF(COUNTIF(${rng},"${c}")>0,"${c} "&COUNTIF(${rng},"${c}")&"  ","")`).join('&') + ')' };
 
     [attRow, otRow].forEach(row => {
       for(let c=1; c<=remarksCol; c++){
         const cell = row.getCell(c);
         cell.font = { name: FONT_NAME, size: 10 };
         cell.border = THIN_BORDER;
-        cell.alignment = { horizontal:'center' };
+        cell.alignment = { horizontal: (c === 3 || c === 4) ? 'left' : 'center' };
       }
     });
 
@@ -11000,17 +11211,9 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   // a compact 2-row grid of color-coded badges, so it stays visible next
   // to the header without scrolling down through however many employee
   // rows the sheet has). ----
-  const legend = [
-    ['P','Present'], ['A','Absent'], ['SL','Sick Leave'], ['AL','Annual Leave'],
-    ['EL','Emergency Leave'], ['PR','Passport Renewal'], ['UL','Umrah Leave'], ['HL','Hajj Leave'],
-    ['VM','Visa Medical'], ['TT','Taujee Training'], ['VB','Visa Biometric'], ['SA','Site Accident'],
-    ['OS','Other Site'], ['H','Holiday']
-  ];
-  const LEGEND_COLORS = {
-    P:'FF8FAADC', A:'FFED7D31', SL:'FFFFD966', AL:'FFA9D18E', EL:'FFFF8A8A',
-    PR:'FFB4C7E7', UL:'FFC6E0B4', HL:'FFD9D2E9', VM:'FFF8CBAD', TT:'FFBDD7EE',
-    VB:'FFFFE699', SA:'FFFF9999', OS:'FFD9D9D9', H:'FFBFBFBF'
-  };
+  const legend = [['P','Present'], ['A','Absent'], ...attRules.map(r => [r.code, r.label]), ['H','Holiday']];
+  const LEGEND_COLORS = { P:'FF8FAADC', A:'FFED7D31', H:'FFBFBFBF' };
+  attRules.forEach(r => { LEGEND_COLORS[r.code] = 'FF' + String(r.color || '#D9D9D9').replace('#', '').toUpperCase(); });
   const LEGEND_PER_ROW = 7;
   const LEGEND_START_COL = remarksCol + 2;
   ws.getCell(1, LEGEND_START_COL).value = 'Legend:';
@@ -11039,16 +11242,18 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
 
   // ---- Column widths ----
   ws.getColumn(1).width = 5;
-  ws.getColumn(2).width = 12;
-  ws.getColumn(3).width = 22;
-  ws.getColumn(4).width = 14;
-  ws.getColumn(5).width = 10;
+  const attMaxLen = arr => arr.reduce((m, v) => Math.max(m, String(v || '').length), 0);
+  ws.getColumn(2).width = 15;
+  ws.getColumn(3).width = Math.min(48, Math.max(24, attMaxLen(siteLabor.map(w => w.name)) + 4));
+  ws.getColumn(4).width = Math.min(32, Math.max(16, attMaxLen(siteLabor.map(w => w.trade)) + 4));
+  ws.getColumn(5).width = 15;
   ws.getColumn(6).width = 3;
   ws.getColumn(7).width = 5;
   for(let d=0; d<daysInMonth; d++) ws.getColumn(DAY_COL_START+d).width = 4;
   ws.getColumn(totalOTCol).width = 9;
   ws.getColumn(presentCol).width = 8;
   ws.getColumn(absentCol).width = 8;
+  ws.getColumn(leaveCol).width = 8;
   ws.getColumn(remarksCol).width = 16;
   for(let i=0; i<LEGEND_PER_ROW; i++){
     ws.getColumn(LEGEND_START_COL + i*2).width = 4;
@@ -31802,6 +32007,18 @@ document.addEventListener('change', function(ev){
 .hol-item{display:grid;grid-template-columns:90px 1fr 28px;gap:6px;align-items:center;padding:4px 6px;border-bottom:1px solid rgba(148,163,184,.12)}
 .hol-item button{background:none;border:none;color:#fca5a5;cursor:pointer}
 .hol-foot{display:flex;justify-content:flex-end;gap:8px}
+.ar-box{max-width:900px}
+.ar-hd,.ar-row{display:grid;grid-template-columns:120px 1fr 110px 180px 120px 28px;gap:6px;align-items:center}
+.ar-hd{font-size:10.5px;font-weight:700;color:#8fb3d1;text-transform:uppercase;letter-spacing:.03em;padding:4px 0;border-bottom:1px solid rgba(148,163,184,.25)}
+.ar-row{padding:6px 0;border-bottom:1px solid rgba(148,163,184,.12)}
+.ar-code{display:flex;gap:6px;align-items:center}.ar-code b{min-width:44px;font-size:14px}
+.hol-box .ar-code input[type=color]{width:34px;min-width:34px;height:30px;padding:2px}
+.ar-box .ar-chk{display:flex;align-items:center;gap:6px;margin:0;text-transform:none;font-size:13px;color:#e6f2ff}
+.hol-box .ar-chk input{width:auto}
+.ar-del{background:none;border:none;color:#fca5a5;cursor:pointer;font-size:15px}
+.ar-foot{margin-top:12px;flex-wrap:wrap}
+.ar-m{display:none}
+@media (max-width:700px){.ar-m{display:inline}.ar-row>.ar-chk{grid-column:1 / -1}.ar-hd{display:none}.ar-row{grid-template-columns:1fr 1fr}.ar-row>*{min-width:0}}
 </style>
 <style>
 /* v101: project + phases on Transfer Labor */
