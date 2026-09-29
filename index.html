@@ -22888,7 +22888,17 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
   /* ---------- Manage stores ---------- */
   function personByHr(hr){
-    try{ return (typeof rosterRecordFor === 'function' && rosterRecordFor(String(hr).trim())) || null; }catch(e){ return null; }
+    try{
+      const code = String(hr).trim();
+      const r = (typeof rosterRecordFor === 'function' && rosterRecordFor(code)) || null;
+      if(!r) return null;
+      if(r.trade) return r;
+      // the trade may be written as designation / position, or only in the other list (Labor or Staff)
+      const tOf = x => x ? (x.trade || x.designation || x.position || x.title || '') : '';
+      const lab = (typeof laborRecords !== 'undefined' ? laborRecords : []).find(x => String(x.code) === code);
+      const stf = (typeof staffRecords !== 'undefined' ? staffRecords : []).find(x => String(x.code) === code);
+      return Object.assign({}, r, {trade: tOf(r) || tOf(lab) || tOf(stf)});
+    }catch(e){ return null; }
   }
   function keeperNames(list){
     return (list || []).map(h => { const r = personByHr(h); return r ? `${esc(r.name)} <span class="st-muted">(HR ${esc(h)})</span>` : `HR ${esc(h)}`; }).join('<br>');
@@ -24077,7 +24087,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           if(!hrEl || !nameEl || !whoEl) return;
           const hr = hrEl.value.trim();
           if(!hr){ whoEl.textContent = ''; nameEl.value = ''; return; }
-          const p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
+          let p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
+          if(p && !p.trade){ const q = people.find(x => x.hr === hr); if(q && q.trade) p = Object.assign({}, p, {trade: q.trade}); }
           if(p){
             // the name and the trade always follow the number that was just typed
             nameEl.value = p.name || '';
@@ -24099,7 +24110,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         // makes a group from the foreman written at the top; returns its name, or null if the user said no
         async function tsMakeCrewFromTop(){
           const hr = $('tsCfHr').value.trim();
-          const p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
+          let p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
+          if(p && !p.trade){ const q = people.find(x => x.hr === hr); if(q && q.trade) p = Object.assign({}, p, {trade: q.trade}); }
           const typed = $('tsCfName').value.trim();
           const nm = typed || (p ? p.name : '');
           if(!nm && !hr) throw new Error('Write the foreman HR number (or his name) at the top first.');
@@ -24116,7 +24128,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         }
         $('tsCadd').addEventListener('click', e => busy(e.currentTarget, async () => {
           const hr = $('tsCfHr').value.trim();
-          const p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
+          let p = hr ? (personByHr(hr) || people.find(x => x.hr === hr)) : null;
+          if(p && !p.trade){ const q = people.find(x => x.hr === hr); if(q && q.trade) p = Object.assign({}, p, {trade: q.trade}); }
           const typed = $('tsCfName').value.trim();
           const nm = typed || (p ? p.name : '');
           if(!nm && !hr) throw new Error('Enter the foreman HR number or his name.');
@@ -24613,7 +24626,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           hrEl.addEventListener('input', () => {
             const hr = hrEl.value.trim();
             if(!hr){ nameEl.value = ''; msg.textContent = ''; return; }
-            const p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
+            let p = (typeof personByHr === 'function' ? personByHr(hr) : null) || people.find(x => x.hr === hr);
+            if(p && !p.trade){ const q = people.find(x => x.hr === hr); if(q && q.trade) p = Object.assign({}, p, {trade: q.trade}); }
             if(p){
               nameEl.value = p.name || '';
               msg.innerHTML = `<span style="color:#86efac">✔ ${label}: ${esc(p.name)} · ${esc(p.trade || p.designation || '')}</span>`;
