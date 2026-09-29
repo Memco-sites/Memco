@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v124 — Al Muhanad</title>
+<title>MEMCO Operations Console v125 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -27904,7 +27904,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
   const CLEAR = {
     'date-edit-requests-v1':      ['Past-date edit requests / approvals', 'Requests to change old attendance dates.'],
     'handover-notify-v1':         ['Vehicle handover notifications', 'Driver handover inbox messages.'],
-    'ppe-issues-v1':              ['PPE issues to workers', 'Every PPE item issued during the trial.']
+    'ppe-issues-v1':              ['PPE issues to workers', 'Every PPE item issued during the trial.'],
+    'memco-sheets-v1':            ['Printed time sheets list (phone copy) & read marks', 'Test sheets printed and read during the trial.'],
+    'memco-phase-moves-v1':       ['Phase-to-phase move log', 'Men moved between phases during the trial.']
   };
   // Setup work: shown, NOT ticked by default
   const OPTIONAL = {
@@ -27915,6 +27917,15 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     'damac-subcontractor-package-alloc-v1':['DAMAC package allocations', 'Package allocation of sub-contractors.'],
     'camps-v1':                            ['Labor camps & rooms — back to the original list', 'Undoes camp changes, Excel camp loads and room moves made during the trial. Workers and staff are NOT touched.']
   };
+  // sets that go back to their original list (not to empty) when reset
+  const RESTORE = {'camps-v1': true};
+  // what a cleared set becomes: camps go back to the original list; other lists become empty of the same shape
+  function resetValue(k, cur){
+    if(k === 'camps-v1') return (typeof CAMPS_DATA !== 'undefined') ? JSON.parse(JSON.stringify(CAMPS_DATA)) : [];
+    if(Array.isArray(cur)) return [];
+    if(cur && typeof cur === 'object') return {};
+    return [];
+  }
   const FAMILY_RX = /^project-family-v24-(.+)-(.+)$/;
   // Master data: never cleared by this tool
   const KEEP = {
@@ -27923,7 +27934,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     'projects-v1':'Projects list', 'custom-roles-v1':'Roles', 'role-perms-matrix-v2':'Permissions',
     'project-ot-settings-v1':'Overtime settings', 'public-holidays-v1':'Public holidays',
     'ppe-settings-v1':'PPE settings', 'ppe-sizes-v1':'Worker PPE sizes', 'driver-licenses-v1':'Driver licenses',
-    'users-v1':'(old user list — not used)', 'records-epoch':'(reset marker)'
+    'users-v1':'(old user list — not used)', 'records-epoch':'(reset marker)',
+    'memco-crews-v1':'Foremen groups (copy for phones)', 'memco-siteinfo-v1':'Job No & Location of sites',
+    'memco-project-families-v1':'Project phases (families)', 'memco-holiday-names':'Holiday names'
   };
 
   let rows = [];          // [{id, updated_at}] from Supabase
@@ -27953,15 +27966,19 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     body.innerHTML = '<div class="tr-note">Loading…</div>';
     try{
       const c = client(); if(!c) throw new Error('Server connection is still loading.');
+      body.innerHTML = '<div class="tr-note">Loading… reading the saved lists from the server</div>';
       rows = await q(c.from(TABLE).select('id,updated_at').order('id'));
-      try{ await q(c.rpc('st_whoami', {})); storesReady = true; }catch(e){ storesReady = false; }
       bucketCounts = {};
-      for(const b of Object.keys(BUCKETS)){
-        try{
-          const r = await wait(c.from('app_records').select('rkey', {count:'exact', head:true}).eq('bucket', b).eq('deleted', false), 20000);
-          if(r && !r.error) bucketCounts[b] = r.count || 0;
-        }catch(e){}
-      }
+      // everything else at the same time, each with a short wait — a slow count never blocks the screen
+      await Promise.all([
+        (async () => { try{ const r = await wait(c.rpc('st_whoami', {}), 8000); storesReady = !!(r && !r.error); }catch(e){ storesReady = false; } })(),
+        ...Object.keys(BUCKETS).map(async b => {
+          try{
+            const r = await wait(c.from('app_records').select('rkey', {count:'exact', head:true}).eq('bucket', b).eq('deleted', false), 8000);
+            if(r && !r.error) bucketCounts[b] = r.count || 0;
+          }catch(e){}
+        })
+      ]);
     }catch(e){
       body.innerHTML = `<div class="tr-note warn">${esc(e.message)}</div>`;
       return;
@@ -31346,7 +31363,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v124';
+  const V = 'v125';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
