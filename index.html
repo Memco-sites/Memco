@@ -6757,6 +6757,9 @@ function can(key){
   if(currentUser.role === "Super Admin" || currentUser.superUserBypass) return true;
   const m = ROLE_PERM_MATRIX[currentUser.role];
   if(m && m[key]) return true;
+  // the people who run a site's men always reach Projects, to put their men on a
+  // sub-project when the engineer sends them there (a foreman only sees his own group)
+  if(key === 'homeVillasCard' && ['Timekeeper', 'Foreman', 'Site Supervisor', 'Site Engineer', 'Project Engineer', 'Project Manager', 'Admin'].includes(currentUser.role)) return true;
   // Temporary Acting Role (Admin Control Hub): grants whatever that acting
   // role can do, ON TOP OF the person's own role, for a bounded window --
   // checked live on every call so it expires on its own the moment
@@ -8051,6 +8054,13 @@ async function ensureForemanMen(){
   }catch(e){ return null; }
 }
 function foremanSees(code){ return !foremanMen || foremanMen.has(String(code)); }
+// on the Projects screens a foreman moves only his own men — and nobody's if his group is not found yet
+function projectSees(code){
+  try{
+    if(!currentUser || !/^foreman$/i.test(currentUser.role || '')) return true;
+    return !!foremanMen && foremanMen.has(String(code));
+  }catch(e){ return true; }
+}
 function siteAllowed(site){
   const list = lockedSiteList();
   return !list || list.includes(site);
@@ -9186,6 +9196,7 @@ async function goStaff(){
   if(!staffDataLoaded){ await loadStaffData(); staffDataLoaded = true; }
 }
 async function goVillas(){
+  try{ if(typeof ensureForemanMen === 'function') await ensureForemanMen(); }catch(e){}   // a foreman's own men, before the lists are drawn
   showSection('villasView');
   if(!villaDataLoaded){ await loadVillaData(); villaDataLoaded = true; }
 }
@@ -9553,6 +9564,7 @@ document.getElementById('attProject').addEventListener('change', () => onDateOrP
 // whose attendance is on the screen
 document.getElementById('attWho').addEventListener('change', e => {
   ATT_WHO = e.target.value;
+  try{ renderDateLockBanner(); }catch(err){}
   if(typeof renderLaborAttChecklist === 'function') renderLaborAttChecklist();
 });
 
@@ -9734,12 +9746,15 @@ async function onDateOrProjectChange(){
   currentMarkedSet = new Set();
   currentLeaveAuto = new Set();
   if(dailyExisting && dailyExisting.attendanceTaken !== false && (dailyExisting.attendanceTaken || (dailyExisting.absentees || []).length || dailyExisting.presentCount)){
-    (dailyExisting.absentees || []).forEach(a => { currentAbsentMap[a.code] = a.reason || ''; });
-    // a day already saved: everybody on it counts as marked
-    laborRecords.filter(l => l.site === project).forEach(l => currentMarkedSet.add(l.code));
+    // saved group by group: only the men in the saved list count as marked
+    const savedList = Array.isArray(dailyExisting.marked) ? new Set(dailyExisting.marked.map(String)) : null;
+    (dailyExisting.absentees || []).forEach(a => { if(!savedList || savedList.has(String(a.code))) currentAbsentMap[a.code] = a.reason || ''; });
+    laborRecords.filter(l => l.site === project).forEach(l => { if(!savedList || savedList.has(String(l.code))) currentMarkedSet.add(l.code); });
     laborRecords.filter(l => l.site === project && hrIsOnLeave(l.status) && currentAbsentMap.hasOwnProperty(l.code)).forEach(l => currentLeaveAuto.add(l.code));
-  } else {
-    const siteMen = laborRecords.filter(l => l.site === project);
+  }
+  // men not saved yet (a fresh day, or the groups still to come) start the usual way
+  if(!(dailyExisting && dailyExisting.attendanceTaken && !Array.isArray(dailyExisting.marked))){
+    const siteMen = laborRecords.filter(l => l.site === project && !currentMarkedSet.has(l.code));
     // a man on leave in HR stays on leave, day after day, until he is marked back on duty
     siteMen.filter(l => hrIsOnLeave(l.status)).forEach(l => {
       currentAbsentMap[l.code] = leaveReasonFor(l.status); currentMarkedSet.add(l.code); currentLeaveAuto.add(l.code);
@@ -9751,7 +9766,7 @@ async function onDateOrProjectChange(){
     // what the signed sheets said for this day (📄): already marked, the timekeeper only saves the day
     const sm = (dailyExisting && dailyExisting.sheetMarks) || {};
     Object.keys(sm).forEach(code => {
-      if(!siteMen.some(l => l.code === code)) return;
+      if(!siteMen.some(l => l.code === code)) return;   // only men not saved yet
       currentMarkedSet.add(code);
       if(sm[code]){ delete currentAbsentMap[code]; currentLeaveAuto.delete(code); }
       else if(!currentLeaveAuto.has(code)) currentAbsentMap[code] = '';
@@ -9935,11 +9950,29 @@ async function loadAttMonthClose(force){
 async function saveAttMonthClose(){
   try{ await window.storage.set(ATT_MONTH_CLOSE_KEY, JSON.stringify(attMonthClose), true); }catch(e){ showToast('Could not save — try again'); }
 }
+// the men now on the screen: the chosen group, the men in no group, or the whole site
+function attViewCodes(project){
+  try{
+    const siteMen = laborRecords.filter(l => l.site === project);
+    const men = (typeof attWhoMen === 'function') ? attWhoMen(siteMen) : siteMen;
+    return men.map(l => String(l.code));
+  }catch(e){ return []; }
+}
+// attendance / OT is saved group by group: a day counts as saved (and locks) for
+// the men on the screen only when every one of them was saved. Days saved before
+// this (no list of names) count as saved for everybody.
 function attSavedInfo(project, date, type){
   const r = dailyLaborRecords.find(x => x.date === date && x.project === project);
   if(!r) return null;
-  if(type === 'overtime') return r.otTs ? {by: r.otEnteredBy || '', at: r.otTs} : null;
-  return r.attendanceTaken ? {by: r.enteredBy || '', at: r.ts} : null;
+  const list = type === 'overtime' ? r.otSaved : r.marked;
+  const done = type === 'overtime' ? !!r.otTs : !!r.attendanceTaken;
+  if(!done) return null;
+  if(Array.isArray(list) && project === ((document.getElementById('attProject') || {}).value || '')){
+    const have = new Set(list.map(String));
+    const view = attViewCodes(project);
+    if(!view.length || !view.every(c => have.has(c))) return null;
+  }
+  return type === 'overtime' ? {by: r.otEnteredBy || '', at: r.otTs} : {by: r.enteredBy || '', at: r.ts};
 }
 // may this person open (✏ Edit) or first-enter this date?
 function attMayEdit(project, date){
@@ -9975,8 +10008,11 @@ function attDiffAttendance(prev, absentees, project){
   (prev.absentees || []).forEach(a => { was[String(a.code)] = a.reason || 'A'; });
   absentees.forEach(a => { now[String(a.code)] = a.reason || 'A'; });
   const out = [];
+  const before = Array.isArray(prev.marked) ? new Set(prev.marked.map(String)) : null;
   laborRecords.filter(l => l.site === project).forEach(l => {
-    const c = String(l.code), a = was[c] || 'P', b = now[c] || 'P';
+    const c = String(l.code);
+    if(before && !before.has(c)) return;          // saved for the first time now — not a change
+    const a = was[c] || 'P', b = now[c] || 'P';
     if(a !== b) out.push({code: c, name: l.name || '', from: a, to: b});
   });
   return out;
@@ -10698,7 +10734,7 @@ function renderLaborAttChecklist(){
     const absentOnOtDate = currentOtDateAbsentMap.hasOwnProperty(l.code);
     const { isExempt, workerOtOn, cap: rowCap } = rowOtState(l.code);
     const otDisabled = !workerOtOn || absentOnOtDate || otDateLocked || currentLeaveAuto.has(l.code);
-    const otVal = otDisabled ? '' : (currentOTMap[l.code] || '');
+    const otVal = (!workerOtOn || absentOnOtDate || currentLeaveAuto.has(l.code)) ? '' : (currentOTMap[l.code] || '');   // locked: shown, not editable
     const otTitle = otDateLocked
       ? `${formatDMY(otDate)} is locked — press ✏ Edit above to change it`
       : (currentLeaveAuto.has(l.code) ? `On ${hrStatusLabel(l.status)} — no overtime`
@@ -11261,7 +11297,7 @@ document.getElementById('attExcelExportBtn').onclick = async () => {
   dailyLaborRecords.forEach(r => { if(r.project === project) attDayRecs[r.date] = r; });
   const attMarkedCodeOn = (wCode, dateStr) => {
     const r = attDayRecs[dateStr];
-    if(r && r.attendanceTaken){
+    if(r && r.attendanceTaken && !(Array.isArray(r.marked) && !r.marked.map(String).includes(String(wCode)))){
       const a = (r.absentees || []).find(x => String(x.code) === String(wCode));
       if(a && a.reason === 'OS') return 'P';                      // old 'Other Site' marks count as Present
       return a ? (a.reason || 'A') : 'P';
@@ -11769,7 +11805,9 @@ async function doSaveAttendance(mode){
   };
   if(!attLocked){
     // nobody is counted present by accident: warn about men nobody has marked
-    const siteMen = laborRecords.filter(l => l.site === project);
+    // only the men on the screen (this group) — the other groups are saved when their turn comes
+    const viewSet = new Set(attViewCodes(project));
+    const siteMen = laborRecords.filter(l => l.site === project && viewSet.has(String(l.code)));
     const loose = siteMen.filter(l => !currentMarkedSet.has(l.code) && !currentAbsentMap.hasOwnProperty(l.code));
     if(loose.length && siteMen.length){
       const sample = loose.slice(0, 6).map(l => l.code).join(', ') + (loose.length > 6 ? ' …' : '');
@@ -11794,18 +11832,24 @@ async function doSaveAttendance(mode){
 
   // Present/Absent is recorded against the Attendance date (Foreman
   // Traceability: enteredBy/ts identify who submitted it).
+  const prevDay = dailyLaborRecords.find(r => r.date === date && r.project === project) || {};
+  const siteCodesAll = laborRecords.filter(l => l.site === project).map(l => String(l.code));
+  // who is saved now: whoever was saved before + whoever is marked on the screen
+  const wasSaved = Array.isArray(prevDay.marked) ? prevDay.marked.map(String) : (prevDay.attendanceTaken ? siteCodesAll : []);
+  const markedNow = new Set(wasSaved);
+  siteCodesAll.forEach(c => { if(currentMarkedSet.has(c) || currentAbsentMap.hasOwnProperty(c)) markedNow.add(c); });
   const absentees = Object.keys(currentAbsentMap)
-    .filter(code => laborRecords.some(l => l.site === project && l.code === code))
+    .filter(code => laborRecords.some(l => l.site === project && l.code === code) && markedNow.has(String(code)))
     .map(code => {
       const w = laborRecords.find(l => l.code === code);
       return { code, name: w ? w.name : '', reason: currentAbsentMap[code] || '' };
     });
-  const prevDay = dailyLaborRecords.find(r => r.date === date && r.project === project) || {};
   const nowTs = new Date().toISOString();
   upsertDailyLaborRecord(date, project, {
     total: siteLaborTotal,
-    presentCount: siteLaborTotal - absentees.length,
+    presentCount: markedNow.size - absentees.length,
     absentees,
+    marked: [...markedNow],
     attendanceTaken: true,
     enteredBy: who,
     ts: nowTs,
@@ -11813,7 +11857,8 @@ async function doSaveAttendance(mode){
     firstTs: prevDay.firstTs || (prevDay.attendanceTaken ? (prevDay.ts || '') : nowTs)
   });
   if(prevDay.attendanceTaken){
-    pushLog(date, {type: 'attendance', at: nowTs, by: who, reason: attEdit ? attEdit.reason : '', changes: attDiffAttendance(prevDay, absentees, project)});
+    const ch = attDiffAttendance(prevDay, absentees, project);
+    if(ch.length || attEdit) pushLog(date, {type: 'attendance', at: nowTs, by: who, reason: attEdit ? attEdit.reason : '', changes: ch});
   }
   }
 
@@ -11829,7 +11874,15 @@ async function doSaveAttendance(mode){
       }
     });
     const prevOt = dailyLaborRecords.find(r => r.date === otDate && r.project === project) || {};
-    const otChanges = prevOt.otTs ? attDiffOt(prevOt.otHours, otHours) : null;
+    const otSiteAll = laborRecords.filter(l => l.site === project).map(l => String(l.code));
+    const otWas = Array.isArray(prevOt.otSaved) ? prevOt.otSaved.map(String) : (prevOt.otTs ? otSiteAll : []);
+    const otSavedNow = [...new Set(otWas.concat(attViewCodes(project)))];
+    let otChanges = null;
+    if(prevOt.otTs){
+      const wasSet = new Set(otWas);
+      const pick = m => { const o = {}; Object.keys(m || {}).forEach(k => { if(wasSet.has(String(k))) o[k] = m[k]; }); return o; };
+      otChanges = attDiffOt(pick(prevOt.otHours), pick(otHours));
+    }
     const otContract = Object.assign({}, prevOt.otContract || {}, attContractPending);
     Object.keys(otContract).forEach(c => { if(!otHours[c]) delete otContract[c]; });
     attContractPending = {};
@@ -11837,9 +11890,10 @@ async function doSaveAttendance(mode){
       otHours,
       otContract,
       otEnteredBy: who,
+      otSaved: otSavedNow,
       otTs: new Date().toISOString()
     });
-    if(otChanges) pushLog(otDate, {type: 'overtime', at: new Date().toISOString(), by: who, reason: otEdit ? otEdit.reason : '', changes: otChanges});
+    if(otChanges && (otChanges.length || otEdit)) pushLog(otDate, {type: 'overtime', at: new Date().toISOString(), by: who, reason: otEdit ? otEdit.reason : '', changes: otChanges});
   }
   // saved = locked again
   delete attEditOpen[attLockKey(project, date, 'attendance')];
@@ -20142,6 +20196,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(!isDamacSite(x.site)) return;
         const code=String(x.code||x.id||'');
         if(!code) return;
+        if(typeof projectSees==='function' && !projectSees(code)) return;   // a foreman: only his own men
         const key=type+':'+code;
         map.set(key,{
           key,code,type,
@@ -20401,6 +20456,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         if(!isDamac(x.site)) return;
         const code=String(x.code||x.id||'').trim();
         if(!code) return;
+        if(typeof projectSees==='function' && !projectSees(code)) return;   // a foreman: only his own men
         const key=type+':'+code;
         const trade=x.trade||x.designation||x.category||'';
         map.set(key,{
@@ -21021,6 +21077,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         const s=up(x.site);
         if(!f.aliases.some(a=>up(a)===s)) return;
         const code=String(x.code||x.id||'').trim(); if(!code)return;
+        if(typeof projectSees==='function' && !projectSees(code)) return;   // a foreman: only his own men
         const key=type+':'+code;
         const trade=x.trade||x.designation||x.category||'';
         map.set(key,{key,code,type,name:x.name||'',trade,discipline:discipline(trade),sourceSite:x.site||''});
@@ -24123,6 +24180,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           }
           const tradeTxt = $('tsCtrade').value.trim();
           const crewName = tradeTxt ? (tradeTxt + ' — ' + (nm || 'Group')) : (nm || 'Group');
+          // the same foreman with the same trade already has a group here: no second copy
+          const twin = crews.find(c => (hr && String(c.foreman_hr || '') === String(hr)) && String(c.trade || '') === tradeTxt);
+          if(twin && !confirm(`${nm || 'This foreman'} already has a ${tradeTxt || ''} group on this site ("${twin.name}", ${(twin.members || []).length} men).\n\nMake ANOTHER group for him anyway?`)) return null;
           await rpc('st_crew_save', {p: {group_code: group, name: crewName, trade: tradeTxt, foreman_hr: hr, foreman_name: nm}});
           return {crewName, hr, nm};
         }
@@ -24144,6 +24204,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           }
           const tradeTxt = $('tsCtrade').value.trim();
           const crewName = tradeTxt ? (tradeTxt + ' — ' + (nm || 'Group')) : (nm || 'Group');
+          // the same foreman with the same trade already has a group here: no second copy
+          const twin = crews.find(c => (hr && String(c.foreman_hr || '') === String(hr)) && String(c.trade || '') === tradeTxt);
+          if(twin && !confirm(`${nm || 'This foreman'} already has a ${tradeTxt || ''} group on this site ("${twin.name}", ${(twin.members || []).length} men).\n\nMake ANOTHER group for him anyway?`)) return null;
           await rpc('st_crew_save', {p: {group_code: group, name: crewName,
             trade: tradeTxt, foreman_hr: hr, foreman_name: nm}});
           toast('Group added');
