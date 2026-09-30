@@ -19637,6 +19637,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 
       if(restriction&&restriction.length===1){
         const only=restriction[0];
+        {const fd=document.getElementById('v24FamilyDashboard'); if(fd) fd.style.display='none';}
+        // a man tied to a big project (DAMAC LAGOONS, ACRES, CANAL CROWN) gets the same
+        // sub-project screen as the office -- with its manpower assignment -- not the bare villa list
+        if(isDamac(only)){ showDashboard(all.filter(p=>isDamac(p))); return; }
+        if(typeof window.__v24FamilyOf==='function'){
+          const fam=window.__v24FamilyOf(only);
+          if(fam){ window.__v24OpenFamily(fam); return; }
+        }
         window.__v16OpenProject(only);setTimeout(()=>renderDisciplineBar(only),0);return;
       }
 
@@ -21190,6 +21198,9 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     scheduleProjectTransform();
   }
 
+  // for the locked-site path of the Projects list: which family a site belongs to, and open it
+  window.__v24FamilyOf=site=>{const u=String(site||'').trim().toUpperCase();return Object.keys(FAMILIES).find(k=>FAMILIES[k].aliases.some(a=>String(a).toUpperCase()===u))||null;};
+  window.__v24OpenFamily=key=>{if(FAMILIES[key])openFamily(FAMILIES[key]);};
   async function openFamily(f){
     ensureDashboard(); currentFamily=f; selected.clear();
     familyMp=await loadState('mp',f); familySc=await loadState('sc',f);
