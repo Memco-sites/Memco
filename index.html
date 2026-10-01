@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v139 — Al Muhanad</title>
+<title>MEMCO Operations Console v140 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -29951,8 +29951,8 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     <div class="sa-note"><b>Staff sign in freely</b> — this screen is for the <b>labor side</b> (workers, foremen, supervisors…).
       Tick who may use the app. <b>Login</b> is needed first — without it the person cannot register and cannot sign in.
       <b>Attendance</b> lets him mark attendance, <b>Store</b> lets him ask the store for material. Changes apply at once, also to people already signed in.</div>
-    <div class="sa-filters">
-      <div class="sa-f"><label>Search</label><input id="saQ" placeholder="HR number, name or trade"></div>
+    <div class="sa-filters sa-bulk sa-oneline">
+      <div class="sa-f sa-f-q"><label>Search</label><input id="saQ" placeholder="HR number, name or trade"></div>
       <div class="sa-f s"><label>Site</label><select id="saSite"></select></div>
       <div class="sa-f s"><label>Show</label><select id="saOnly">
         <option value="">Labor only (needs permission)</option>
@@ -29964,17 +29964,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
         <option value="all">Everyone (labor + staff)</option></select></div>
       <button type="button" class="sa-btn" id="saSearch">Search</button>
       <button type="button" class="sa-btn sa-ghost" id="saCsv">⬇ Excel (CSV)</button>
-    </div>
-    <div class="sa-bulk">
-      <span id="saCount" class="sa-muted"></span>
-      <span style="flex:1"></span>
-      <span class="sa-muted">Tick the rows, then:</span>
+      <span class="sa-muted sa-tick">Tick the rows, then:</span>
       <button type="button" class="sa-btn sa-sm sa-ok" data-bulk="login-on">+ Login</button>
       <button type="button" class="sa-btn sa-sm sa-ghost" data-bulk="login-off">− Login</button>
       <button type="button" class="sa-btn sa-sm sa-ok" data-bulk="att-on">+ Attendance</button>
       <button type="button" class="sa-btn sa-sm sa-ghost" data-bulk="att-off">− Attendance</button>
       <button type="button" class="sa-btn sa-sm sa-ok" data-bulk="store-on">+ Store</button>
       <button type="button" class="sa-btn sa-sm sa-ghost" data-bulk="store-off">− Store</button>
+      <span id="saCount" class="sa-muted sa-count"></span>
     </div>
     <div id="saList" class="sa-list"></div>
     <div class="sa-save">
@@ -30019,6 +30016,14 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
 #saApp .sa-save{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:10px}
 #saApp select.sa-role{padding:4px 6px;font-size:12.5px;min-width:130px}
 @media (max-width:700px){#saApp .sa-f,#saApp .sa-f.s{flex:1 1 100%}}
+/* v139 layout: shorter Search box, and the Login / Attendance / Store buttons sit in the same line (they wrap by themselves when the window is narrow) */
+@media (min-width:701px){
+  #saApp .sa-oneline{margin-bottom:12px}
+  #saApp .sa-oneline .sa-f.sa-f-q{flex:0 1 190px;min-width:150px}
+  #saApp .sa-oneline .sa-f.s{flex:0 0 160px}
+  #saApp .sa-oneline .sa-tick{margin-left:6px;padding-bottom:7px;white-space:nowrap}
+  #saApp .sa-oneline .sa-count{margin-left:auto;padding-bottom:7px;white-space:nowrap}
+}
 
 /* Big windows keep a fixed frame — only the inside scrolls, Close stays on top */
 .modal.pm-fixed{display:flex;flex-direction:column;height:min(88vh,860px);padding-top:0}
@@ -33559,7 +33564,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v139';
+  const V = 'v140';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -33929,11 +33934,29 @@ document.addEventListener('change', function(ev){
 </style>
 <style>
 /* v119: sync status + system check + new-version bar */
-#memcoSyncPill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 6px);right:8px;z-index:9800;display:none;align-items:center;gap:5px;
+/* v139: the pill sits at the top-centre — at the right it covered the Close / header buttons of every screen */
+#memcoSyncPill{position:fixed;top:calc(env(safe-area-inset-top,0px) + 3px);left:50%;right:auto;transform:translateX(-50%);z-index:9800;display:none;align-items:center;gap:5px;
   padding:4px 10px;border-radius:999px;font:700 11.5px/1.2 'IBM Plex Sans',system-ui,sans-serif;cursor:pointer;border:1px solid;box-shadow:0 2px 10px rgba(0,0,0,.35)}
 #memcoSyncPill.ok{background:rgba(6,40,24,.92);border-color:rgba(74,222,128,.6);color:#86efac}
 #memcoSyncPill.wait{background:rgba(48,32,6,.94);border-color:rgba(251,191,36,.7);color:#fde68a}
 #memcoSyncPill.bad{background:rgba(60,10,10,.94);border-color:rgba(248,113,113,.8);color:#fecaca}
+/* v139 Attendance: the five action buttons in ONE line (wide screens), and a bigger, tighter TOTAL block */
+@media (min-width:901px){
+  #attendanceView .att-export-actions-v7.att-export-actions-v9.att-export-actions-v10{grid-template-columns:repeat(5,minmax(0,1fr)) !important;gap:8px !important}
+  #attendanceView .att-export-actions-v7.att-export-actions-v9.att-export-actions-v10 .btn{padding:10px 8px !important}
+}
+#attendanceView #attSnapshot .att-snapshot-row{display:grid;grid-template-columns:minmax(280px,400px) 1fr;column-gap:26px;align-items:baseline;padding:7px 0}
+#attendanceView #attSnapshot .att-snapshot-label{font-size:14.5px}
+#attendanceView #attSnapshot .att-snapshot-vals{font-size:14px;text-align:left}
+#attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-label{font-size:18px}
+#attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-vals{font-size:16.5px}
+@media (max-width:700px){
+  #attendanceView #attSnapshot .att-snapshot-row{grid-template-columns:1fr;row-gap:3px}
+  #attendanceView #attSnapshot .att-snapshot-label{font-size:13.5px}
+  #attendanceView #attSnapshot .att-snapshot-vals{font-size:13px}
+  #attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-label{font-size:16px}
+  #attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-vals{font-size:14.5px}
+}
 #memcoNewVer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:9850;display:none;
   background:#0b62b9;color:#fff;border:1px solid #7dd3fc;border-radius:12px;padding:10px 14px;font:700 13.5px system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.45);cursor:pointer;max-width:92vw;text-align:center}
 .memco-chk-wrap{position:fixed;inset:0;z-index:9900;background:rgba(2,10,20,.82);display:flex;align-items:center;justify-content:center;padding:12px}
