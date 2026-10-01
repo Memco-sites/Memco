@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v142 — Al Muhanad</title>
+<title>MEMCO Operations Console v143 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -33557,7 +33557,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v142';
+  const V = 'v143';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -33662,7 +33662,20 @@ document.addEventListener('change', function(ev){
     const card = document.getElementById('actingHrCard');
     if(card) row.parentNode.insertBefore(card, row.nextSibling);   // the person's card stays right under the line
   }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', joinActing); else joinActing();
+  // v143: Transfer Labor - Project, the families button, From, To and the worker search share one line
+  function joinTransfer(){
+    const top = document.querySelector('#transferView .tr2-top');
+    const s = document.getElementById('transferSearch');
+    if(!top || !s || top.dataset.memcoJoined) return;
+    top.dataset.memcoJoined = '1';
+    top.style.position = 'relative';          // the search box's clear (x) button is placed against this line
+    const oldHost = s.parentElement;
+    const x = oldHost && Array.prototype.find.call(oldHost.children, function(c){ return c.classList && c.classList.contains('memco-clear-x'); });
+    top.appendChild(s);
+    if(x) top.appendChild(x);
+  }
+  function joinAll(){ joinActing(); joinTransfer(); }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', joinAll); else joinAll();
 })();
 </script>
 <style>
@@ -34082,6 +34095,21 @@ document.addEventListener('change', function(ev){
 #adminHubView .ah-acting-row #actingRoleSelect{flex:1 1 200px;width:auto}
 #adminHubView .ah-acting-row #actingDurationSelect{flex:0 0 130px;width:130px}
 #adminHubView .ah-acting-row #actingAssignBtn{flex:0 0 auto}
+
+/* v143: Transfer Labor - Project, families button, From, To and the worker search on ONE line */
+@media (min-width:1100px){
+  #transferView .tr2-top{flex-wrap:nowrap}
+  #transferView .tr2-top .tr2-proj{flex:0 1 300px !important}
+  #transferView .tr2-top > .att-inline-row:not(.tr2-proj){flex:1 1 190px !important;min-width:0}
+  #transferView .tr2-top #transferSearch{flex:1 1 240px !important;width:auto !important;min-width:170px;margin:0 !important}
+}
+
+/* v143: Admin Hub person card (HR number, designation, site, login account) - clear, dark-on-light-enough text, label and value both bold */
+#adminHubView .admin-lookup-card .detail-field-row .df-label{color:#e6f0fa !important;font-weight:700 !important}
+#adminHubView .admin-lookup-card .detail-field-row .df-value{color:#ffffff !important;font-weight:700 !important}
+#adminHubView .admin-lookup-card .detail-field-row .df-value.df-empty{color:#b6c7d9 !important;font-weight:600 !important}
+#adminHubView #multiProjectSaveBtn{flex:0 0 260px !important;width:260px}
+#adminHubView #multiProjectClearBtn{flex:0 0 auto}
 #memcoNewVer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:9850;display:none;
   background:#0b62b9;color:#fff;border:1px solid #7dd3fc;border-radius:12px;padding:10px 14px;font:700 13.5px system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.45);cursor:pointer;max-width:92vw;text-align:center}
 .memco-chk-wrap{position:fixed;inset:0;z-index:9900;background:rgba(2,10,20,.82);display:flex;align-items:center;justify-content:center;padding:12px}
