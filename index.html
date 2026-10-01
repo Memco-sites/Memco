@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v140 — Al Muhanad</title>
+<title>MEMCO Operations Console v141 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -4959,11 +4959,8 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
        All dynamic content is rendered by the PPE block in the main script
        (search for "PPE & SAFETY GEAR MODULE"). ===== -->
   <div id="ppeView" style="display:none;">
-    <div class="ppe-head">
-      <div>
-        <h1>PPE &amp; Safety Gear</h1>
-        <p id="ppeHeadSub">Who has what, what is due for re-issue, what each camp holds, and what to buy next.</p>
-      </div>
+    <div class="hero" style="margin-bottom:8px;">
+      <h1 style="font-size:22px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">PPE &amp; Safety Gear <span class="hero-sub" id="ppeHeadSub" style="font-size:12px;font-weight:400;margin:0;">Who has what, what is due for re-issue, what each camp holds, and what to buy next.</span></h1>
     </div>
 
     <div class="ppe-tally" id="ppeTally" aria-live="polite"></div>
@@ -11339,16 +11336,9 @@ function renderAttSnapshot(){
 
   document.getElementById('attSnapshot').innerHTML = `
     <div class="att-snapshot-row" style="border-bottom:2px solid var(--orange);">
-      <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">TOTAL — ${escapeHtml(project)} · ${grandTotal} people</span>
-      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">Present ${present} · Absent ${absentTotal - holTotal}${reasonSummary}${notMarkedTxt}</span>
-    </div>
-    <div class="att-snapshot-row">
-      <span class="att-snapshot-label">👷 Total Labor Deployed (Al Muhanad): ${almTotal}</span>
-      <span class="att-snapshot-vals">${almTotal===0 ? 'No data' : `Present ${present}${reasonSummary}${notMarkedTxt}`}</span>
-    </div>
-    <div class="att-snapshot-row" data-snap="sub">
-      <span class="att-snapshot-label">🏗 Sub-Contractor (${subTotal})</span>
-      <span class="att-snapshot-vals">Labor ${subLabor} · Sup ${subSup} · Eng ${subEng} · Foreman ${subFor}</span>
+      <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">TOTAL — ${escapeHtml(project)} · Al Muhanad Labor ${almTotal}</span>
+      <span class="att-snapshot-label" data-snap="sub" style="color:var(--orange);font-weight:600;" title="Labor ${subLabor} · Sup ${subSup} · Eng ${subEng} · Foreman ${subFor}">Sub-Contractor ${subTotal}${subTotal ? ` (Labor ${subLabor} · Sup ${subSup} · Eng ${subEng} · Foreman ${subFor})` : ''}</span>
+      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">${almTotal===0 ? 'No data' : `Present ${present} · Absent ${absentTotal - holTotal}${reasonSummary}${notMarkedTxt}`}</span>
     </div>
   `;
 }
@@ -31702,7 +31692,7 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
     // Replace wipes whatever is not in the file, so only an admin may see it.
     return `<div class="bs-bar">
         <button class="bs-b bs-info" title="What the columns must look like" data-bs-format="${kind}">
-          <span class="bs-i">📋</span><span>Format</span></button>
+          <span class="bs-i">📋</span><span>Excel Format</span></button>
         ${f('bs-go', '📥', kind === 'labor' ? 'Update labor' : 'Update staff', kind, 'update', 'Update from an Excel file — nothing is deleted')}
         ${f('bs-warn memco-admin-only', '♻', one ? 'Replace list' : 'Replace staff', kind, 'replace', 'ADMIN ONLY — the list becomes exactly what the file says')}
       </div>
@@ -33564,7 +33554,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v140';
+  const V = 'v141';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -33601,8 +33591,49 @@ document.addEventListener('change', function(ev){
     site.style.display = 'none';
     main.classList.add('bs-bar-six');
   }
-  setInterval(function(){ if(!document.hidden) join(); }, 700);   // #17
-  document.addEventListener('DOMContentLoaded', join);
+  // v141: Staff screen - Format / Update / Replace, the site filter and the search box on one line
+  function joinStaff(){
+    const bar = document.querySelector('#staffView .bs-bar');
+    const line = document.querySelector('#staffView .att-one-line');
+    if(!bar || !line || line.dataset.memcoJoined) return;
+    line.dataset.memcoJoined = '1';
+    while(line.firstChild) bar.appendChild(line.firstChild);
+    line.style.display = 'none';
+    bar.style.position = 'relative';        // the search box's clear (x) button is placed against this line
+    bar.classList.add('bs-bar-staff');
+  }
+  setInterval(function(){ if(!document.hidden){ join(); joinStaff(); } }, 700);   // #17
+  document.addEventListener('DOMContentLoaded', function(){ join(); joinStaff(); });
+})();
+</script>
+<script>
+/* v141: Vehicles screen - the two tabs and the search box share one line (the search box that belongs to the open tab is the one shown) */
+(function(){
+  function sync(vs, ds){
+    const sub = document.getElementById('vehiclesSubView');
+    const vOn = !sub || sub.style.display !== 'none';
+    vs.style.display = vOn ? '' : 'none';
+    ds.style.display = vOn ? 'none' : '';
+  }
+  function joinVeh(){
+    const tabs = document.getElementById('vehiclesTopTabs');
+    const vs = document.getElementById('vehicleSearch');
+    const ds = document.getElementById('driverRosterSearch');
+    if(!tabs || !vs || !ds || tabs.dataset.memcoJoined) return;
+    tabs.dataset.memcoJoined = '1';
+    tabs.classList.add('veh-toolbar');
+    tabs.style.position = 'relative';       // the search box's clear (x) button is placed against this line
+    // an (x) button already made for a search box stays with it
+    [vs, ds].forEach(function(inp){
+      const oldHost = inp.parentElement;
+      const x = oldHost && Array.prototype.find.call(oldHost.children, function(c){ return c.classList && c.classList.contains('memco-clear-x'); });
+      tabs.appendChild(inp);
+      if(x) tabs.appendChild(x);
+    });
+    sync(vs, ds);
+    tabs.querySelectorAll('[data-vtab]').forEach(function(b){ b.addEventListener('click', function(){ setTimeout(function(){ sync(vs, ds); }, 0); }); });
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', joinVeh); else joinVeh();
 })();
 </script>
 <style>
@@ -33945,18 +33976,64 @@ document.addEventListener('change', function(ev){
   #attendanceView .att-export-actions-v7.att-export-actions-v9.att-export-actions-v10{grid-template-columns:repeat(5,minmax(0,1fr)) !important;gap:8px !important}
   #attendanceView .att-export-actions-v7.att-export-actions-v9.att-export-actions-v10 .btn{padding:10px 8px !important}
 }
-#attendanceView #attSnapshot .att-snapshot-row{display:grid;grid-template-columns:minmax(280px,400px) 1fr;column-gap:26px;align-items:baseline;padding:7px 0}
-#attendanceView #attSnapshot .att-snapshot-label{font-size:14.5px}
-#attendanceView #attSnapshot .att-snapshot-vals{font-size:14px;text-align:left}
-#attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-label{font-size:18px}
-#attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-vals{font-size:16.5px}
+/* v141: ONE line - TOTAL (Al Muhanad labor) and Sub-Contractor side by side in the same colour and size, the Present / Absent figures at the far end */
+#attendanceView #attSnapshot .att-snapshot-row{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:34px;row-gap:4px;padding:9px 0}
+#attendanceView #attSnapshot .att-snapshot-label{font-size:18px;font-weight:600}
+#attendanceView #attSnapshot .att-snapshot-vals{font-size:16.5px;margin-left:auto;text-align:right}
 @media (max-width:700px){
-  #attendanceView #attSnapshot .att-snapshot-row{grid-template-columns:1fr;row-gap:3px}
-  #attendanceView #attSnapshot .att-snapshot-label{font-size:13.5px}
-  #attendanceView #attSnapshot .att-snapshot-vals{font-size:13px}
-  #attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-label{font-size:16px}
-  #attendanceView #attSnapshot .att-snapshot-row:first-child .att-snapshot-vals{font-size:14.5px}
+  #attendanceView #attSnapshot .att-snapshot-row{column-gap:14px}
+  #attendanceView #attSnapshot .att-snapshot-label{font-size:15px}
+  #attendanceView #attSnapshot .att-snapshot-vals{font-size:13.5px;margin-left:0;text-align:left;flex:1 1 100%}
 }
+
+/* v141: the Synced pill sits INSIDE the top strip (same line as the title and "System Ready"), in the middle - it can no longer cover a logo or a button */
+#erpTopStrip{position:relative !important}
+#erpTopStrip > #memcoSyncPill{position:absolute;top:50%;left:50%;right:auto;transform:translate(-50%,-50%);z-index:5;box-shadow:none}
+@media (max-width:700px){ #erpTopStrip > #memcoSyncPill{left:auto;right:10px;transform:translateY(-50%)} }
+
+/* v141: Labor Camps - all eight buttons on ONE line, in working order, each with a small line saying what it does */
+@media (min-width:1251px){ #campsView #campBtnRow{grid-template-columns:repeat(8,minmax(0,1fr)) !important} }
+#campsView #campBtnRow .btn{display:flex !important;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:50px;line-height:1.2;padding:6px 6px !important;overflow:hidden;text-overflow:ellipsis}
+#campsView #campBtnRow .btn::after{font-size:10px;font-weight:500;opacity:.78;white-space:nowrap;letter-spacing:0}
+#campsView #addLaborBtn{order:1}#campsView #addCampBtn{order:2}#campsView #campShiftBtn{order:3}#campsView #campLaborSearchBtn{order:4}
+#campsView #campBtnRow [data-bs-format="camps"]{order:5}#campsView #campTemplateBtn{order:6}#campsView #campBtnRow > label.btn{order:7}#campsView #campExportBtn{order:8}
+#campsView #addLaborBtn::after{content:"register a new worker"}
+#campsView #addCampBtn::after{content:"create a new camp"}
+#campsView #campShiftBtn::after{content:"move workers between rooms"}
+#campsView #campLaborSearchBtn::after{content:"find a worker by name / HR"}
+#campsView #campBtnRow [data-bs-format="camps"]::after{content:"the Excel columns needed"}
+#campsView #campTemplateBtn::after{content:"download the blank sheet"}
+#campsView #campBtnRow > label.btn::after{content:"upload the filled sheet"}
+#campsView #campExportBtn::after{content:"download the current list"}
+
+/* v141: Format / Update / Replace / site-list buttons (Labor and Staff screens): a small line under each name says what it does */
+.bs-b{flex-wrap:wrap;align-content:center;row-gap:1px}
+.bs-b::after{flex:0 0 100%;text-align:center;font-size:10px;font-weight:500;opacity:.78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bs-info::after{content:"see the Excel columns needed"}
+.bs-go::after{content:"from Excel - nothing is deleted"}
+.bs-warn::after{content:"admin only - replaces the whole list"}
+.bs-site::after{content:"upload one site's sheet"}
+#ssWaitBtn::after{content:"people with no site yet"}
+#ssDblBtn::after{content:"same HR number, two sites"}
+
+/* v141: Staff - the three buttons, the site filter and the search box on ONE line */
+@media (min-width:1000px){
+  #staffView .bs-bar-staff{flex-wrap:nowrap;align-items:center}
+  #staffView .bs-bar-staff .bs-b{flex:0 1 215px;min-width:0}
+  #staffView .bs-bar-staff #staffSiteFilter{flex:0 0 170px !important;width:170px !important}
+  #staffView .bs-bar-staff #staffSearch{flex:1 1 260px !important;min-width:160px !important}
+}
+
+/* v141: Vehicles - the two tabs and the search box on ONE line, and a bigger count line */
+#vehiclesTopTabs.veh-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#vehiclesTopTabs.veh-toolbar .chip{font-size:13.5px;padding:9px 16px}
+#vehiclesTopTabs.veh-toolbar input{flex:1 1 320px;width:auto !important;min-width:200px;margin:0 !important;font-size:13.5px !important;padding:10px 12px !important}
+#vehiclesResultSummary,#driverRosterSummary{font-size:15.5px !important;font-weight:600}
+
+/* v141: PPE - same page-title style as the other screens, clearer tabs */
+#ppeView .ppe-tabs{gap:10px;margin-bottom:12px}
+#ppeView .ppe-tabs .tab-btn{font-size:13.5px !important;font-weight:700 !important;padding:9px 16px !important}
+#ppeView .ppe-toolbar{align-items:center}
 #memcoNewVer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:9850;display:none;
   background:#0b62b9;color:#fff;border:1px solid #7dd3fc;border-radius:12px;padding:10px 14px;font:700 13.5px system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.45);cursor:pointer;max-width:92vw;text-align:center}
 .memco-chk-wrap{position:fixed;inset:0;z-index:9900;background:rgba(2,10,20,.82);display:flex;align-items:center;justify-content:center;padding:12px}
@@ -33984,6 +34061,12 @@ document.addEventListener('change', function(ev){
   function paint(){
     if(!pill) return;
     if(!signedIn()){ pill.style.display = 'none'; return; }
+    // v141: the pill sits inside the top strip (middle of the title line); where there is no strip (driver portal) it stays at the top of the page
+    try{
+      const strip = document.getElementById('erpTopStrip');
+      const want = (strip && getComputedStyle(strip).display !== 'none') ? strip : document.body;
+      if(pill.parentElement !== want) want.appendChild(pill);
+    }catch(e){}
     const {s, health, libOk, online} = state();
     const waiting = s ? (s.rowsWaiting + s.listsWaiting.length) : 0;
     let cls = 'ok', txt = '✔ Synced';
