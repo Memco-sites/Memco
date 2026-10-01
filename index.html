@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v141 — Al Muhanad</title>
+<title>MEMCO Operations Console v142 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -11337,8 +11337,11 @@ function renderAttSnapshot(){
   document.getElementById('attSnapshot').innerHTML = `
     <div class="att-snapshot-row" style="border-bottom:2px solid var(--orange);">
       <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">TOTAL — ${escapeHtml(project)} · Al Muhanad Labor ${almTotal}</span>
-      <span class="att-snapshot-label" data-snap="sub" style="color:var(--orange);font-weight:600;" title="Labor ${subLabor} · Sup ${subSup} · Eng ${subEng} · Foreman ${subFor}">Sub-Contractor ${subTotal}${subTotal ? ` (Labor ${subLabor} · Sup ${subSup} · Eng ${subEng} · Foreman ${subFor})` : ''}</span>
       <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">${almTotal===0 ? 'No data' : `Present ${present} · Absent ${absentTotal - holTotal}${reasonSummary}${notMarkedTxt}`}</span>
+    </div>
+    <div class="att-snapshot-row" data-snap="sub">
+      <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">Sub-Contractor ${subTotal}</span>
+      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">Labor ${subLabor} · Sup ${subSup} · Eng ${subEng} · Foreman ${subFor}</span>
     </div>
   `;
 }
@@ -33554,7 +33557,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v141';
+  const V = 'v142';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -33634,6 +33637,32 @@ document.addEventListener('change', function(ev){
     tabs.querySelectorAll('[data-vtab]').forEach(function(b){ b.addEventListener('click', function(){ setTimeout(function(){ sync(vs, ds); }, 0); }); });
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', joinVeh); else joinVeh();
+})();
+</script>
+<script>
+/* v142: Admin Hub > Temporary Acting Roles - the HR box, the role, the duration and the Assign button share one line */
+(function(){
+  function joinActing(){
+    const hr = document.getElementById('actingHrInput');
+    const role = document.getElementById('actingRoleSelect');
+    const dur = document.getElementById('actingDurationSelect');
+    const btn = document.getElementById('actingAssignBtn');
+    if(!hr || !role || !dur || !btn || hr.dataset.memcoJoined) return;
+    hr.dataset.memcoJoined = '1';
+    const row = document.createElement('div');
+    row.className = 'ah-acting-row';
+    row.style.position = 'relative';          // the search box's clear (x) button is placed against this line
+    const oldHost = hr.parentElement;
+    const x = oldHost && Array.prototype.find.call(oldHost.children, function(c){ return c.classList && c.classList.contains('memco-clear-x'); });
+    hr.parentNode.insertBefore(row, hr);
+    if(x) row.appendChild(x);
+    const emptied = [role.parentElement, dur.parentElement];
+    [hr, role, dur, btn].forEach(function(e){ row.appendChild(e); });
+    emptied.forEach(function(d){ if(d && d.classList.contains('att-one-line') && !d.children.length) d.style.display = 'none'; });
+    const card = document.getElementById('actingHrCard');
+    if(card) row.parentNode.insertBefore(card, row.nextSibling);   // the person's card stays right under the line
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', joinActing); else joinActing();
 })();
 </script>
 <style>
@@ -34034,6 +34063,25 @@ document.addEventListener('change', function(ev){
 #ppeView .ppe-tabs{gap:10px;margin-bottom:12px}
 #ppeView .ppe-tabs .tab-btn{font-size:13.5px !important;font-weight:700 !important;padding:9px 16px !important}
 #ppeView .ppe-toolbar{align-items:center}
+
+/* v142: Admin Hub - the five tabs on ONE line, each with a small line saying what it is for; the long boxes are shortened */
+@media (min-width:1000px){
+  #adminHubView #adminHubTabs.admin-hub-tabs{grid-template-columns:repeat(5,minmax(0,1fr)) !important}
+}
+#adminHubView .ah-tab-btn{position:relative;display:flex !important;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:58px;font-size:12.5px !important;line-height:1.25;padding:8px 8px !important}
+#adminHubView .ah-tab-btn::after{font-size:10.5px;font-weight:500;opacity:.8;text-align:center;white-space:normal}
+#adminHubView .ah-tab-btn[data-ah-tab="ot"]::after{content:"stop / start overtime, OT cap, VIP pass list"}
+#adminHubView .ah-tab-btn[data-ah-tab="hr"]::after{content:"change a designation, give a temporary acting role"}
+#adminHubView .ah-tab-btn[data-ah-tab="access"]::after{content:"give one person several project sites"}
+#adminHubView .ah-tab-btn[data-ah-tab="families"]::after{content:"group the phases of one project"}
+#adminHubView .ah-tab-btn[data-ah-tab="approvals"]::after{content:"past-date edit requests waiting for you"}
+#adminHubView .ah-tab-btn .ah-tab-badge{position:absolute;top:6px;right:8px}
+#adminHubView #adminDesigSearch,#adminHubView #multiProjectHrInput,#adminHubView #bypassHrInput{max-width:560px}
+#adminHubView .ah-acting-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+#adminHubView .ah-acting-row #actingHrInput{flex:2 1 260px;width:auto !important;margin:0 !important}
+#adminHubView .ah-acting-row #actingRoleSelect{flex:1 1 200px;width:auto}
+#adminHubView .ah-acting-row #actingDurationSelect{flex:0 0 130px;width:130px}
+#adminHubView .ah-acting-row #actingAssignBtn{flex:0 0 auto}
 #memcoNewVer{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:9850;display:none;
   background:#0b62b9;color:#fff;border:1px solid #7dd3fc;border-radius:12px;padding:10px 14px;font:700 13.5px system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.45);cursor:pointer;max-width:92vw;text-align:center}
 .memco-chk-wrap{position:fixed;inset:0;z-index:9900;background:rgba(2,10,20,.82);display:flex;align-items:center;justify-content:center;padding:12px}
