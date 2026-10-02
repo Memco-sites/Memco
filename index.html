@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-<title>MEMCO Operations Console v143 — Al Muhanad</title>
+<title>MEMCO Operations Console v144 — Al Muhanad</title>
 <meta name="description" content="MEMCO Operations Console — internal management system of Al Muhanad Electro-Mechanical Cont. L.L.C.: workforce, labor camps, attendance, stores, duct workshop, fleet and HSE.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="googlebot" content="noindex, nofollow">
@@ -5919,9 +5919,7 @@ body:not(.memco-admin) .memco-admin-only{display:none !important}
     // shared with every device: groups, sheets, holiday names, job no / location, project phases
     'memco-crews-v1', 'memco-sheets-v1', 'memco-holiday-names', 'memco-siteinfo-v1', 'memco-project-families-v1', 'memco-phase-moves-v1',
     // attendance rules, which site sheet each man was last in, and closed payroll months
-    'attendance-rules-v1', 'site-sheet-loads-v1', 'att-month-close-v1',
-    // who looks after which field (ELV, Fire…) per user, and per site — one copy for every device
-    'user-disciplines-v1', 'discipline-merge-v1'];
+    'attendance-rules-v1', 'site-sheet-loads-v1', 'att-month-close-v1'];
   const EPOCH_ID = 'records-epoch';
   const st = {};
   Object.keys(ROW).forEach(k => { st[k] = {loaded:false, loading:null, snap:new Map(), cur:[], lastSeen:null, queue:Promise.resolve(), dirty:false, served:false, epoch:undefined, failed:new Set()}; });
@@ -24887,7 +24885,6 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
               <div class="ts-hrpick"><input id="tsCfHr" placeholder="e.g. 3934" autocomplete="off"><button type="button" class="ts-pickbtn" id="tsCfPick" title="Pick the foreman from a list">▾</button></div></div>
             <div class="st-field" style="flex:1 1 180px"><label class="st-l">Foreman name</label><input id="tsCfName" placeholder="fills in by itself"></div>
             <button type="button" class="st-btn st-ok st-sm" id="tsCadd">➕ New group</button>
-            <button type="button" class="st-btn st-ghost st-sm" id="tsImportXl" title="Make the groups from the site's own attendance Excel — one tab = one group">📥 Groups from Excel</button>
           </div>
           <div id="tsCfWho" class="st-muted" style="margin:-2px 0 8px"></div>
           ${crews.map(c => `<div class="st-card ts-group ${S.tsOpenCrew === c.id ? 'open' : ''}" data-gcard="${esc(c.id)}">
@@ -25032,161 +25029,6 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
           if(twin && !confirm(`${nm || 'This foreman'} already has a ${tradeTxt || ''} group on this site ("${twin.name}", ${(twin.members || []).length} men).\n\nMake ANOTHER group for him anyway?`)) return null;
           await rpc('st_crew_save', {p: {group_code: group, name: crewName, trade: tradeTxt, foreman_hr: hr, foreman_name: nm}});
           return {crewName, hr, nm};
-        }
-        // ---- 📥 Groups from the site's attendance Excel: one tab = one group ----
-        // Each tab has ENGINEER / SUPERVISOR / FORMAN at the top and a table with
-        // EMP CODE, NAME, DESIGNATION. Everything is checked against the app first
-        // and shown; nothing is made until "Make the groups" is pressed.
-        if($('tsImportXl')) $('tsImportXl').addEventListener('click', () => {
-          const inp = document.createElement('input');
-          inp.type = 'file'; inp.accept = '.xlsx';
-          inp.onchange = () => { if(inp.files && inp.files[0]) tsImportGroups(inp.files[0]); };
-          inp.click();
-        });
-        async function tsImportGroups(file){
-          try{
-            await window.ensureExcelJs();
-            const wb = new ExcelJS.Workbook();
-            await wb.xlsx.load(await file.arrayBuffer());
-            const txt = v => {
-              if(v == null) return '';
-              if(typeof v === 'object'){ if(v.richText) return v.richText.map(t => t.text).join(''); if(v.result != null) return String(v.result); if(v.text) return String(v.text); }
-              return String(v);
-            };
-            const clean = v => txt(v).replace(/\s+/g, ' ').trim();
-            const all = {};
-            wsPeople('').forEach(p => { all[String(p.hr)] = p; });
-            const tradeOf = t => /\bELE|ELV/i.test(t) ? 'Electrical' : /\bPLM|PLUMB/i.test(t) ? 'Plumbing' : /HVAC|DUCT|A\/?C\b/i.test(t) ? 'HVAC' : '';
-            // MD / Mohd / Mohammad / Muhammad… are the same first name on these sheets
-            const nmz = x => String(x || '').replace(/\b(md|mohd|mohammad|mohammed|muhammad|mohamed|mohd\.)\b\.?/gi, 'muhammad');
-            const same = (a, b) => tsSameMan(nmz(a), nmz(b));
-            const findIn = (rows, nm, wantForeman) => {
-              if(!nm) return null;
-              const hits = rows.filter(r => same(nm, r.name));   // the name as the sheet writes it
-              return (wantForeman && hits.find(r => /fore?man|supervisor|incharge/i.test(r.desig))) || hits[0] || null;
-            };
-            const findAny = nm => {
-              if(!nm) return null;
-              const hits = Object.values(all).filter(p => same(nm, p.name) && p.site === group);
-              return hits.length === 1 ? hits[0] : null;
-            };
-            const tabs = [];
-            wb.eachSheet(ws => {
-              const head = {};
-              let hdrRow = 0, cols = {};
-              for(let r = 1; r <= Math.min(ws.rowCount, 15); r++){
-                const row = ws.getRow(r);
-                const cells = [];
-                for(let c = 1; c <= Math.min(ws.columnCount || 12, 14); c++) cells.push(clean(row.getCell(c).value));
-                cells.forEach((v, i) => {
-                  const key = /^engineer\s*:?$/i.test(v) ? 'eng' : /^supervisor\s*:?$/i.test(v) ? 'sup' : /^store\s*incharge\s*:?$/i.test(v) ? 'sup'
-                            : /^fore?man\s*:?$/i.test(v) ? 'fm' : '';
-                  if(key && !head[key]){ const nx = cells.slice(i + 1).find(x => x); if(nx) head[key] = nx; }
-                  if(/emp\s*code/i.test(v)){ hdrRow = r; }
-                });
-                if(hdrRow){
-                  cells.forEach((v, i) => {
-                    if(/emp\s*code/i.test(v)) cols.hr = i + 1;
-                    else if(/^name$/i.test(v)) cols.name = i + 1;
-                    else if(/design/i.test(v)) cols.desig = i + 1;
-                  });
-                  break;
-                }
-              }
-              if(!hdrRow || !cols.hr) return;
-              const rows = [];
-              for(let r = hdrRow + 1; r <= ws.rowCount; r++){
-                const row = ws.getRow(r);
-                const hr = clean(row.getCell(cols.hr).value).replace(/\.0+$/, '');
-                if(!/^\d+$/.test(hr)) continue;
-                rows.push({hr, name: cols.name ? clean(row.getCell(cols.name).value) : '', desig: cols.desig ? clean(row.getCell(cols.desig).value) : ''});
-              }
-              if(!rows.length) return;
-              const fmRow = findIn(rows, head.fm, true) || (!head.fm ? findIn(rows, head.sup, true) : null);
-              const supRow = findIn(rows, head.sup, true);
-              const sup = supRow ? {hr: supRow.hr, name: (all[supRow.hr] || supRow).name} : (findAny(head.sup) || (head.sup ? {hr: '', name: head.sup} : null));
-              const eng = findAny(head.eng) || (head.eng ? {hr: '', name: head.eng} : null);
-              tabs.push({title: ws.name.trim(), trade: tradeOf(ws.name), head, rows,
-                fm: fmRow ? {hr: fmRow.hr, name: (all[fmRow.hr] || fmRow).name} : null, sup, eng});
-            });
-            if(!tabs.length){ toast('No tab with an EMP CODE table was found in this file.', true); return; }
-
-            // checks: not in the app, on another site, name differs, in two tabs
-            const seenIn = {};
-            tabs.forEach(t => t.rows.forEach(r => { (seenIn[r.hr] = seenIn[r.hr] || []).push(t.title); }));
-            tabs.forEach(t => {
-              t.unknown = []; t.other = []; t.nameOff = []; t.twice = []; t.ok = [];
-              t.rows.forEach(r => {
-                const a = all[r.hr];
-                if(!a){ t.unknown.push(r); return; }
-                if(a.site !== group){ t.other.push(Object.assign({}, r, {site: a.site || 'no site'})); }
-                else t.ok.push(r);
-                if(r.name && !same(r.name, a.name)) t.nameOff.push(Object.assign({}, r, {app: a.name}));
-                if(seenIn[r.hr].length > 1) t.twice.push(Object.assign({}, r, {tabs: seenIn[r.hr].join(' + ')}));
-              });
-              t.crewName = (t.trade ? t.trade + ' — ' : '') + (t.fm ? t.fm.name : t.title);
-              t.twin = (t.fm ? crews.find(c => String(c.foreman_hr || '') === String(t.fm.hr) && String(c.trade || '') === t.trade) : null)
-                    || crews.find(c => c.name === t.crewName);
-            });
-
-            const list = (arr, f) => arr.length ? arr.slice(0, 40).map(f).join('<br>') + (arr.length > 40 ? `<br>… ${arr.length - 40} more` : '') : '';
-            const w = document.createElement('div');
-            w.style.cssText = 'position:fixed;inset:0;z-index:9400;background:rgba(2,10,20,.86);display:flex;align-items:center;justify-content:center;padding:14px';
-            const totalOk = tabs.reduce((n, t) => n + t.ok.length, 0);
-            w.innerHTML = `<div style="background:#0b2137;border:1px solid rgba(56,189,248,.35);border-radius:14px;max-width:1100px;width:100%;height:min(90vh,860px);display:flex;flex-direction:column;padding:16px;color:#e6eef7;font-size:13px">
-              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center">
-                <div><h3 style="margin:0">📥 Groups from Excel — ${esc(group)}</h3>
-                <div style="opacity:.8;font-size:12px">${esc(file.name)} · ${tabs.length} tabs · ${tabs.reduce((n, t) => n + t.rows.length, 0)} names. Tabs with a foreman are ticked; tick the others (store, office, security…) only if you want them as groups too. Men marked ⚠ are not put in — fix them first, then import again (nothing is made twice).</div></div>
-                <button class="st-btn st-ghost st-sm" data-x>✕ Close</button></div>
-              <div style="flex:1;min-height:0;overflow:auto;margin-top:10px">${tabs.map((t, i) => `
-                <div style="border:1px solid rgba(148,163,184,.25);border-radius:10px;padding:10px;margin-bottom:8px">
-                  <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
-                    <input type="checkbox" data-imp="${i}" ${t.ok.length && t.fm ? 'checked' : ''} style="margin-top:3px">
-                    <span><b style="font-size:14px">${esc(t.title)}</b> ${t.trade ? `<span style="opacity:.7">· ${esc(t.trade)}</span>` : ''}
-                      — <b style="color:#6ee7b7">${t.ok.length}</b> men go in
-                      ${t.twin ? `<span style="color:#93c5fd"> · added to the group that is already there: “${esc(t.twin.name)}”</span>` : ''}<br>
-                      <span style="font-size:12px;opacity:.9">Foreman: ${t.fm ? `<b>${esc(t.fm.name)}</b> (HR ${esc(t.fm.hr)})` : `<span style="color:#fcd34d">${t.head.fm ? '“' + esc(t.head.fm) + '” not found in this tab — group made without a foreman' : 'none on the sheet'}</span>`}
-                      · Supervisor: ${t.sup ? esc(t.sup.name) + (t.sup.hr ? ' (HR ' + esc(t.sup.hr) + ')' : '') : '—'}
-                      · Engineer: ${t.eng ? esc(t.eng.name) + (t.eng.hr ? ' (HR ' + esc(t.eng.hr) + ')' : ' <span style="opacity:.7">(no HR found)</span>') : '—'}</span></span></label>
-                  ${t.unknown.length ? `<div style="margin:6px 0 0 24px;color:#fca5a5;font-size:12px">⚠ <b>${t.unknown.length} HR not in the app</b> (skipped): ${list(t.unknown, r => esc(r.hr) + ' ' + esc(r.name))}</div>` : ''}
-                  ${t.other.length ? `<div style="margin:6px 0 0 24px;color:#fcd34d;font-size:12px">⚠ <b>${t.other.length} are on another site in the app</b> (skipped — move them to ${esc(group)} first): ${list(t.other, r => esc(r.hr) + ' ' + esc(r.name) + ' → ' + esc(r.site))}</div>` : ''}
-                  ${t.twice.length ? `<div style="margin:6px 0 0 24px;color:#fdba74;font-size:12px">⚠ <b>${t.twice.length} are in two tabs</b> (the tab lower in the list wins): ${list(t.twice, r => esc(r.hr) + ' ' + esc(r.name) + ' — ' + esc(r.tabs))}</div>` : ''}
-                  ${t.nameOff.length ? `<div style="margin:6px 0 0 24px;color:#c4b5fd;font-size:12px">ℹ ${t.nameOff.length} names differ from the app (they still go in, by HR): ${list(t.nameOff, r => esc(r.hr) + ': sheet “' + esc(r.name) + '”, app “' + esc(r.app) + '”')}</div>` : ''}
-                </div>`).join('')}</div>
-              <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
-                <span style="flex:1;opacity:.85">${totalOk} men can go in. A man already in another group of this site moves to the new one.</span>
-                <button class="st-btn st-ok" id="tsImpGo">✔ Make the groups</button></div></div>`;
-            document.body.appendChild(w);
-            w.addEventListener('click', e => { if(e.target === w || e.target.closest('[data-x]')) w.remove(); });
-            $('tsImpGo').addEventListener('click', e => busy(e.currentTarget, async () => {
-              const pick = [...w.querySelectorAll('[data-imp]:checked')].map(c => tabs[+c.dataset.imp]).filter(t => t.ok.length);
-              if(!pick.length) throw new Error('Tick at least one tab that has men to put in.');
-              if(!confirm(`Make ${pick.length} group(s) on ${group} and put ${pick.reduce((n, t) => n + t.ok.length, 0)} men in them?`)) return;
-              let made = 0, moved = 0;
-              for(const t of pick){
-                let c = t.twin;
-                if(!c){
-                  const crewName = t.crewName;
-                  await rpc('st_crew_save', {p: {group_code: group, name: crewName, trade: t.trade,
-                    foreman_hr: t.fm ? t.fm.hr : '', foreman_name: t.fm ? t.fm.name : '',
-                    supervisor_hr: t.sup ? t.sup.hr : '', supervisor_name: t.sup ? t.sup.name : '',
-                    engineer_hr: t.eng ? t.eng.hr : '', engineer_name: t.eng ? t.eng.name : ''}});
-                  const fresh = await rpc('st_crew_list', {p_group: group}).catch(() => []) || [];
-                  c = fresh.filter(x => x.name === crewName).pop();
-                  if(!c) throw new Error(`The group for “${t.title}” was made but could not be read back — refresh and import again (it will not be made twice).`);
-                  crews.push(c); made++;
-                }
-                const men = t.ok.filter(r => !t.fm || String(r.hr) !== String(t.fm.hr)).map(r => ({hr: r.hr, name: all[r.hr].name, trade: all[r.hr].trade}));
-                for(let i = 0; i < men.length; i += 150){
-                  const r = await rpc('st_crew_assign', {p_crew: c.id, p_people: men.slice(i, i + 150)});
-                  moved += (r && r.moved) || men.slice(i, i + 150).length;
-                }
-              }
-              w.remove();
-              toast(`${made} new group(s) made · ${moved} men put in`);
-              tsReload();
-            }));
-          }catch(err){ toast('Could not read the Excel: ' + (err.message || err), true); }
         }
         $('tsCadd').addEventListener('click', e => busy(e.currentTarget, async () => {
           const hr = $('tsCfHr').value.trim();
@@ -32508,17 +32350,17 @@ body.memco-locked{overflow:hidden !important;position:fixed;left:0;right:0;width
   let BYUSER = {};
   const ukey = u => String((u && (u.username || u.hrCode)) || '').toLowerCase();
   async function loadMerge(){
-    try{ const r = await window.storage.get(MERGE_KEY, true); MERGE = r ? (JSON.parse(r.value || r) || {}) : {}; }catch(e){ MERGE = {}; }
-    try{ const r = await window.storage.get(PEOPLE_KEY, true); BYUSER = r ? (JSON.parse(r.value || r) || {}) : {}; }catch(e){ BYUSER = {}; }
+    try{ const r = await window.storage.get(MERGE_KEY); MERGE = r ? (JSON.parse(r.value || r) || {}) : {}; }catch(e){ MERGE = {}; }
+    try{ const r = await window.storage.get(PEOPLE_KEY); BYUSER = r ? (JSON.parse(r.value || r) || {}) : {}; }catch(e){ BYUSER = {}; }
   }
-  // saved and read through the same synced list (it was saved to one place and read from
-  // another, so a removed field such as ELV came back after a refresh)
   async function savePeople(){
     try{ await window.storage.set(PEOPLE_KEY, JSON.stringify(BYUSER), true); }catch(e){}
+    try{ if(typeof supaSetSharedState === 'function') supaSetSharedState(PEOPLE_KEY, BYUSER); }catch(e){}
   }
   const setFor = u => (BYUSER[ukey(u)] || []);
   async function saveMerge(){
     try{ await window.storage.set(MERGE_KEY, JSON.stringify(MERGE), true); }catch(e){}
+    try{ if(typeof supaSetSharedState === 'function') supaSetSharedState(MERGE_KEY, MERGE); }catch(e){}
   }
   function ownerOn(site, disc){
     const m = (MERGE[site] || {});
@@ -33715,7 +33557,7 @@ document.addEventListener('change', function(ev){
 <script>
 /* show the running version plainly, so an old cached copy is obvious */
 (function(){
-  const V = 'v143';
+  const V = 'v144';
   function paint(){
     document.querySelectorAll('.erp-footer').forEach(f => {
       if(f.dataset.memcoV) return;
@@ -33748,7 +33590,17 @@ document.addEventListener('change', function(ev){
     const main = document.querySelector('#laborView .bs-bar:not(.bs-bar-site)');
     if(!site || !main || site.dataset.memcoJoined) return;
     site.dataset.memcoJoined = '1';
-    while(site.firstChild) main.appendChild(site.firstChild);
+    // v144: the panel is drawn again every time the waiting count changes - take the earlier copies out first so the buttons never pile up
+    const oldSel = main.querySelector('#ssSite');
+    const keepSite = oldSel ? oldSel.value : '';
+    main.querySelectorAll('[data-ss-joined]').forEach(function(e){ e.remove(); });
+    while(site.firstChild){
+      const c = site.firstChild;
+      if(c.nodeType === 1) c.setAttribute('data-ss-joined', '1');
+      main.appendChild(c);
+    }
+    const newSel = main.querySelector('#ssSite');
+    if(newSel && keepSite) newSel.value = keepSite;
     site.style.display = 'none';
     main.classList.add('bs-bar-six');
   }
