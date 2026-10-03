@@ -68,7 +68,7 @@
      failed to load at all -- when the rest of the page's own script runs;
      the app simply falls back to its existing localStorage-only behavior
      until (or unless) this arrives. -->
-<script src="https://unpkg.com/@supabase/supabase-js@2" defer onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';s.onload=function(){(window.__cdnLoaded=window.__cdnLoaded||{}).supabase='jsdelivr';};s.onerror=function(){(window.__cdnFailed=window.__cdnFailed||{}).supabase=true;};document.head.appendChild(s);})();" onload="(window.__cdnLoaded=window.__cdnLoaded||{}).supabase='unpkg';"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2.117.2" defer onerror="(function(){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js';s.onload=function(){(window.__cdnLoaded=window.__cdnLoaded||{}).supabase='jsdelivr';};s.onerror=function(){(window.__cdnFailed=window.__cdnFailed||{}).supabase=true;};document.head.appendChild(s);})();" onload="(window.__cdnLoaded=window.__cdnLoaded||{}).supabase='unpkg';"></script>
 
 <!-- ExcelJS is fetched on first use (see ensureExcelJs) rather than on
      boot: it is only needed when someone exports a sheet. -->
