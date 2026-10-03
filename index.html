@@ -23345,7 +23345,7 @@ body.v14-no-icons #erpSidebar .erp-nav-btn .ico:empty{ display:none !important; 
     }).join('');
     $('stTabs').querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
     const u = me();
-    $('stWho').textContent = u ? `${u.name} · ${POSITION_LABEL[S.position] || ({admin:'Admin', main:'Main Store', keeper:'Store Keeper', viewer:'Viewer', staff:'Staff'})[S.access] || ''}${S.roles.length ? ' · ' + S.roles.map(r => r === 'pm' ? 'PM' : r[0].toUpperCase() + r.slice(1)).join(', ') : ''}` : '';
+    $('stWho').textContent = u ? `${u.name} · ${POSITION_LABEL[S.position] || ((S.access === 'admin' && typeof currentUser !== 'undefined' && currentUser && currentUser.role === 'Super Admin') ? 'Super Admin' : ({admin:'Admin', main:'Main Store', keeper:'Store Keeper', viewer:'Viewer', staff:'Staff'})[S.access]) || ''}${S.roles.length ? ' · ' + S.roles.map(r => r === 'pm' ? 'PM' : r[0].toUpperCase() + r.slice(1)).join(', ') : ''}` : '';
   }
   async function go(tab, arg, viaBack){
     const mainEl = $('stMain');
@@ -34381,6 +34381,31 @@ body.no-subcon-att #attendanceView [data-snap="sub"]{display:none!important}
     const loggedIn = (typeof currentUser !== 'undefined' && currentUser);
     if(!loggedIn || window.__memcoLeaving) return;
     e.preventDefault(); e.returnValue = '';
+  });
+})();
+</script>
+<script id="esc-close-overlays">
+/* QA B9: Escape closes the top-most open pop-up through its own Close / Cancel button,
+   so every pop-up keeps its normal close behaviour. Not applied while typing in a field,
+   and never to the sign-in or the required-name pop-ups. */
+(function(){
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Escape' || e.defaultPrevented) return;
+    var t = e.target;
+    if(t && t.matches && t.matches('input, textarea, select, [contenteditable="true"]')) return;
+    var open = Array.prototype.filter.call(document.querySelectorAll('.overlay.open'), function(o){
+      return o.id !== 'loginOverlay' && o.id !== 'nameOverlay' && o.id !== 'registerOverlay';
+    });
+    if(!open.length) return;
+    var top = open.reduce(function(a, b){
+      var za = parseInt(getComputedStyle(a).zIndex, 10) || 0, zb = parseInt(getComputedStyle(b).zIndex, 10) || 0;
+      return zb >= za ? b : a;
+    });
+    var btn = Array.prototype.find.call(top.querySelectorAll('button'), function(b){
+      return /close|cancel|\u2715|\u00d7|\u2716/i.test((b.id || '') + ' ' + (b.textContent || ''));
+    });
+    e.preventDefault();
+    if(btn) btn.click(); else top.classList.remove('open');
   });
 })();
 </script>
