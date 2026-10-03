@@ -9643,6 +9643,9 @@ async function warmHomeStats(){
   try{ if(!laborDataLoaded){ await loadLaborData(); laborDataLoaded = true; } }catch(e){}
   try{ if(typeof campsDataLoaded !== 'undefined' && !campsDataLoaded){ await loadCampsData(); campsDataLoaded = true; } }catch(e){}
   try{ if(typeof villaDataLoaded !== 'undefined' && !villaDataLoaded && typeof loadVillaData === 'function'){ await loadVillaData(); villaDataLoaded = true; } }catch(e){}
+  // staff and vehicles feed the Total Workforce / Staff / Vehicles tiles, so they must be loaded before the dashboard is drawn
+  try{ if(typeof staffDataLoaded !== 'undefined' && !staffDataLoaded && typeof loadStaffData === 'function'){ await loadStaffData(); staffDataLoaded = true; } }catch(e){}
+  try{ if(typeof vehiclesDataLoaded !== 'undefined' && !vehiclesDataLoaded && typeof loadVehiclesData === 'function'){ await loadVehiclesData(); vehiclesDataLoaded = true; } }catch(e){}
   try{ if(typeof loadAttendanceData === 'function' && typeof attUIReady !== 'undefined' && !attUIReady){ await loadAttendanceData(); attUIReady = true; } }catch(e){}
   try{ renderHomeStats(); }catch(e){}
 }
@@ -9854,12 +9857,13 @@ function renderHomeStats(){
   }
 
   document.getElementById('homeTransferStat').textContent = 'Ready';
-  document.getElementById('homeStaffStat').textContent = `${STAFF_DATA.length} Total Staff`;
+  document.getElementById('homeStaffStat').textContent = `${stfAll.length} Total Staff`;
 
-  const soon = VEHICLES_DATA.filter(v => vehicleDaysLeft(v.regExpiry) !== null && vehicleDaysLeft(v.regExpiry) <= 30).length;
+  const vehAll = (typeof vehiclesRecords !== 'undefined' && vehiclesRecords.length) ? vehiclesRecords : VEHICLES_DATA;   // v148: the embedded array is empty, the real list is loaded after login
+  const soon = vehAll.filter(v => vehicleDaysLeft(v.regExpiry) !== null && vehicleDaysLeft(v.regExpiry) <= 30).length;
   document.getElementById('homeVehiclesStat').textContent = soon > 0
     ? `⚠ ${soon} Expiring Soon`
-    : `${VEHICLES_DATA.length} Vehicles Tracked`;
+    : `${vehAll.length} Vehicles Tracked`;
 
   if(typeof renderPpeHomeStat === 'function') renderPpeHomeStat();
 
