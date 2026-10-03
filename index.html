@@ -9610,6 +9610,8 @@ async function goLabor(){
   if(!laborDataLoaded){ await loadLaborData(); laborDataLoaded = true; }
   if(!campsDataLoaded){ await loadCampsData(); campsDataLoaded = true; }
   renderLaborReconciliation();
+  // the Outside Stay / leave buttons are counted inside renderLaborList; it may have run before the camps loaded (QA B4)
+  try{ renderLaborList(); }catch(e){}
 }
 async function goStaff(){
   showSection('staffView');
