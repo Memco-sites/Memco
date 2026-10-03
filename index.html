@@ -11345,13 +11345,13 @@ function renderAttSnapshot(){
   const notMarkedTxt = notMarked ? ` · <span style="color:#fbbf24">Not marked ${notMarked}</span>` : '';
   const grandTotal = almTotal + subTotal;
   const reasonSummary = Object.keys(reasonCounts).length
-    ? ' · ' + Object.keys(reasonCounts).map(r => `${r} ${reasonCounts[r]}`).join(' · ')
+    ? Object.keys(reasonCounts).filter(r => r !== 'A').map(r => ` · ${r} ${reasonCounts[r]}`).join('')
     : '';
 
   document.getElementById('attSnapshot').innerHTML = `
     <div class="att-snapshot-row" style="border-bottom:2px solid var(--orange);">
       <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">TOTAL — ${escapeHtml(project)} · Al Muhanad Labor ${almTotal}</span>
-      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">${almTotal===0 ? 'No data' : `Present ${present} · Absent ${absentTotal - holTotal}${reasonSummary}${notMarkedTxt}`}</span>
+      <span class="att-snapshot-vals" style="color:var(--orange);font-weight:600;">${almTotal===0 ? 'No data' : `Present ${present} · Absent ${reasonCounts.A || 0}${reasonSummary}${notMarkedTxt}`}</span>
     </div>
     <div class="att-snapshot-row" data-snap="sub">
       <span class="att-snapshot-label" style="color:var(--orange);font-weight:600;">Sub-Contractor ${subTotal}</span>
@@ -19185,8 +19185,7 @@ window.addEventListener('load', safeCreateLucideIcons);
     ['admin','Admin Hub','🛡️','adminHubNavBtn'],
     ['admin','Users','👤','manageUsersBtn'],
     ['admin','Permissions','⚙️','permMatrixBtn'],
-    ['admin','Site Access','🪪','siteAccessNavBtn'],
-    ['admin','Reset Trial Data','🧹','trialResetNavBtn']
+    ['admin','Site Access','🪪','siteAccessNavBtn']
   ];
   const sectionNames={main:'Overview',ops:'Operations',people:'People',fleet:'Fleet',hse:'HSE',admin:'Administration'};
   function clickTarget(id){
@@ -19197,7 +19196,8 @@ window.addEventListener('load', safeCreateLucideIcons);
     }
     const t=document.getElementById(id);
     if(!t) return;
-    if(ownHidden(t)){
+    const superAdmin = (function(){ try{ return typeof currentUser !== 'undefined' && !!currentUser && currentUser.role === 'Super Admin'; }catch(e){ return false; } })();
+    if(!superAdmin && ownHidden(t)){   // Super Admin has every module; do not block on permissions that are still loading
       if(typeof showToast==='function') showToast('You do not have permission for this section');
       return;
     }
@@ -19255,7 +19255,7 @@ window.addEventListener('load', safeCreateLucideIcons);
   function start(){
     build(); sync();
     const app=document.getElementById('appRoot'); if(app) new MutationObserver(sync).observe(app,{attributes:true,attributeFilter:['style','class']});
-    ['manageUsersBtn','permMatrixBtn','adminHubNavBtn','homeDirectoryCard','homeAttendanceCard','homeLaborCard','homeVillasCard','homeCampsCard','homeTransferCard','homeStaffCard','homeVehiclesCard','homePpeCard'].forEach(id=>{
+    ['manageUsersBtn','permMatrixBtn','adminHubNavBtn','siteAccessNavBtn','ltNavBtn','storesNavBtn','homeWorkshopCard','homeDirectoryCard','homeAttendanceCard','homeLaborCard','homeVillasCard','homeCampsCard','homeTransferCard','homeStaffCard','homeVehiclesCard','homePpeCard'].forEach(id=>{
       const t=document.getElementById(id); if(t) new MutationObserver(sync).observe(t,{attributes:true,attributeFilter:['style','class']});
     });
     setInterval(()=>{ if(!document.hidden) sync(); },1500);   // #9: skip while the tab is hidden
