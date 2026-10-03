@@ -9797,7 +9797,7 @@ function renderHomeStats(){
   const myLabor = labAll.filter(l => inMine(l.site) && foremanSees(l.code)), myStaff = (foremanMen || memcoIsForemanRole()) ? [] : stfAll.filter(x => inMine(x.site));
   const myData = data.filter(d => inMine(d.site));
   document.getElementById('homeDirectoryStat').textContent = `${myData.length} Active Entries`;
-  document.getElementById('homeLaborStat').textContent = foremanMen ? `${myLabor.length} men in your group` : `${mySite ? myLabor.length : LABOR_DATA.length} Total Workers`;
+  document.getElementById('homeLaborStat').textContent = foremanMen ? `${myLabor.length} men in your group` : `${mySite ? myLabor.length : labAll.length} Total Workers`;
 
   // Executive summary strip -- real, live numbers (never hardcoded), mirrors
   // the same figures the module cards below already compute.
@@ -9813,7 +9813,7 @@ function renderHomeStats(){
   const contractorsEl = document.getElementById('execContractorsValue');
   if(contractorsEl) contractorsEl.textContent = myData.length;
   const workforceEl = document.getElementById('execWorkforceValue');
-  if(workforceEl) workforceEl.textContent = (mySite ? myLabor.length + myStaff.length : LABOR_DATA.length + STAFF_DATA.length).toLocaleString();
+  if(workforceEl) workforceEl.textContent = (mySite ? myLabor.length + myStaff.length : labAll.length + stfAll.length).toLocaleString();
 
   const today = attLocalToday();
   const todaysRecs =(typeof dailyLaborRecords !== 'undefined' ? dailyLaborRecords : []).filter(r => r.date === today && inMine(r.project));
